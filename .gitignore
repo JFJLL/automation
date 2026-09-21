@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.py[cod]
+*.class
+*.so
+.venv/
+env/
+venv/
+ENV/
+
+# Data & Database
+*.db
+*.db-shm
+*.db-wal
+data/*.db
+data/*.db-shm
+data/*.db-wal
+sync_console/data/*.db
+sync_console/data/*.db-shm
+sync_console/data/*.db-wal
+backups/*
+!backups/.gitkeep
+sync_console/backups/*
+!sync_console/backups/.gitkeep
+
+# Sensitive and Local Profiles
+.env
+sync_console/.env
+.report-profile/
+.adstar_chrome_profile/
+.profiles/
+
+# Logs
+*.log
+logs/

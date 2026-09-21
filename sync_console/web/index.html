@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>广告数据跨平台自动同步中心</title>
+  <style>
+    :root {
+      --primary: #165dff;
+      --primary-hover: #0e42d2;
+      --primary-active: #0a34ab;
+      --primary-light: #e8f3ff;
+      --bg: #f5f7fa;
+      --card-bg: #ffffff;
+      --text: #1d2129;
+      --text-secondary: #4e5969;
+      --text-muted: #86909c;
+      --border: #e5e6eb;
+      --border-hover: #b4bccc;
+      --border-control: #d9dbe2;
+      --success: #00b42a;
+      --warning: #ff7d00;
+      --danger: #f53f3f;
+      --radius-sm: 6px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+      --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06);
+      --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: var(--font-family); background: var(--bg); color: var(--text); line-height: 1.5; padding-bottom: 70px; -webkit-font-smoothing: antialiased; }
+
+    /* 顶部导航栏 */
+    .header { background: #ffffff; border-bottom: 1px solid var(--border); padding: 14px 28px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03); }
+    .header h1 { font-size: 17px; font-weight: 600; display: flex; align-items: center; gap: 10px; color: #1d2129; }
+    .nav-tabs { display: flex; gap: 6px; background: #f2f3f5; padding: 4px; border-radius: var(--radius-md); }
+    .nav-tab { padding: 7px 18px; border-radius: var(--radius-sm); cursor: pointer; font-size: 13px; font-weight: 500; border: none; background: transparent; color: var(--text-secondary); transition: all 0.2s ease; outline: none; }
+    .nav-tab:hover { color: var(--text); background: rgba(255, 255, 255, 0.5); }
+    .nav-tab.active { background: #ffffff; color: var(--primary); font-weight: 600; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08); }
+
+    .container { max-width: 1240px; margin: 24px auto; padding: 0 20px; }
+    .card { background: var(--card-bg); border-radius: var(--radius-lg); border: 1px solid var(--border); padding: 26px; margin-bottom: 22px; box-shadow: var(--shadow-sm); transition: box-shadow 0.2s ease; }
+    .card:hover { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05); }
+    .card-title { font-size: 16px; font-weight: 600; margin-bottom: 18px; display: flex; justify-content: space-between; align-items: center; color: #1d2129; letter-spacing: -0.2px; }
+
+    /* 统一高质感按钮系统 (非原生，带微渐变与动效) */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 9px 18px;
+      font-size: 14px;
+      font-weight: 500;
+      border-radius: var(--radius-md);
+      border: 1px solid transparent;
+      cursor: pointer;
+      transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+      text-decoration: none;
+      user-select: none;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+      outline: none;
+      font-family: inherit;
+    }
+    .btn:active { transform: scale(0.985); }
+    .btn-primary {
+      background: linear-gradient(180deg, #2d6eff 0%, #165dff 100%);
+      color: #ffffff;
+      border-color: #165dff;
+    }
+    .btn-primary:hover {
+      background: linear-gradient(180deg, #4080ff 0%, #2065ff 100%);
+      box-shadow: 0 4px 12px rgba(22, 93, 255, 0.25);
+    }
+    .btn-outline {
+      background: #ffffff;
+      border-color: var(--border-control);
+      color: #333842;
+    }
+    .btn-outline:hover {
+      background: #f7f8fa;
+      border-color: var(--border-hover);
+      color: #1d2129;
+    }
+    .btn-success {
+      background: linear-gradient(180deg, #00c42f 0%, #00b42a 100%);
+      color: #ffffff;
+      border-color: #00b42a;
+    }
+    .btn-success:hover {
+      background: linear-gradient(180deg, #18d444 0%, #08bc31 100%);
+      box-shadow: 0 4px 12px rgba(0, 180, 42, 0.25);
+    }
+    .btn-danger {
+      background: linear-gradient(180deg, #ff5757 0%, #f53f3f 100%);
+      color: #ffffff;
+      border-color: #f53f3f;
+    }
+    .btn-danger:hover {
+      background: linear-gradient(180deg, #ff6b6b 0%, #fa4b4b 100%);
+      box-shadow: 0 4px 12px rgba(245, 63, 63, 0.25);
+    }
+    .btn-sm { padding: 5px 12px; font-size: 12px; border-radius: var(--radius-sm); }
+
+    /* 平台选择卡片系统 */
+    .platform-selector { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 22px; }
+    .platform-card {
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 18px 16px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      background: #ffffff;
+      box-shadow: var(--shadow-sm);
+    }
+    .platform-card:hover {
+      border-color: #a3c3f9;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(22, 93, 255, 0.08);
+    }
+    .platform-card.selected {
+      border-color: var(--primary);
+      background: linear-gradient(180deg, #f0f7ff 0%, #ffffff 100%);
+      box-shadow: 0 4px 14px rgba(22, 93, 255, 0.12);
+    }
+    .platform-card .title { font-size: 16px; font-weight: 600; margin-bottom: 4px; color: #1d2129; }
+    .platform-card .desc { font-size: 12px; color: var(--text-muted); }
+
+    /* 上传区域与动画 */
+    .upload-box {
+      border: 2px dashed #c9cdd4;
+      border-radius: var(--radius-lg);
+      padding: 38px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.22s ease;
+      background: #fafbfc;
+    }
+    .upload-box:hover { border-color: var(--primary); background: #f7faff; }
+    .upload-box.dragging { border-color: var(--primary); background: #e8f3ff; border-style: solid; transform: scale(1.008); }
+    .upload-box.loading { background: #f0f7ff; border-color: #99c8ff; pointer-events: none; }
+    .upload-box.success { background: #f6ffed; border-color: #b7eb8f; border-style: solid; }
+
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid rgba(22,93,255,0.2); border-top-color: var(--primary); border-radius: 50%; animation: spin 0.8s linear infinite; vertical-align: middle; margin-right: 8px; }
+
+    /* 统一非原生自定义表单控件系统 (Select / Input / Time) */
+    .form-group { margin-bottom: 18px; }
+    .form-group label { display: block; font-size: 13.5px; font-weight: 500; margin-bottom: 7px; color: #333842; }
+    .form-row { display: flex; gap: 18px; }
+    .form-row .form-group { flex: 1; }
+
+    /* 自定义下拉选框 (定制 SVG 箭头、平滑阴影、高亮边框、去除原生外观) */
+    select.form-control {
+      appearance: none;
+      -webkit-appearance: none;
+      -moz-appearance: none;
+      width: 100%;
+      height: 40px;
+      padding: 0 38px 0 14px;
+      line-height: 38px;
+      border: 1.5px solid var(--border-control);
+      border-radius: var(--radius-md);
+      font-size: 14px;
+      color: #1d2129;
+      background-color: #ffffff;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%234e5969' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 14px center;
+      background-size: 15px 15px;
+      cursor: pointer;
+      outline: none;
+      transition: all 0.18s ease;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+      font-family: inherit;
+    }
+    select.form-control:hover {
+      border-color: var(--primary);
+      background-color: #fafbfc;
+    }
+    select.form-control:focus {
+      border-color: var(--primary);
+      background-color: #ffffff;
+      box-shadow: 0 0 0 3px rgba(22, 93, 255, 0.14);
+    }
+    select.form-control option {
+      padding: 10px 14px;
+      font-size: 14px;
+      background: #ffffff;
+      color: #1d2129;
+    }
+
+    /* 自定义输入框 (Text / Time / Password) */
+    input.form-control {
+      appearance: none;
+      -webkit-appearance: none;
+      width: 100%;
+      height: 40px;
+      padding: 0 14px;
+      line-height: 38px;
+      border: 1.5px solid var(--border-control);
+      border-radius: var(--radius-md);
+      font-size: 14px;
+      color: #1d2129;
+      background-color: #ffffff;
+      outline: none;
+      transition: all 0.18s ease;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+      font-family: inherit;
+    }
+    input.form-control:hover { border-color: var(--border-hover); }
+    input.form-control:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(22, 93, 255, 0.14);
+    }
+    input[type="time"].form-control {
+      cursor: pointer;
+    }
+
+    /* 星期按钮方块切换 (精致胶囊卡片) */
+    .weekday-item {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 42px;
+      height: 38px;
+      border: 1.5px solid var(--border-control);
+      border-radius: var(--radius-md);
+      font-size: 13px;
+      cursor: pointer;
+      user-select: none;
+      background: #ffffff;
+      transition: all 0.18s ease;
+      font-weight: 500;
+      color: var(--text-secondary);
+    }
+    .weekday-item:hover {
+      border-color: var(--primary);
+      color: var(--primary);
+      background: #f7faff;
+    }
+    .weekday-item.active {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #ffffff;
+      font-weight: 600;
+      box-shadow: 0 2px 8px rgba(22, 93, 255, 0.28);
+    }
+
+    /* 自定义复选框 */
+    input[type="checkbox"] {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--primary);
+      cursor: pointer;
+    }
+
+    /* 优化表格排版：横向完整平铺、文字不折竖排、表头置顶 */
+    .table-container { max-height: 480px; overflow-x: auto; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-lg); background: #ffffff; box-shadow: var(--shadow-sm); }
+    table { width: max-content; min-width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+    th, td { border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 11px 18px; text-align: left; white-space: nowrap; }
+    th { background: #f4f6f9; font-weight: 600; color: #2a2f3d; position: sticky; top: 0; z-index: 2; border-top: 1px solid var(--border); }
+    th:first-child, td:first-child { border-left: 1px solid var(--border); }
+    tbody tr:hover { background-color: #f7f9fc; }
+
+    .badge { display: inline-block; padding: 3px 9px; border-radius: var(--radius-sm); font-size: 12px; font-weight: 500; }
+    .badge-success { background: #e8ffea; color: var(--success); }
+    .badge-warning { background: #fff7e8; color: var(--warning); }
+    .badge-danger { background: #ffece8; color: var(--danger); }
+    .badge-gray { background: #f2f3f5; color: var(--text-muted); }
+
+    .unmapped-pill { background: #fff7e8; color: #b75e00; border: 1px solid #ffcf8b; padding: 2px 7px; border-radius: var(--radius-sm); font-size: 11px; margin-right: 4px; display: inline-block; }
+    .ok-pill { background: #e8ffea; color: #00871e; border: 1px solid #99f3a6; padding: 2px 7px; border-radius: var(--radius-sm); font-size: 11px; margin-right: 4px; display: inline-block; }
+
+    .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; display: none; align-items: center; justify-content: center; backdrop-filter: blur(2px); }
+    .modal { background: #ffffff; width: 440px; border-radius: var(--radius-lg); padding: 28px; box-shadow: var(--shadow-md); border: 1px solid var(--border); }
+  
+    /* 自定义纯前端下拉选框组件 (完全剔除浏览器原生外观与弹出菜单) */
+    .custom-select { position: relative; width: 100%; user-select: none; }
+    .custom-select-trigger {
+      width: 100%;
+      height: 40px;
+      padding: 0 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #ffffff;
+      border: 1.5px solid var(--border-control);
+      border-radius: var(--radius-md);
+      font-size: 14px;
+      color: #1d2129;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+    }
+    .custom-select-trigger:hover { border-color: var(--primary); background: #fafbfc; }
+    .custom-select.open .custom-select-trigger {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(22, 93, 255, 0.14);
+      background: #ffffff;
+    }
+    .custom-select-trigger .arrow {
+      width: 15px; height: 15px; stroke: #4e5969; transition: transform 0.2s ease; flex-shrink: 0;
+    }
+    .custom-select.open .custom-select-trigger .arrow {
+      transform: rotate(180deg); stroke: var(--primary);
+    }
+    .custom-select-menu {
+      position: absolute;
+      top: calc(100% + 5px);
+      left: 0;
+      right: 0;
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+      z-index: 1000;
+      max-height: 250px;
+      overflow-y: auto;
+      padding: 5px;
+      display: none;
+      animation: fadeInDown 0.15s ease-out;
+    }
+    .custom-select.open .custom-select-menu { display: block; }
+    .custom-select-option {
+      padding: 9px 12px;
+      font-size: 13.5px;
+      border-radius: 6px;
+      color: #1d2129;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: all 0.15s ease;
+    }
+    .custom-select-option:hover { background: #f2f3f5; color: var(--primary); }
+    .custom-select-option.selected { background: #e8f3ff; color: var(--primary); font-weight: 600; }
+    .custom-select-option .check { display: none; width: 14px; height: 14px; stroke: var(--primary); }
+    .custom-select-option.selected .check { display: inline-block; }
+
+    /* 自定义纯前端时间选择器组件 */
+    .custom-timepicker { position: relative; width: 100%; user-select: none; }
+    .custom-timepicker-trigger {
+      width: 100%;
+      height: 40px;
+      padding: 0 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #ffffff;
+      border: 1.5px solid var(--border-control);
+      border-radius: var(--radius-md);
+      font-size: 14px;
+      color: #1d2129;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+    }
+    .custom-timepicker-trigger:hover { border-color: var(--primary); background: #fafbfc; }
+    .custom-timepicker.open .custom-timepicker-trigger {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(22, 93, 255, 0.14);
+    }
+    .custom-timepicker-trigger .arrow {
+      width: 15px; height: 15px; stroke: #4e5969; transition: transform 0.2s ease;
+    }
+    .custom-timepicker.open .custom-timepicker-trigger .arrow {
+      transform: rotate(180deg); stroke: var(--primary);
+    }
+    .custom-timepicker-popup {
+      position: absolute;
+      top: calc(100% + 5px);
+      left: 0;
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+      z-index: 1000;
+      display: none;
+      padding: 8px;
+      animation: fadeInDown 0.15s ease-out;
+    }
+    .custom-timepicker.open .custom-timepicker-popup { display: flex; gap: 8px; }
+    .time-col {
+      width: 64px;
+      height: 180px;
+      overflow-y: auto;
+      border-right: 1px solid var(--border);
+      padding-right: 2px;
+    }
+    .time-col:last-child { border-right: none; padding-right: 0; }
+    .time-item {
+      padding: 6px 0;
+      text-align: center;
+      font-size: 13px;
+      border-radius: 4px;
+      cursor: pointer;
+      color: #333842;
+      transition: all 0.12s ease;
+    }
+    .time-item:hover { background: #f2f3f5; }
+    .time-item.active { background: #e8f3ff; color: var(--primary); font-weight: 600; }
+
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1><span>🔄</span> 广告数据跨平台自动同步中心</h1>
+    <div class="nav-tabs">
+      <button class="nav-tab active" onclick="switchTab('import')">📥 导入与新建</button>
+      <button class="nav-tab" onclick="switchTab('tasks')">📋 同步任务列表 <span id="taskCountBadge" class="badge badge-gray">0</span></button>
+      <button class="nav-tab" onclick="switchTab('runs')">📊 运行记录与状态</button>
+      <button class="nav-tab" onclick="switchTab('settings')">⚙️ 系统设置</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div id="tab-import" class="tab-content">
+      <div class="card">
+        <div class="card-title">第一步：选择目标投放平台</div>
+        <div class="platform-selector">
+          <div class="platform-card selected" onclick="selectPlatform('jzt')" id="card-jzt">
+            <div class="title">京准通</div>
+            <div class="desc">京东达人/小红盟报表 (25列日明细)</div>
+          </div>
+          <div class="platform-card" onclick="selectPlatform('taobao')" id="card-taobao">
+            <div class="title">淘宝星河</div>
+            <div class="desc">小红星达人效果报表 (内容/任务维度)</div>
+          </div>
+          <div class="platform-card" onclick="selectPlatform('juguang')" id="card-juguang">
+            <div class="title">聚光</div>
+            <div class="desc">小红书后台报表 (创意/定向/关键词/账户)</div>
+          </div>
+        </div>
+        <div class="card-title">第二步：上传包含表头的数据表样本 (Excel)</div>
+        <div class="upload-box" onclick="document.getElementById('excelFileInput').click()">
+          <input type="file" id="excelFileInput" accept=".xlsx, .xls" style="display:none;" onchange="handleFileSelected(event)">
+          <div style="font-size: 32px; margin-bottom: 8px;">📊</div>
+          <div style="font-weight: 500; margin-bottom: 4px;" id="uploadBoxText">点击或拖拽上传 Excel 文件</div>
+          <div style="font-size: 12px; color: var(--text-muted);">系统将解析表头列名与前 30 行样本数据，自动核验实体与日期</div>
+        </div>
+      </div>
+
+      <div id="mismatchAlertCard" class="card" style="display:none; border-color: #ffcf8b; background: #fffbf2;">
+        <div class="card-title" style="color: #b75e00;">⚠️ 平台表头特征提醒</div>
+        <p id="mismatchAlertText" style="font-size: 14px; margin-bottom: 16px; line-height: 1.6;"></p>
+        <div style="display: flex; gap: 12px;">
+          <button class="btn btn-outline" id="keepSelectedBtn" onclick="confirmPlatformChoice(false)">仍然按照所选平台继续</button>
+          <button class="btn btn-primary" id="switchPlatformBtn" onclick="confirmPlatformChoice(true)">切换为更匹配的平台</button>
+        </div>
+      </div>
+
+      <div id="sheetAnalysisCard" class="card" style="display:none;">
+        <div class="card-title">第三步：工作表分析与实体确认</div>
+        <div id="sheetsListContainer"></div>
+      </div>
+
+      <div id="previewCard" class="card" style="display:none;">
+        <div class="card-title">
+          <span>第四步：调取平台接口数据预览</span>
+          <button class="btn btn-primary btn-sm" onclick="runPreviewFetch()">🔄 重新测试抓取</button>
+        </div>
+        <div id="previewStatus" style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;"></div>
+        <div class="table-container" id="previewTableWrap">
+          <table id="previewTable">
+            <thead id="previewThead"></thead>
+            <tbody id="previewTbody"></tbody>
+          </table>
+        </div>
+        <div style="margin-top: 16px; display: flex; justify-content: flex-end;">
+          <button class="btn btn-success" onclick="proceedToSchedule()">✅ 数据核对无误，前往设定定时任务</button>
+        </div>
+      </div>
+
+      <!-- 第五步：Codex 风格清晰定时配置 -->
+      <div id="scheduleConfigCard" class="card" style="display:none;">
+        <div class="card-title">第五步：创建飞书表格并配置定时自动同步</div>
+        
+        <div class="form-row">
+          <div class="form-group" style="flex: 2;">
+            <label>飞书表格名称</label>
+            <input type="text" class="form-control" id="taskNameInput" placeholder="例如：淘宝星河_9月数据同步">
+          </div>
+          <div class="form-group">
+            <label>更新方式</label>
+            <div class="custom-select" id="wrapper-updateModeSelect">
+              <div class="custom-select-trigger" onclick="toggleCustomSelect('wrapper-updateModeSelect')">
+                <span class="custom-select-label">增量更新（表尾追加最新数据）</span>
+                <svg class="arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+              </div>
+              <div class="custom-select-menu">
+                <div class="custom-select-option selected" data-value="append" onclick="selectCustomOption('wrapper-updateModeSelect', 'updateModeSelect', 'append', '增量更新（表尾追加最新数据）')">
+                  <span>增量更新（表尾追加最新数据）</span>
+                  <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                </div>
+                <div class="custom-select-option" data-value="overwrite" onclick="selectCustomOption('wrapper-updateModeSelect', 'updateModeSelect', 'overwrite', '全量覆盖（覆写指定日期范围数据）')">
+                  <span>全量覆盖（覆写指定日期范围数据）</span>
+                  <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                </div>
+              </div>
+              <input type="hidden" id="updateModeSelect" value="append">
+            </div>
+          </div>
+          <input type="hidden" id="calibrationDaysSelect" value="2">
+        </div>
+
+        <div style="border: 1px solid var(--border); border-radius: 8px; padding: 20px; background: #fafbfc; margin: 16px 0;">
+          <div style="font-weight: 600; margin-bottom: 14px; font-size: 15px;">⏰ 自动化同步周期</div>
+          
+          <div class="form-row" style="align-items: center;">
+            <div class="form-group" style="max-width: 220px;">
+              <label>重复频率</label>
+              <div class="custom-select" id="wrapper-codexFreqSelect">
+                <div class="custom-select-trigger" onclick="toggleCustomSelect('wrapper-codexFreqSelect')">
+                  <span class="custom-select-label">每天</span>
+                  <svg class="arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </div>
+                <div class="custom-select-menu">
+                  <div class="custom-select-option selected" data-value="daily" onclick="selectCustomOption('wrapper-codexFreqSelect', 'codexFreqSelect', 'daily', '每天')">
+                    <span>每天</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="workday" onclick="selectCustomOption('wrapper-codexFreqSelect', 'codexFreqSelect', 'workday', '工作日')">
+                    <span>工作日</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="weekly" onclick="selectCustomOption('wrapper-codexFreqSelect', 'codexFreqSelect', 'weekly', '每周指定哪几天')">
+                    <span>每周指定哪几天</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="monthly" onclick="selectCustomOption('wrapper-codexFreqSelect', 'codexFreqSelect', 'monthly', '每月指定某一天')">
+                    <span>每月指定某一天</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="hourly" onclick="selectCustomOption('wrapper-codexFreqSelect', 'codexFreqSelect', 'hourly', '每隔几小时')">
+                    <span>每隔几小时</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                </div>
+                <input type="hidden" id="codexFreqSelect" value="daily" onchange="onCodexFreqChange()">
+              </div>
+            </div>
+
+            <!-- 每周子面板 -->
+            <div class="form-group" id="weekdayPickerGroup" style="display: none;">
+              <label>选择每周哪几天更新</label>
+              <div style="display: flex; gap: 8px;">
+                <div class="weekday-item active" data-day="MO" onclick="toggleWeekday(this)">一</div>
+                <div class="weekday-item active" data-day="TU" onclick="toggleWeekday(this)">二</div>
+                <div class="weekday-item active" data-day="WE" onclick="toggleWeekday(this)">三</div>
+                <div class="weekday-item active" data-day="TH" onclick="toggleWeekday(this)">四</div>
+                <div class="weekday-item active" data-day="FR" onclick="toggleWeekday(this)">五</div>
+                <div class="weekday-item" data-day="SA" onclick="toggleWeekday(this)">六</div>
+                <div class="weekday-item" data-day="SU" onclick="toggleWeekday(this)">日</div>
+              </div>
+            </div>
+
+            <!-- 每月子面板 -->
+            <div class="form-group" id="monthdayPickerGroup" style="display: none; max-width: 180px;">
+              <label>每月几号</label>
+              <div class="custom-select" id="wrapper-monthdaySelect">
+                <div class="custom-select-trigger" onclick="toggleCustomSelect('wrapper-monthdaySelect')">
+                  <span class="custom-select-label">每月 1 号</span>
+                  <svg class="arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </div>
+                <div class="custom-select-menu" style="max-height: 280px;">
+                  <div class="custom-select-option selected" data-value="1" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '1', '每月 1 号')">
+                    <span>每月 1 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="2" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '2', '每月 2 号')">
+                    <span>每月 2 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="3" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '3', '每月 3 号')">
+                    <span>每月 3 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="4" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '4', '每月 4 号')">
+                    <span>每月 4 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="5" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '5', '每月 5 号')">
+                    <span>每月 5 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="6" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '6', '每月 6 号')">
+                    <span>每月 6 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="7" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '7', '每月 7 号')">
+                    <span>每月 7 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="8" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '8', '每月 8 号')">
+                    <span>每月 8 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="9" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '9', '每月 9 号')">
+                    <span>每月 9 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="10" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '10', '每月 10 号')">
+                    <span>每月 10 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="11" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '11', '每月 11 号')">
+                    <span>每月 11 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="12" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '12', '每月 12 号')">
+                    <span>每月 12 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="13" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '13', '每月 13 号')">
+                    <span>每月 13 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="14" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '14', '每月 14 号')">
+                    <span>每月 14 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="15" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '15', '每月 15 号')">
+                    <span>每月 15 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="16" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '16', '每月 16 号')">
+                    <span>每月 16 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="17" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '17', '每月 17 号')">
+                    <span>每月 17 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="18" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '18', '每月 18 号')">
+                    <span>每月 18 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="19" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '19', '每月 19 号')">
+                    <span>每月 19 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="20" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '20', '每月 20 号')">
+                    <span>每月 20 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="21" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '21', '每月 21 号')">
+                    <span>每月 21 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="22" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '22', '每月 22 号')">
+                    <span>每月 22 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="23" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '23', '每月 23 号')">
+                    <span>每月 23 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="24" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '24', '每月 24 号')">
+                    <span>每月 24 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="25" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '25', '每月 25 号')">
+                    <span>每月 25 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="26" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '26', '每月 26 号')">
+                    <span>每月 26 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="27" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '27', '每月 27 号')">
+                    <span>每月 27 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="28" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '28', '每月 28 号')">
+                    <span>每月 28 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="29" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '29', '每月 29 号')">
+                    <span>每月 29 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="30" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '30', '每月 30 号')">
+                    <span>每月 30 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="31" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '31', '每月 31 号')">
+                    <span>每月 31 号</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="-1" onclick="selectCustomOption('wrapper-monthdaySelect', 'monthdaySelect', '-1', '每月最后一天')">
+                    <span>每月最后一天</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                </div>
+                <input type="hidden" id="monthdaySelect" value="1" onchange="updateCodexSchedule()">
+              </div>
+            </div>
+
+            <!-- 每隔几小时子面板 -->
+            <div class="form-group" id="hourlyPickerGroup" style="display: none; max-width: 180px;">
+              <label>间隔周期</label>
+              <div class="custom-select" id="wrapper-hourlyIntervalSelect">
+                <div class="custom-select-trigger" onclick="toggleCustomSelect('wrapper-hourlyIntervalSelect')">
+                  <span class="custom-select-label">每隔 4 小时</span>
+                  <svg class="arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </div>
+                <div class="custom-select-menu">
+                  <div class="custom-select-option" data-value="1" onclick="selectCustomOption('wrapper-hourlyIntervalSelect', 'hourlyIntervalSelect', '1', '每隔 1 小时')">
+                    <span>每隔 1 小时</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="2" onclick="selectCustomOption('wrapper-hourlyIntervalSelect', 'hourlyIntervalSelect', '2', '每隔 2 小时')">
+                    <span>每隔 2 小时</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option selected" data-value="4" onclick="selectCustomOption('wrapper-hourlyIntervalSelect', 'hourlyIntervalSelect', '4', '每隔 4 小时')">
+                    <span>每隔 4 小时</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="6" onclick="selectCustomOption('wrapper-hourlyIntervalSelect', 'hourlyIntervalSelect', '6', '每隔 6 小时')">
+                    <span>每隔 6 小时</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                  <div class="custom-select-option" data-value="12" onclick="selectCustomOption('wrapper-hourlyIntervalSelect', 'hourlyIntervalSelect', '12', '每隔 12 小时')">
+                    <span>每隔 12 小时</span>
+                    <svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>
+                  </div>
+                </div>
+                <input type="hidden" id="hourlyIntervalSelect" value="4" onchange="updateCodexSchedule()">
+              </div>
+            </div>
+
+            <!-- 自定义优雅时间选择器 (纯前端浮层，彻底告别浏览器原生时钟控件) -->
+            <div class="form-group" id="timePickerGroup" style="max-width: 190px;">
+              <label>执行具体时间 (北京时间)</label>
+              <div class="custom-timepicker" id="wrapper-timeInput">
+                <div class="custom-timepicker-trigger" onclick="toggleCustomTimepicker()">
+                  <div style="display: flex; align-items: center; gap: 6px;">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#4e5969" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                    <span id="customTimeDisplay" style="font-weight: 500;">09:00</span>
+                  </div>
+                  <svg class="arrow" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4e5969" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                </div>
+                <div class="custom-timepicker-popup" id="customTimePopup">
+                  <div class="time-col" id="timeHourCol"></div>
+                  <div class="time-col" id="timeMinCol"></div>
+                </div>
+                <input type="hidden" id="timeInput" value="09:00" onchange="updateCodexSchedule()">
+              </div>
+            </div>
+          </div>
+
+          <!-- 自然语言摘要展示 -->
+          <div style="margin-top: 14px; padding: 10px 14px; background: #e8f3ff; border-radius: 6px; display: flex; align-items: center;">
+            
+          <!-- 隐藏真实 RRULE 供接口调用 -->
+          <input type="hidden" id="rruleInput" value="RRULE:FREQ=DAILY;BYHOUR=9;BYMINUTE=0">
+        </div>
+
+        <div style="margin-bottom: 12px; padding: 10px 14px; background: #fafbfc; border-left: 3px solid var(--primary); font-size: 13px; color: var(--text-muted);">
+          💡 <strong>数据保全机制</strong>：系统已自动开启防延迟补刷（每天自动复核修正最近 2 天的归因数据），无需您手动配置，确保转化成交数据绝不遗漏。
+        </div>
+        <div style="margin: 16px 0; padding: 12px; background: #f7f8fa; border-radius: 6px; font-size: 13px;">
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="writeInitialCheck" checked>
+            <span>自动建表后，立即将本次预览获取的数据写入飞书表格</span>
+          </label>
+          <div style="color: var(--text-muted); margin-top: 4px; font-size: 12px;">表格将自动保存在飞书共享文件夹中，并自动配置组织内全体员工【可编辑】权限。</div>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 12px;">
+          <button class="btn btn-primary" id="createTaskSubmitBtn" onclick="submitCreateTask()">🚀 立即生成飞书表格并启用定时任务</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-tasks" class="tab-content" style="display:none;">
+      <div class="card">
+        <div class="card-title">
+          <span>现有定时同步任务</span>
+          <button class="btn btn-outline btn-sm" onclick="loadTasks()">🔄 刷新列表</button>
+        </div>
+        <div id="tasksListContainer">加载中...</div>
+      </div>
+    </div>
+
+    <div id="tab-runs" class="tab-content" style="display:none;">
+      <div class="card">
+        <div class="card-title">
+          <span>历史运行记录与状态</span>
+          <button class="btn btn-outline btn-sm" onclick="loadRuns()">🔄 刷新日志</button>
+        </div>
+        <div class="table-container">
+          <table>
+            <thead>
+              <tr>
+                <th>运行ID</th>
+                <th>任务名称</th>
+                <th>触发方式</th>
+                <th>开始时间</th>
+                <th>结束时间</th>
+                <th>状态</th>
+                <th>数据结果</th>
+                <th>错误详情</th>
+              </tr>
+            </thead>
+            <tbody id="runsTableBody">
+              <tr><td colspan="8" style="text-align:center;">暂无运行记录</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <div id="tab-settings" class="tab-content" style="display:none;">
+      <div class="card">
+        <div class="card-title">系统基础配置</div>
+        <div class="form-group">
+          <label>飞书共享文件夹 Token</label>
+          <input type="text" class="form-control" id="settingFolderToken" readonly>
+          <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">系统自动维护在“数据自动同步表”文件夹内。新建表格自动共享并开启企业可编辑权限。</div>
+        </div>
+        <div class="form-group">
+          <label>飞书告警群 Chat ID (机器人消息推送)</label>
+          <div style="display: flex; gap: 8px;">
+            <input type="text" class="form-control" id="settingChatId" placeholder="例如：oc_d48b8c0d06af4457ecc46c1c27289b5b">
+            <button class="btn btn-outline" onclick="createNotificationGroup()">一键创建告警群</button>
+          </div>
+          <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">任务异常失败时自动推送告警消息。</div>
+        </div>
+        <div class="form-group">
+          <label>企业微信/飞书通用 Webhook (可选)</label>
+          <input type="text" class="form-control" id="settingWebhook" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/...">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal-overlay" id="loginModal">
+    <div class="modal">
+      <h3 style="margin-bottom: 12px;">请输入访问口令</h3>
+      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">首次进入或凭据过期，请输入系统管理口令：</p>
+      <input type="password" id="loginPasswordInput" class="form-control" style="margin-bottom: 16px;" placeholder="默认：admin123456">
+      <button class="btn btn-primary" style="width: 100%;" onclick="submitLogin()">进入系统</button>
+    </div>
+  </div>
+
+  <!-- 将 JavaScript 逻辑直接内嵌于页面，彻底杜绝浏览器静态文件缓存引起的失效 -->
+  <script src="/static/app.js?v=20260920_v6"></script>
+</body>
+</html>

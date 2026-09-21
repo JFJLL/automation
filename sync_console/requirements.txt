@@ -1,0 +1,11 @@
+fastapi>=0.115.0
+uvicorn>=0.30.0
+openpyxl>=3.1.5
+pandas>=2.2.0
+requests>=2.31.0
+apscheduler>=3.10.0
+python-dateutil>=2.9.0
+python-dotenv>=1.0.0
+python-multipart>=0.0.9
+
+chinesecalendar>=1.11.0
