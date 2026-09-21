@@ -175,11 +175,19 @@ async function runPreviewFetch() {
 
   const yesterday = new Date();
   yesterday.setDate(yesterday.getDate() - 1);
-  const endStr = yesterday.toISOString().slice(0, 10);
+  const yesterdayStr = yesterday.toISOString().slice(0, 10);
   
-  const startD = new Date();
-  startD.setDate(startD.getDate() - 7);
-  const startStr = (s.min_sample_date && s.min_sample_date < endStr) ? s.min_sample_date : startD.toISOString().slice(0, 10);
+  // 智能决策预览日期窗口：如果用户上传的是历史归档表（如8月份），必须优先对齐样本真实起止日
+  let startStr, endStr;
+  if (s.min_sample_date && s.max_sample_date) {
+    startStr = s.min_sample_date;
+    endStr = s.max_sample_date <= yesterdayStr ? s.max_sample_date : yesterdayStr;
+  } else {
+    const startD = new Date();
+    startD.setDate(startD.getDate() - 7);
+    startStr = startD.toISOString().slice(0, 10);
+    endStr = yesterdayStr;
+  }
 
   try {
     const res = await apiFetch('/api/preview', {

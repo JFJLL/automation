@@ -110,7 +110,12 @@ def fetch_taobao_data(entity_id: str, dimension: str, start_date: str, end_date:
         r = session.get(f"{BASE_URL}/api/report/multiscene/query/detail/data", params=payload, timeout=(10, 60))
         r.raise_for_status()
         data = r.json()
+        info = data.get("info") or {}
+        if info.get("message") == "nologin" or data.get("code") == 601:
+            raise RuntimeError("淘宝星河登录会话已过期 (nologin)，请刷新更新 adstar.txt 或 OSS 上的凭据")
         if not data.get("success"):
+            if not info.get("ok", True):
+                raise RuntimeError(f"淘宝星河接口返回异常: {data}")
             break
         model = data.get("model") or {}
         items = model.get("list") if isinstance(model, dict) else (model if isinstance(model, list) else [])
