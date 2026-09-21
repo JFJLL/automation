@@ -4,12 +4,29 @@ let currentConfirmedSheet = null;
 let previewDataResult = null;
 
 function switchTab(name) {
-  document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
-  document.querySelectorAll('.tab-content').forEach(c => c.style.display = 'none');
-  const btn = Array.from(document.querySelectorAll('.nav-tab')).find(b => b.getAttribute('onclick') && b.getAttribute('onclick').includes(name));
-  if (btn) btn.classList.add('active');
-  const content = document.getElementById('tab-' + name);
-  if (content) content.style.display = 'block';
+  // 1. 切换头部 tab 按钮激活态
+  document.querySelectorAll('.nav-tab').forEach(t => {
+    t.classList.remove('active');
+    const oc = t.getAttribute('onclick') || '';
+    if (oc.indexOf("'" + name + "'") !== -1 || oc.indexOf('"' + name + '"') !== -1) {
+      t.classList.add('active');
+    }
+  });
+
+  // 2. 切换卡片内容容器显示
+  const allTabs = ['import', 'tasks', 'runs', 'settings'];
+  allTabs.forEach(tName => {
+    const el = document.getElementById('tab-' + tName);
+    if (el) {
+      if (tName === name) {
+        el.style.setProperty('display', 'block', 'important');
+      } else {
+        el.style.setProperty('display', 'none', 'important');
+      }
+    }
+  });
+
+  // 3. 触发异步数据加载
   if (name === 'tasks') loadTasks();
   if (name === 'runs') loadRuns();
   if (name === 'settings') loadSettings();
@@ -329,37 +346,46 @@ async function submitCreateTask() {
 }
 
 async function loadTasks() {
+  const container = document.getElementById('tasksListContainer');
+  if (container) container.innerHTML = '<div style="text-align:center; padding: 30px;"><div class="spinner"></div> 正在加载同步任务...</div>';
   try {
     const tasks = await apiFetch('/api/tasks');
-    document.getElementById('taskCountBadge').innerText = tasks.length;
-    const container = document.getElementById('tasksListContainer');
+    const badge = document.getElementById('taskCountBadge');
+    if (badge) badge.innerText = tasks.length;
+    if (!container) return;
     if (!tasks || tasks.length === 0) {
-      container.innerHTML = '<div style="text-align:center; padding: 30px; color: var(--text-muted);">暂无运行中的同步任务，请先在“导入与新建”中生成。</div>';
+      container.innerHTML = '<div style="text-align:center; padding: 40px; color: var(--text-muted); font-size: 14px;">暂无运行中的同步任务，请先在“导入与新建”中配置并生成。</div>';
       return;
     }
-    let html = '<table><thead><tr><th>ID</th><th>任务名称</th><th>平台</th><th>模式</th><th>飞书表格链接</th><th>下次执行时间</th><th>最后状态</th><th>操作</th></tr></thead><tbody>';
+    const platformNames = { jzt: '京准通', taobao: '淘宝星河', juguang: '聚光' };
+    let html = '<div class="table-container"><table><thead><tr><th style="width:60px;">ID</th><th>任务名称</th><th>投放平台</th><th>更新机制</th><th>飞书在线表格</th><th>下次执行时间 (北京时间)</th><th>最近运行</th><th style="text-align:center;">快捷操作</th></tr></thead><tbody>';
     tasks.forEach(t => {
       const statusBadge = t.status === 'active' ? '<span class="badge badge-success">运行中</span>' : '<span class="badge badge-gray">已暂停</span>';
       const lastBadge = t.last_status === 'success' ? '<span class="badge badge-success">成功</span>' : (t.last_status === 'failed' ? '<span class="badge badge-danger">异常</span>' : '<span class="badge badge-gray">未跑</span>');
+      const pName = platformNames[t.platform] || t.platform;
+      const modeText = t.update_mode === 'append' ? '<span class="ok-pill">增量追加</span>' : '<span class="unmapped-pill">全量覆写</span>';
+      const nextTime = t.next_run_at ? t.next_run_at.slice(0, 19).replace('T', ' ') : '-';
       html += '<tr>' +
         '<td>' + t.id + '</td>' +
-        '<td><strong>' + t.name + '</strong> ' + statusBadge + '</td>' +
-        '<td>' + t.platform + '</td>' +
-        '<td>' + (t.update_mode === 'append' ? '增量追加' : '全量覆写') + '</td>' +
-        '<td><a href="' + t.spreadsheet_url + '" target="_blank" style="color:var(--primary); font-weight:500;">打开飞书表格 ↗</a></td>' +
-        '<td>' + (t.next_run_at ? t.next_run_at.slice(0, 19).replace('T', ' ') : '-') + '</td>' +
+        '<td><div style="font-weight:600; font-size:14px; margin-bottom:2px;">' + t.name + '</div>' + statusBadge + '</td>' +
+        '<td><strong style="color:var(--primary)">' + pName + '</strong></td>' +
+        '<td>' + modeText + '</td>' +
+        '<td><a href="' + t.spreadsheet_url + '" target="_blank" style="color:var(--primary); font-weight:500; text-decoration:none; display:inline-flex; align-items:center; gap:4px;">查看飞书表格 <span style="font-size:11px;">↗</span></a></td>' +
+        '<td>' + nextTime + '</td>' +
         '<td>' + lastBadge + '</td>' +
-        '<td>' +
-          '<button class="btn btn-outline btn-sm" onclick="runTaskNow(' + t.id + ')">立即同步一次</button> ' +
-          '<button class="btn btn-outline btn-sm" onclick="toggleTask(' + t.id + ')">' + (t.status === 'active' ? '暂停' : '启用') + '</button> ' +
-          '<button class="btn btn-danger btn-sm" onclick="archiveTask(' + t.id + ')">归档</button>' +
+        '<td style="text-align:center;">' +
+          '<div style="display:inline-flex; gap:6px;">' +
+            '<button class="btn btn-outline btn-sm" onclick="runTaskNow(' + t.id + ')">⚡ 立即同步</button>' +
+            '<button class="btn btn-outline btn-sm" onclick="toggleTask(' + t.id + ')">' + (t.status === 'active' ? '暂停' : '恢复') + '</button>' +
+            '<button class="btn btn-danger btn-sm" onclick="archiveTask(' + t.id + ')">归档</button>' +
+          '</div>' +
         '</td>' +
       '</tr>';
     });
-    html += '</tbody></table>';
+    html += '</tbody></table></div>';
     container.innerHTML = html;
   } catch (e) {
-    console.error(e);
+    if (container) container.innerHTML = '<div style="text-align:center; padding: 20px; color:var(--danger)">加载任务失败: ' + e.message + '</div>';
   }
 }
 
@@ -394,30 +420,36 @@ async function archiveTask(id) {
 }
 
 async function loadRuns() {
+  const tbody = document.getElementById('runsTableBody');
+  if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:20px;"><div class="spinner"></div> 正在加载运行记录...</td></tr>';
   try {
     const runs = await apiFetch('/api/runs');
-    const tbody = document.getElementById('runsTableBody');
+    if (!tbody) return;
     if (!runs || runs.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center;">暂无运行记录</td></tr>';
+      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:30px; color:var(--text-muted);">暂无任何历史运行记录</td></tr>';
       return;
     }
     tbody.innerHTML = '';
+    const triggerMap = { scheduled: '定时触发', manual: '手动执行', catch_up: '错峰补跑' };
     runs.forEach(r => {
       const tr = document.createElement('tr');
-      const badge = r.status === 'success' ? '<span class="badge badge-success">成功</span>' : '<span class="badge badge-danger">失败</span>';
+      const badge = r.status === 'success' ? '<span class="badge badge-success">成功</span>' : '<span class="badge badge-danger">异常</span>';
+      const trig = triggerMap[r.trigger_type] || r.trigger_type;
+      const startTime = r.started_at ? r.started_at.slice(0, 19).replace('T', ' ') : '-';
+      const finishTime = r.finished_at ? r.finished_at.slice(0, 19).replace('T', ' ') : '-';
       tr.innerHTML = 
         '<td>' + r.id + '</td>' +
         '<td><strong>' + (r.task_name || ('任务' + r.task_id)) + '</strong></td>' +
-        '<td>' + r.trigger_type + '</td>' +
-        '<td>' + (r.started_at ? r.started_at.slice(0, 19).replace('T', ' ') : '-') + '</td>' +
-        '<td>' + (r.finished_at ? r.finished_at.slice(0, 19).replace('T', ' ') : '-') + '</td>' +
+        '<td><span class="badge badge-gray">' + trig + '</span></td>' +
+        '<td>' + startTime + '</td>' +
+        '<td>' + finishTime + '</td>' +
         '<td>' + badge + '</td>' +
         '<td>' + (r.message || '-') + '</td>' +
-        '<td style="color:var(--danger)">' + (r.error_detail || '-') + '</td>';
+        '<td style="color:var(--danger); max-width:260px; overflow:hidden; text-overflow:ellipsis;">' + (r.error_detail || '-') + '</td>';
       tbody.appendChild(tr);
     });
   } catch (e) {
-    console.error(e);
+    if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--danger); padding:20px;">加载运行日志失败: ' + e.message + '</td></tr>';
   }
 }
 
