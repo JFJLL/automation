@@ -838,7 +838,7 @@
       <div class="card">
         <div class="card-title">
           <span>现有定时同步任务</span>
-          <button class="btn btn-outline btn-sm" onclick="loadTasks()">🔄 刷新列表</button>
+          <button class="btn btn-outline btn-sm" onclick="loadTasks(true)">🔄 刷新列表</button>
         </div>
         <div id="tasksListContainer">加载中...</div>
       </div>
@@ -848,7 +848,7 @@
       <div class="card">
         <div class="card-title">
           <span>历史运行记录与状态</span>
-          <button class="btn btn-outline btn-sm" onclick="loadRuns()">🔄 刷新日志</button>
+          <button class="btn btn-outline btn-sm" onclick="loadRuns(currentRunsPage, true)">🔄 刷新日志</button>
         </div>
         <div class="table-container">
           <table>
@@ -954,7 +954,7 @@
   </div>
 
   <!-- 将 JavaScript 逻辑直接内嵌于页面，彻底杜绝浏览器静态文件缓存引起的失效 -->
-  <script src="/static/app.js?v=20260922_v3"></script>
+  <script src="/static/app.js?v=20260922_v4"></script>
 <div id="globalHoverTooltip" style="position: fixed; display: none; background: #1d2129; color: #ffffff; padding: 8px 12px; border-radius: 6px; font-size: 12px; line-height: 1.5; max-width: 420px; z-index: 99999; box-shadow: 0 4px 16px rgba(0,0,0,0.25); pointer-events: none; word-break: break-all; transition: opacity 0.15s ease;"></div>
 </body>
 </html>

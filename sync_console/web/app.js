@@ -1,3 +1,10 @@
+// 浏览器端视图缓存状态（避免切换标签页重复加载和闪烁）
+const viewCache = {
+  tasks: { loaded: false, data: null },
+  runs: { loaded: false, page: 1, pageSize: 20, total: 0, items: [] },
+  settings: { loaded: false, data: null }
+};
+
 let currentRunsPage = 1;
 let currentRunsPageSize = 20;
 let totalRunsCount = 0;
@@ -15,7 +22,7 @@ function selectRunsPageSize(size, label) {
     container.classList.remove('open');
   }
   currentRunsPage = 1;
-  loadRuns(1);
+  loadRuns(1, true);
 }
 
 function changeRunsPage(delta) {
@@ -28,7 +35,7 @@ function changeRunsPage(delta) {
 function goToRunsPage(p) {
   if (p < 1 || p > totalRunsPages) return;
   currentRunsPage = p;
-  loadRuns(p);
+  loadRuns(p, true);
 }
 
 function renderRunsPagination(total, page, pageSize, totalPages) {
@@ -218,10 +225,16 @@ function switchTab(name, updateUrl = true) {
     }
   });
 
-  // 3. 触发异步数据加载
-  if (name === 'tasks') loadTasks();
-  if (name === 'runs') loadRuns();
-  if (name === 'settings') loadSettings();
+  // 3. 触发异步数据加载（若已在浏览器缓存中，则直接复用已有视图，免除重新请求与 loading 闪烁）
+  if (name === 'tasks') {
+    if (!viewCache.tasks.loaded) loadTasks(false);
+  }
+  if (name === 'runs') {
+    if (!viewCache.runs.loaded) loadRuns(currentRunsPage, false);
+  }
+  if (name === 'settings') {
+    if (!viewCache.settings.loaded) loadSettings(false);
+  }
 
   // 4. 同步浏览器地址栏路径
   if (updateUrl) {
@@ -559,11 +572,18 @@ async function submitCreateTask() {
   }
 }
 
-async function loadTasks() {
+async function loadTasks(force = false) {
   const container = document.getElementById('tasksListContainer');
-  if (container) container.innerHTML = '<div style="text-align:center; padding: 30px;"><div class="spinner"></div> 正在加载同步任务...</div>';
+  if (!force && viewCache.tasks.loaded && viewCache.tasks.data) {
+    return; // 已有有效视图缓存，直接展示
+  }
+  if (container && (!viewCache.tasks.loaded || force)) {
+    container.innerHTML = '<div style="text-align:center; padding: 30px;"><div class="spinner"></div> 正在加载同步任务...</div>';
+  }
   try {
     const tasks = await apiFetch('/api/tasks');
+    viewCache.tasks.loaded = true;
+    viewCache.tasks.data = tasks;
     const badge = document.getElementById('taskCountBadge');
     if (badge) badge.innerText = tasks.length;
     if (!container) return;
@@ -608,7 +628,7 @@ async function runTaskNow(id) {
   try {
     const res = await apiFetch('/api/tasks/' + id + '/run_now', { method: 'POST' });
     alert('同步完成！\n状态: ' + res.status + '\n拉取: ' + res.rows_fetched + ' 行\n追加: ' + res.rows_appended + ' 行');
-    loadTasks();
+    loadTasks(true);
   } catch (e) {
     alert('执行失败: ' + e.message);
   }
@@ -617,7 +637,7 @@ async function runTaskNow(id) {
 async function toggleTask(id) {
   try {
     await apiFetch('/api/tasks/' + id + '/toggle_status', { method: 'POST' });
-    loadTasks();
+    loadTasks(true);
   } catch (e) {
     alert('操作失败: ' + e.message);
   }
@@ -627,18 +647,26 @@ async function archiveTask(id) {
   if (!confirm('确定归档并停止此任务吗？（飞书表格不会被删除）')) return;
   try {
     await apiFetch('/api/tasks/' + id, { method: 'DELETE' });
-    loadTasks();
+    loadTasks(true);
   } catch (e) {
     alert('操作失败: ' + e.message);
   }
 }
 
-async function loadRuns(page = currentRunsPage) {
+async function loadRuns(page = currentRunsPage, force = false) {
   const tbody = document.getElementById('runsTableBody');
-  if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:20px;"><div class="spinner"></div> 正在加载运行记录...</td></tr>';
+  if (!force && viewCache.runs.loaded && viewCache.runs.page === page && viewCache.runs.pageSize === currentRunsPageSize) {
+    return; // 当前页已在缓存中，直接展示无需重复请求
+  }
+  if (tbody) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:20px;"><div class="spinner"></div> 正在加载运行记录...</td></tr>';
+  }
   try {
     currentRunsPage = page;
     const res = await apiFetch('/api/runs?page=' + currentRunsPage + '&page_size=' + currentRunsPageSize);
+    viewCache.runs.loaded = true;
+    viewCache.runs.page = currentRunsPage;
+    viewCache.runs.pageSize = currentRunsPageSize;
     if (!tbody) return;
 
     let runs = [];
@@ -685,9 +713,14 @@ async function loadRuns(page = currentRunsPage) {
   }
 }
 
-async function loadSettings() {
+async function loadSettings(force = false) {
+  if (!force && viewCache.settings.loaded && viewCache.settings.data) {
+    return;
+  }
   try {
     const s = await apiFetch('/api/settings');
+    viewCache.settings.loaded = true;
+    viewCache.settings.data = s;
     document.getElementById('settingFolderToken').value = s.shared_folder_token || '未配置';
     document.getElementById('settingChatId').value = s.feishu_chat_id || '';
     document.getElementById('settingWebhook').value = s.notification_webhook || '';
