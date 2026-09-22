@@ -35,3 +35,12 @@ sync_console/.env
 logs/
 tokens/
 sync_console/tokens/
+
+# Subdirectory sensitive files
+**/.env
+**/.env.*
+feishu_three_sync/**/.env
+feishu_three_sync/**/token.txt
+feishu_three_sync/**/adstar.txt
+feishu_three_sync/**/session_headers.json
+feishu_three_sync/**/browser_state.json
