@@ -1,3 +1,91 @@
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function showErrorModal(runId) {
+  const runs = window.__runsCache || [];
+  const r = runs.find(item => item.id === runId);
+  if (!r) return;
+  const modal = document.getElementById('errorDetailModal');
+  const meta = document.getElementById('errorModalMeta');
+  const content = document.getElementById('errorModalContent');
+  if (!modal || !meta || !content) return;
+  
+  const trigMap = { scheduled: '定时触发', manual: '手动执行', catch_up: '错峰补跑' };
+  const trig = trigMap[r.trigger_type] || r.trigger_type;
+  const startTime = r.started_at ? r.started_at.slice(0, 19).replace('T', ' ') : '-';
+  
+  meta.innerHTML = '<div><strong>任务名称：</strong>' + escapeHtml(r.task_name || ('任务' + r.task_id)) + '</div>' +
+                   '<div><strong>触发方式：</strong>' + trig + ' &nbsp;|&nbsp; <strong>执行时间：</strong>' + startTime + '</div>';
+  content.textContent = r.error_detail || '无具体错误详情';
+  modal.style.display = 'flex';
+}
+
+function closeErrorModal() {
+  const modal = document.getElementById('errorDetailModal');
+  if (modal) modal.style.display = 'none';
+}
+
+function copyErrorModalText() {
+  const content = document.getElementById('errorModalContent');
+  const btn = document.getElementById('copyErrorBtn');
+  if (!content) return;
+  const text = content.textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    if (btn) {
+      const orig = btn.innerHTML;
+      btn.innerHTML = '✅ 已复制到剪贴板';
+      setTimeout(() => { btn.innerHTML = orig; }, 2000);
+    }
+  }).catch(err => {
+    alert('复制失败，请手动选择复制：' + err);
+  });
+}
+
+document.addEventListener('mouseover', function(e) {
+  const target = e.target.closest('.error-tooltip-wrap');
+  if (!target) return;
+  const text = target.getAttribute('data-tooltip') || target.getAttribute('title') || '';
+  if (!text) return;
+  const tip = document.getElementById('globalHoverTooltip');
+  if (!tip) return;
+  tip.textContent = text;
+  tip.style.display = 'block';
+  const rect = target.getBoundingClientRect();
+  const tipRect = tip.getBoundingClientRect();
+  let top = rect.top - tipRect.height - 8;
+  let left = rect.left + (rect.width - tipRect.width) / 2;
+  if (top < 10) top = rect.bottom + 8;
+  if (left < 10) left = 10;
+  if (left + tipRect.width > window.innerWidth - 10) left = window.innerWidth - tipRect.width - 10;
+  tip.style.top = top + 'px';
+  tip.style.left = left + 'px';
+});
+
+document.addEventListener('mouseout', function(e) {
+  const target = e.target.closest('.error-tooltip-wrap');
+  if (!target) return;
+  const tip = document.getElementById('globalHoverTooltip');
+  if (tip) tip.style.display = 'none';
+});
+
+document.addEventListener('click', function(e) {
+  const target = e.target.closest('.error-tooltip-wrap');
+  if (!target) return;
+  const runId = parseInt(target.getAttribute('data-run-id'), 10);
+  if (runId) {
+    const tip = document.getElementById('globalHoverTooltip');
+    if (tip) tip.style.display = 'none';
+    showErrorModal(runId);
+  }
+});
+
 let currentPlatform = 'jzt';
 let uploadedAnalysis = null;
 let currentConfirmedSheet = null;
@@ -431,6 +519,7 @@ async function loadRuns() {
     }
     tbody.innerHTML = '';
     const triggerMap = { scheduled: '定时触发', manual: '手动执行', catch_up: '错峰补跑' };
+    window.__runsCache = runs;
     runs.forEach(r => {
       const tr = document.createElement('tr');
       const badge = r.status === 'success' ? '<span class="badge badge-success">成功</span>' : '<span class="badge badge-danger">异常</span>';
@@ -445,7 +534,7 @@ async function loadRuns() {
         '<td>' + finishTime + '</td>' +
         '<td>' + badge + '</td>' +
         '<td>' + (r.message || '-') + '</td>' +
-        '<td style="color:var(--danger); max-width:260px; overflow:hidden; text-overflow:ellipsis;">' + (r.error_detail || '-') + '</td>';
+        (!r.error_detail ? '<td><span style="color:var(--text-muted);">-</span></td>' : '<td><div class="error-tooltip-wrap" data-run-id="' + r.id + '" data-tooltip="' + escapeHtml(r.error_detail) + '" title="' + escapeHtml(r.error_detail) + '"><span>⚠️</span><span class="error-text">' + escapeHtml(r.error_detail) + '</span></div></td>');
       tbody.appendChild(tr);
     });
   } catch (e) {

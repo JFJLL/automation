@@ -276,6 +276,61 @@
 
     .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; display: none; align-items: center; justify-content: center; backdrop-filter: blur(2px); }
     .modal { background: #ffffff; width: 440px; border-radius: var(--radius-lg); padding: 28px; box-shadow: var(--shadow-md); border: 1px solid var(--border); }
+    /* 错误详情悬浮提示与高亮交互 */
+    .error-tooltip-wrap {
+      position: relative;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      max-width: 280px;
+      color: var(--danger);
+      cursor: pointer;
+      padding: 2px 6px;
+      border-radius: var(--radius-sm);
+      background: #fff0ed;
+      border: 1px solid #ffdcd6;
+      transition: all 0.2s ease;
+      font-size: 13px;
+    }
+    .error-tooltip-wrap:hover {
+      background: #ffe3de;
+      border-color: #ffb8ac;
+      box-shadow: 0 2px 6px rgba(245, 63, 63, 0.15);
+    }
+    .error-tooltip-wrap .error-text {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 240px;
+    }
+    .error-tooltip-wrap:hover::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      bottom: calc(100% + 8px);
+      left: 0;
+      background: #1d2129;
+      color: #ffffff;
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: normal;
+      width: max-content;
+      max-width: 380px;
+      z-index: 9999;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.25);
+      pointer-events: none;
+      word-break: break-all;
+    }
+    .error-tooltip-wrap:hover::before {
+      content: '';
+      position: absolute;
+      bottom: calc(100% + 2px);
+      left: 16px;
+      border: 6px solid transparent;
+      border-top-color: #1d2129;
+      z-index: 9999;
+    }
   
     /* 自定义纯前端下拉选框组件 (完全剔除浏览器原生外观与弹出菜单) */
     .custom-select { position: relative; width: 100%; user-select: none; }
@@ -841,6 +896,26 @@
     </div>
   </div>
 
+    <!-- 运行异常详情弹窗 -->
+  <div class="modal-overlay" id="errorDetailModal" style="display: none;" onclick="if(event.target===this) closeErrorModal()">
+    <div class="modal" style="width: 580px; max-width: 92vw; padding: 24px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px;">
+        <h3 style="margin: 0; font-size: 17px; font-weight: 600; color: var(--danger); display: flex; align-items: center; gap: 8px;">
+          <span>⚠️</span> 运行异常详情
+        </h3>
+        <button class="btn btn-outline" style="padding: 4px 10px; font-size: 12px; height: 30px;" onclick="closeErrorModal()">关闭</button>
+      </div>
+      <div id="errorModalMeta" style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px; line-height: 1.6; background: #f7f8fa; padding: 10px 14px; border-radius: var(--radius-md);"></div>
+      <div style="position: relative;">
+        <pre id="errorModalContent" style="background: #f8fafc; border: 1.5px solid var(--border); border-radius: var(--radius-md); padding: 14px; font-size: 13px; color: #b91c1c; max-height: 280px; overflow-y: auto; white-space: pre-wrap; word-break: break-all; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; margin: 0; line-height: 1.6;"></pre>
+      </div>
+      <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px;">
+        <button class="btn btn-outline" style="height: 36px; padding: 0 16px;" id="copyErrorBtn" onclick="copyErrorModalText()">📋 复制错误内容</button>
+        <button class="btn btn-primary" style="height: 36px; padding: 0 18px;" onclick="closeErrorModal()">我知道了</button>
+      </div>
+    </div>
+  </div>
+
   <div class="modal-overlay" id="loginModal">
     <div class="modal">
       <h3 style="margin-bottom: 12px;">请输入访问口令</h3>
@@ -851,6 +926,7 @@
   </div>
 
   <!-- 将 JavaScript 逻辑直接内嵌于页面，彻底杜绝浏览器静态文件缓存引起的失效 -->
-  <script src="/static/app.js?v=20260921_v2"></script>
+  <script src="/static/app.js?v=20260922_v1"></script>
+<div id="globalHoverTooltip" style="position: fixed; display: none; background: #1d2129; color: #ffffff; padding: 8px 12px; border-radius: 6px; font-size: 12px; line-height: 1.5; max-width: 420px; z-index: 99999; box-shadow: 0 4px 16px rgba(0,0,0,0.25); pointer-events: none; word-break: break-all; transition: opacity 0.15s ease;"></div>
 </body>
 </html>
