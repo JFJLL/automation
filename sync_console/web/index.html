@@ -303,34 +303,6 @@
       white-space: nowrap;
       max-width: 240px;
     }
-    .error-tooltip-wrap:hover::after {
-      content: attr(data-tooltip);
-      position: absolute;
-      bottom: calc(100% + 8px);
-      left: 0;
-      background: #1d2129;
-      color: #ffffff;
-      padding: 8px 12px;
-      border-radius: 6px;
-      font-size: 12px;
-      line-height: 1.5;
-      white-space: normal;
-      width: max-content;
-      max-width: 380px;
-      z-index: 9999;
-      box-shadow: 0 4px 16px rgba(0,0,0,0.25);
-      pointer-events: none;
-      word-break: break-all;
-    }
-    .error-tooltip-wrap:hover::before {
-      content: '';
-      position: absolute;
-      bottom: calc(100% + 2px);
-      left: 16px;
-      border: 6px solid transparent;
-      border-top-color: #1d2129;
-      z-index: 9999;
-    }
   
     /* 自定义纯前端下拉选框组件 (完全剔除浏览器原生外观与弹出菜单) */
     .custom-select { position: relative; width: 100%; user-select: none; }
@@ -947,7 +919,7 @@
   </div>
 
   <!-- 将 JavaScript 逻辑直接内嵌于页面，彻底杜绝浏览器静态文件缓存引起的失效 -->
-  <script src="/static/app.js?v=20260922_v5"></script>
+  <script src="/static/app.js?v=20260922_v6"></script>
 <div id="globalHoverTooltip" style="position: fixed; display: none; background: #1d2129; color: #ffffff; padding: 8px 12px; border-radius: 6px; font-size: 12px; line-height: 1.5; max-width: 420px; z-index: 99999; box-shadow: 0 4px 16px rgba(0,0,0,0.25); pointer-events: none; word-break: break-all; transition: opacity 0.15s ease;"></div>
 </body>
 </html>
