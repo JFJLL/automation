@@ -869,6 +869,34 @@
             </tbody>
           </table>
         </div>
+        <!-- 运行记录底部分页与每页条数选择栏 -->
+        <div class="pagination-bar" id="runsPaginationBar" style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); flex-wrap: wrap; gap: 12px;">
+          <div style="display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--text-muted);">
+            <span>共 <strong id="runsTotalCount" style="color: var(--text-main);">0</strong> 条记录</span>
+            <span style="color: var(--border);">|</span>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span>每页显示</span>
+              <div style="width: 110px;">
+                <div class="custom-select" id="runsPageSizeSelect">
+                  <div class="custom-select-trigger" onclick="toggleCustomSelect('runsPageSizeSelect')">
+                    <span class="custom-select-label" id="runsPageSizeLabel">20 条/页</span>
+                    <span class="custom-select-arrow">▾</span>
+                  </div>
+                  <div class="custom-select-menu">
+                    <div class="custom-select-option selected" data-value="20" onclick="selectRunsPageSize(20, '20 条/页')">20 条/页</div>
+                    <div class="custom-select-option" data-value="50" onclick="selectRunsPageSize(50, '50 条/页')">50 条/页</div>
+                    <div class="custom-select-option" data-value="100" onclick="selectRunsPageSize(100, '100 条/页')">100 条/页</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <button class="btn btn-outline" id="runsPrevBtn" style="padding: 4px 12px; height: 32px; font-size: 13px;" onclick="changeRunsPage(-1)" disabled>上一页</button>
+            <div id="runsPageNumbers" style="display: flex; align-items: center; gap: 4px;"></div>
+            <button class="btn btn-outline" id="runsNextBtn" style="padding: 4px 12px; height: 32px; font-size: 13px;" onclick="changeRunsPage(1)" disabled>下一页</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -926,7 +954,7 @@
   </div>
 
   <!-- 将 JavaScript 逻辑直接内嵌于页面，彻底杜绝浏览器静态文件缓存引起的失效 -->
-  <script src="/static/app.js?v=20260922_v1"></script>
+  <script src="/static/app.js?v=20260922_v2"></script>
 <div id="globalHoverTooltip" style="position: fixed; display: none; background: #1d2129; color: #ffffff; padding: 8px 12px; border-radius: 6px; font-size: 12px; line-height: 1.5; max-width: 420px; z-index: 99999; box-shadow: 0 4px 16px rgba(0,0,0,0.25); pointer-events: none; word-break: break-all; transition: opacity 0.15s ease;"></div>
 </body>
 </html>

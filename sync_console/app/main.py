@@ -274,12 +274,55 @@ def archive_task(task_id: int, _=Depends(verify_token)):
     return {"success": True}
 
 @app.get("/api/runs")
-def list_runs(task_id: Optional[int] = None, _=Depends(verify_token)):
+def list_runs(
+    task_id: Optional[int] = None,
+    page: Optional[int] = None,
+    page_size: int = 20,
+    _=Depends(verify_token)
+):
+    import math
+    if page is not None and page < 1:
+        page = 1
+    if page_size < 1:
+        page_size = 20
+
     with get_db() as conn:
         cursor = conn.cursor()
         if task_id:
-            cursor.execute("SELECT r.*, t.name as task_name, t.platform FROM runs r JOIN tasks t ON r.task_id = t.id WHERE r.task_id = ? ORDER BY r.id DESC LIMIT 50", (task_id,))
+            cursor.execute("SELECT COUNT(*) FROM runs WHERE task_id = ?", (task_id,))
+            total = cursor.fetchone()[0]
+            if page is not None:
+                offset = (page - 1) * page_size
+                cursor.execute(
+                    "SELECT r.*, t.name as task_name, t.platform FROM runs r JOIN tasks t ON r.task_id = t.id WHERE r.task_id = ? ORDER BY r.id DESC LIMIT ? OFFSET ?",
+                    (task_id, page_size, offset)
+                )
+            else:
+                cursor.execute(
+                    "SELECT r.*, t.name as task_name, t.platform FROM runs r JOIN tasks t ON r.task_id = t.id WHERE r.task_id = ? ORDER BY r.id DESC LIMIT 50",
+                    (task_id,)
+                )
         else:
-            cursor.execute("SELECT r.*, t.name as task_name, t.platform FROM runs r JOIN tasks t ON r.task_id = t.id ORDER BY r.id DESC LIMIT 100")
+            cursor.execute("SELECT COUNT(*) FROM runs")
+            total = cursor.fetchone()[0]
+            if page is not None:
+                offset = (page - 1) * page_size
+                cursor.execute(
+                    "SELECT r.*, t.name as task_name, t.platform FROM runs r JOIN tasks t ON r.task_id = t.id ORDER BY r.id DESC LIMIT ? OFFSET ?",
+                    (page_size, offset)
+                )
+            else:
+                cursor.execute(
+                    "SELECT r.*, t.name as task_name, t.platform FROM runs r JOIN tasks t ON r.task_id = t.id ORDER BY r.id DESC LIMIT 100"
+                )
         runs = [dict(row) for row in cursor.fetchall()]
+
+    if page is not None:
+        return {
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+            "total_pages": math.ceil(total / page_size) if page_size > 0 else 1,
+            "items": runs
+        }
     return runs

@@ -1,3 +1,69 @@
+let currentRunsPage = 1;
+let currentRunsPageSize = 20;
+let totalRunsCount = 0;
+let totalRunsPages = 1;
+
+function selectRunsPageSize(size, label) {
+  currentRunsPageSize = size;
+  const labelEl = document.getElementById('runsPageSizeLabel');
+  if (labelEl) labelEl.textContent = label;
+  const container = document.getElementById('runsPageSizeSelect');
+  if (container) {
+    container.querySelectorAll('.custom-select-option').forEach(opt => {
+      opt.classList.toggle('selected', parseInt(opt.getAttribute('data-value'), 10) === size);
+    });
+    container.classList.remove('open');
+  }
+  currentRunsPage = 1;
+  loadRuns(1);
+}
+
+function changeRunsPage(delta) {
+  const target = currentRunsPage + delta;
+  if (target >= 1 && target <= totalRunsPages) {
+    goToRunsPage(target);
+  }
+}
+
+function goToRunsPage(p) {
+  if (p < 1 || p > totalRunsPages) return;
+  currentRunsPage = p;
+  loadRuns(p);
+}
+
+function renderRunsPagination(total, page, pageSize, totalPages) {
+  totalRunsCount = total;
+  currentRunsPage = page;
+  totalRunsPages = Math.max(1, totalPages);
+
+  const totalEl = document.getElementById('runsTotalCount');
+  if (totalEl) totalEl.textContent = total;
+
+  const prevBtn = document.getElementById('runsPrevBtn');
+  const nextBtn = document.getElementById('runsNextBtn');
+  if (prevBtn) prevBtn.disabled = page <= 1;
+  if (nextBtn) nextBtn.disabled = page >= totalRunsPages;
+
+  const pageNumbers = document.getElementById('runsPageNumbers');
+  if (!pageNumbers) return;
+  pageNumbers.innerHTML = '';
+
+  let start = Math.max(1, page - 2);
+  let end = Math.min(totalRunsPages, start + 4);
+  if (end - start < 4) {
+    start = Math.max(1, end - 4);
+  }
+
+  for (let i = start; i <= end; i++) {
+    const btn = document.createElement('button');
+    btn.className = (i === page) ? 'btn btn-primary' : 'btn btn-outline';
+    btn.style.cssText = 'height: 32px; min-width: 32px; padding: 0 8px; font-size: 13px;';
+    btn.textContent = i;
+    btn.onclick = () => goToRunsPage(i);
+    pageNumbers.appendChild(btn);
+  }
+}
+
 function escapeHtml(str) {
   if (!str) return '';
   return String(str)
@@ -507,12 +573,29 @@ async function archiveTask(id) {
   }
 }
 
-async function loadRuns() {
+async function loadRuns(page = currentRunsPage) {
   const tbody = document.getElementById('runsTableBody');
   if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:20px;"><div class="spinner"></div> 正在加载运行记录...</td></tr>';
   try {
-    const runs = await apiFetch('/api/runs');
+    currentRunsPage = page;
+    const res = await apiFetch('/api/runs?page=' + currentRunsPage + '&page_size=' + currentRunsPageSize);
     if (!tbody) return;
+
+    let runs = [];
+    let total = 0;
+    let totalPages = 1;
+    if (res && res.items) {
+      runs = res.items;
+      total = res.total;
+      totalPages = res.total_pages;
+    } else if (Array.isArray(res)) {
+      runs = res;
+      total = runs.length;
+      totalPages = Math.ceil(total / currentRunsPageSize) || 1;
+    }
+
+    renderRunsPagination(total, currentRunsPage, currentRunsPageSize, totalPages);
+
     if (!runs || runs.length === 0) {
       tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:30px; color:var(--text-muted);">暂无任何历史运行记录</td></tr>';
       return;
