@@ -8,7 +8,6 @@ from pathlib import Path
 from platforms.registry import fetch_oss_token
 from app.config import JZT_OSS_OBJECT_KEY, BASE_DIR
 
-LOCAL_FALLBACK = BASE_DIR.parent / "feishu_three_sync" / "jzt_sync" / "token.txt"
 REPORT_URL = "https://jzt-api.jd.com/jrw/content/outside/demand/report/downloadGrassDailyData"
 
 def normalize_date_str(val: Any) -> str:
@@ -33,17 +32,29 @@ def get_all_jzt_cookies() -> List[Tuple[str, str]]:
         except Exception as e:
             print(f"[JZT] Read OSS token failed: {e}")
 
-    # 2. 从本地降级读取
-    if not cookies and LOCAL_FALLBACK.exists():
-        try:
-            cfg = configparser.RawConfigParser()
-            cfg.read(LOCAL_FALLBACK, encoding="utf-8")
-            for sec in cfg.sections():
-                c = cfg.get(sec, "cookie", fallback="")
-                if c:
-                    cookies.append((sec, c))
-        except Exception as e:
-            print(f"[JZT] Read local fallback token failed: {e}")
+    # 2. 从多级本地候选路径读取
+    if not cookies:
+        candidates = [
+            Path(os.getenv("JZT_TOKEN_PATH", "")),
+            BASE_DIR / "tokens" / "jzt_token.txt",
+            BASE_DIR / "tokens" / "token.txt",
+            BASE_DIR / "data" / "jzt_token.txt",
+            BASE_DIR / "data" / "token.txt",
+            BASE_DIR.parent / "feishu_three_sync" / "jzt_sync" / "token.txt",
+        ]
+        for p in candidates:
+            if p and p.exists() and p.is_file():
+                try:
+                    cfg = configparser.RawConfigParser()
+                    cfg.read(p, encoding="utf-8")
+                    for sec in cfg.sections():
+                        c = cfg.get(sec, "cookie", fallback="")
+                        if c:
+                            cookies.append((sec, c))
+                    if cookies:
+                        break
+                except Exception as e:
+                    print(f"[JZT] Read candidate {p} failed: {e}")
 
     if not cookies:
         raise RuntimeError("京准通 Cookie 未配置或无法从 OSS / 本地获取")

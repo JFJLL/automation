@@ -33,3 +33,5 @@ sync_console/.env
 # Logs
 *.log
 logs/
+tokens/
+sync_console/tokens/

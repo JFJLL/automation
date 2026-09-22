@@ -32,10 +32,18 @@ def get_juguang_headers() -> Dict[str, str]:
                 return data
         except Exception as e:
             print(f"[Juguang] Read OSS headers failed: {e}")
-    if LOCAL_FALLBACK.exists():
-        data = json.loads(LOCAL_FALLBACK.read_text(encoding="utf-8"))
-        if isinstance(data, dict):
-            return data
+    candidates = [
+        Path(os.getenv("JUGUANG_TOKEN_PATH", "")),
+        BASE_DIR / "tokens" / "session_headers.json",
+        BASE_DIR / "tokens" / "juguang_headers.json",
+        BASE_DIR / "data" / "session_headers.json",
+        BASE_DIR.parent / "feishu_three_sync" / "jg_sync" / "session_headers.json",
+    ]
+    for p in candidates:
+        if p and p.exists() and p.is_file():
+            data = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return data
     raise RuntimeError("聚光 会话配置未配置或无法从 OSS 获取")
 
 def fetch_juguang_data(entity_id: str, split_type: str, start_date: str, end_date: str, headers_override: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:

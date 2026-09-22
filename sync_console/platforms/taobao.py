@@ -64,11 +64,19 @@ def get_taobao_cookies() -> Dict[str, str]:
                 return parsed
         except Exception as e:
             print(f"[Taobao] Read OSS cookie failed: {e}")
-    if LOCAL_FALLBACK.exists():
-        raw = LOCAL_FALLBACK.read_text(encoding="utf-8").strip()
-        parsed = parse_cookie_payload(raw)
-        if parsed:
-            return parsed
+    candidates = [
+        Path(os.getenv("TAOBAO_TOKEN_PATH", "")),
+        BASE_DIR / "tokens" / "adstar.txt",
+        BASE_DIR / "tokens" / "taobao_token.txt",
+        BASE_DIR / "data" / "adstar.txt",
+        BASE_DIR.parent / "feishu_three_sync" / "taobao" / "adstar.txt",
+    ]
+    for p in candidates:
+        if p and p.exists() and p.is_file():
+            raw = p.read_text(encoding="utf-8").strip()
+            parsed = parse_cookie_payload(raw)
+            if parsed:
+                return parsed
     raise RuntimeError("淘宝星河 Cookie 未配置或无法从 OSS 获取")
 
 def fetch_taobao_data(entity_id: str, dimension: str, start_date: str, end_date: str, cookies: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
