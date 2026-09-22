@@ -14,7 +14,7 @@ FEISHU_APP_ID = os.getenv("FEISHU_APP_ID", "cli_a668f3d00db9100e")
 FEISHU_APP_SECRET = os.getenv("FEISHU_APP_SECRET", "LloP4DjXfH1YqE9DL6ObwfVU5uRhI7TF")
 SHARED_FOLDER_TOKEN = os.getenv("SHARED_FOLDER_TOKEN", "")
 SHARED_FOLDER_NAME = os.getenv("SHARED_FOLDER_NAME", "数据自动同步表")
-ACCESS_TOKEN = os.getenv("ACCESS_TOKEN", "admin123456")
+ACCESS_TOKEN = os.getenv("ACCESS_TOKEN", "redmagic2026")
 
 ADSTAR_OSS_BASE_URL = os.getenv("ADSTAR_OSS_BASE_URL", "https://redmagic.oss-cn-beijing.aliyuncs.com")
 ADSTAR_OSS_OBJECT_KEY = os.getenv("ADSTAR_OSS_OBJECT_KEY", "KOL/adstar_token.txt")

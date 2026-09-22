@@ -2,7 +2,7 @@
 const viewCache = {
   tasks: { loaded: false, data: null },
   runs: { loaded: false, page: 1, pageSize: 20, total: 0, items: [] },
-  settings: { loaded: false, data: null }
+  admin: { loaded: false, data: null }
 };
 
 let currentRunsPage = 1;
@@ -203,6 +203,20 @@ let currentConfirmedSheet = null;
 let previewDataResult = null;
 
 function switchTab(name, updateUrl = true) {
+  // 如果进入 admin 且未认证，弹出管理员密码验证窗口
+  if (name === 'admin') {
+    const token = sessionStorage.getItem('admin_token');
+    if (!token) {
+      const modal = document.getElementById('adminAuthModal');
+      if (modal) {
+        modal.style.display = 'flex';
+        const inp = document.getElementById('adminPasswordInput');
+        if (inp) { inp.value = ''; setTimeout(() => inp.focus(), 50); }
+      }
+      return;
+    }
+  }
+
   // 1. 切换头部 tab 按钮激活态
   document.querySelectorAll('.nav-tab').forEach(t => {
     t.classList.remove('active');
@@ -212,8 +226,14 @@ function switchTab(name, updateUrl = true) {
     }
   });
 
+  // 管理 Tab 仅在访问 admin 或已登录且处于 admin 时展现
+  const navAdmin = document.getElementById('navTabAdmin');
+  if (navAdmin) {
+    navAdmin.style.display = (name === 'admin') ? 'inline-flex' : 'none';
+  }
+
   // 2. 切换卡片内容容器显示
-  const allTabs = ['import', 'tasks', 'runs', 'settings'];
+  const allTabs = ['import', 'tasks', 'runs', 'admin'];
   allTabs.forEach(tName => {
     const el = document.getElementById('tab-' + tName);
     if (el) {
@@ -232,8 +252,8 @@ function switchTab(name, updateUrl = true) {
   if (name === 'runs') {
     if (!viewCache.runs.loaded) loadRuns(currentRunsPage, false);
   }
-  if (name === 'settings') {
-    if (!viewCache.settings.loaded) loadSettings(false);
+  if (name === 'admin') {
+    if (!viewCache.admin.loaded) loadSettings(false);
   }
 
   // 4. 同步浏览器地址栏路径
@@ -247,16 +267,24 @@ function switchTab(name, updateUrl = true) {
 
 function initRouter() {
   const path = window.location.pathname.replace(/^\/+/, '').split('/')[0] || 'import';
-  const validTabs = ['import', 'tasks', 'runs', 'settings'];
-  const initialTab = validTabs.includes(path) ? path : 'import';
-  switchTab(initialTab, false);
+  if (path === 'admin') {
+    switchTab('admin', false);
+  } else {
+    const validTabs = ['import', 'tasks', 'runs'];
+    const initialTab = validTabs.includes(path) ? path : 'import';
+    switchTab(initialTab, false);
+  }
 }
 
 window.addEventListener('popstate', function(e) {
   const path = window.location.pathname.replace(/^\/+/, '').split('/')[0] || 'import';
-  const validTabs = ['import', 'tasks', 'runs', 'settings'];
-  const tab = validTabs.includes(path) ? path : 'import';
-  switchTab(tab, false);
+  if (path === 'admin') {
+    switchTab('admin', false);
+  } else {
+    const validTabs = ['import', 'tasks', 'runs'];
+    const tab = validTabs.includes(path) ? path : 'import';
+    switchTab(tab, false);
+  }
 });
 
 function selectPlatform(code) {
@@ -270,10 +298,17 @@ function selectPlatform(code) {
 }
 
 async function apiFetch(url, options = {}) {
-  const res = await fetch(url, options);
+  const opts = { ...options };
+  opts.headers = { ...(opts.headers || {}) };
+  const adminToken = sessionStorage.getItem('admin_token');
+  if (adminToken) {
+    opts.headers['X-Access-Token'] = adminToken;
+  }
+  const res = await fetch(url, opts);
   if (res.status === 401) {
-    document.getElementById('loginModal').style.display = 'flex';
-    throw new Error('未授权');
+    const modal = document.getElementById('adminAuthModal');
+    if (modal) modal.style.display = 'flex';
+    throw new Error('未授权，需要管理员权限');
   }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
@@ -282,31 +317,42 @@ async function apiFetch(url, options = {}) {
   return await res.json();
 }
 
-async function submitLogin() {
-  const pwd = document.getElementById('loginPasswordInput').value;
+async function submitAdminLogin() {
+  const input = document.getElementById('adminPasswordInput');
+  const pwd = input ? input.value.trim() : '';
+  if (!pwd) {
+    alert('请输入管理密码');
+    return;
+  }
   try {
-    await fetch('/api/auth/login', {
+    const res = await fetch('/api/auth/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ password: pwd })
     });
-    document.getElementById('loginModal').style.display = 'none';
-    window.location.reload();
+    if (!res.ok) throw new Error('口令验证失败');
+    const data = await res.json();
+    if (data.success) {
+      sessionStorage.setItem('admin_token', pwd);
+      const modal = document.getElementById('adminAuthModal');
+      if (modal) modal.style.display = 'none';
+      const navAdmin = document.getElementById('navTabAdmin');
+      if (navAdmin) navAdmin.style.display = 'inline-flex';
+      switchTab('admin', true);
+    }
   } catch (e) {
-    alert('口令错误，请重试');
+    alert('管理密码错误，请重新输入');
+    if (input) {
+      input.value = '';
+      input.focus();
+    }
   }
 }
 
-async function checkAuth() {
-  try {
-    const res = await fetch('/api/auth/check');
-    const d = await res.json();
-    if (!d.authenticated) {
-      document.getElementById('loginModal').style.display = 'flex';
-    }
-  } catch (e) {
-    document.getElementById('loginModal').style.display = 'flex';
-  }
+function cancelAdminLogin() {
+  const modal = document.getElementById('adminAuthModal');
+  if (modal) modal.style.display = 'none';
+  switchTab('import', true);
 }
 
 async function handleFileSelected(event) {
@@ -714,18 +760,17 @@ async function loadRuns(page = currentRunsPage, force = false) {
 }
 
 async function loadSettings(force = false) {
-  if (!force && viewCache.settings.loaded && viewCache.settings.data) {
+  if (!force && viewCache.admin.loaded && viewCache.admin.data) {
     return;
   }
   try {
     const s = await apiFetch('/api/settings');
-    viewCache.settings.loaded = true;
-    viewCache.settings.data = s;
-    document.getElementById('settingFolderToken').value = s.shared_folder_token || '未配置';
-    document.getElementById('settingChatId').value = s.feishu_chat_id || '';
-    document.getElementById('settingWebhook').value = s.notification_webhook || '';
+    viewCache.admin.loaded = true;
+    viewCache.admin.data = s;
+    const tokenEl = document.getElementById('settingFolderToken');
+    if (tokenEl) tokenEl.value = s.shared_folder_token || '未配置';
   } catch (e) {
-    console.error(e);
+    console.error('加载系统配置失败:', e);
   }
 }
 
@@ -745,7 +790,7 @@ async function createNotificationGroup() {
   }
 }
 
-checkAuth();
+
 
 
 function onCodexFreqChange() {
@@ -884,7 +929,7 @@ window.handleFileSelected = function(event) {
 };
 
 window.addEventListener('DOMContentLoaded', () => {
-  checkAuth();
+  
   setupDragAndDrop();
 });
 

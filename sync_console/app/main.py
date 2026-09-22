@@ -23,10 +23,13 @@ from core.scheduler import init_scheduler, reschedule_task, remove_job, parse_ne
 app = FastAPI(title="飞书数据自动同步中心")
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "web")), name="static")
 
-def verify_token(request: Request) -> bool:
+def verify_admin_token(request: Request) -> bool:
     token = request.headers.get("X-Access-Token") or request.cookies.get("access_token")
     if not token or token != ACCESS_TOKEN:
-        raise HTTPException(status_code=401, detail="未授权，请输入口令")
+        raise HTTPException(status_code=401, detail="未授权，需要管理员权限")
+    return True
+
+def verify_token(request: Request) -> bool:
     return True
 
 @app.on_event("startup")
@@ -38,6 +41,7 @@ def on_startup():
 @app.get("/import", response_class=HTMLResponse)
 @app.get("/tasks", response_class=HTMLResponse)
 @app.get("/runs", response_class=HTMLResponse)
+@app.get("/admin", response_class=HTMLResponse)
 @app.get("/settings", response_class=HTMLResponse)
 def index_page():
     html_path = BASE_DIR / "web" / "index.html"
@@ -64,7 +68,7 @@ def get_platforms(_=Depends(verify_token)):
     }
 
 @app.get("/api/settings")
-def get_settings(_=Depends(verify_token)):
+def get_settings(_=Depends(verify_admin_token)):
     feishu = FeishuClient()
     folder_token = feishu.get_or_create_shared_folder()
     return {

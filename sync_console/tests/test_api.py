@@ -11,8 +11,12 @@ class TestApiEndpoints(unittest.TestCase):
         self.headers = {"X-Access-Token": ACCESS_TOKEN}
 
     def test_auth_flow(self):
-        # 未授权
+        # 普通公开接口免鉴权
         r = self.client.get("/api/platforms")
+        self.assertEqual(r.status_code, 200)
+
+        # 未授权管理接口
+        r = self.client.get("/api/settings")
         self.assertEqual(r.status_code, 401)
 
         # 密码登录
@@ -20,12 +24,10 @@ class TestApiEndpoints(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.json().get("success"))
 
-        # 校验成功
-        r = self.client.get("/api/platforms", headers=self.headers)
+        # 校验成功访问管理接口
+        r = self.client.get("/api/settings", headers=self.headers)
         self.assertEqual(r.status_code, 200)
-        self.assertIn("jzt", r.json())
-        self.assertIn("taobao", r.json())
-        self.assertIn("juguang", r.json())
+        self.assertIn("shared_folder_token", r.json())
 
     def test_upload_and_preview_flow(self):
         # 构造测试 Excel

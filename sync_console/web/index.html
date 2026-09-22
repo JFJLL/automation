@@ -467,7 +467,7 @@
       <button class="nav-tab active" onclick="switchTab('import')">📥 导入与新建</button>
       <button class="nav-tab" onclick="switchTab('tasks')">📋 同步任务列表 <span id="taskCountBadge" class="badge badge-gray">0</span></button>
       <button class="nav-tab" onclick="switchTab('runs')">📊 运行记录与状态</button>
-      <button class="nav-tab" onclick="switchTab('settings')">⚙️ 系统设置</button>
+      <button class="nav-tab" id="navTabAdmin" style="display: none;" onclick="switchTab('admin')">⚙️ 系统管理</button>
     </div>
   </div>
 
@@ -900,25 +900,13 @@
       </div>
     </div>
 
-    <div id="tab-settings" class="tab-content" style="display:none;">
+    <div id="tab-admin" class="tab-content" style="display: none;">
       <div class="card">
         <div class="card-title">系统基础配置</div>
-        <div class="form-group">
+        <div class="form-group" style="margin-bottom: 0;">
           <label>飞书共享文件夹 Token</label>
           <input type="text" class="form-control" id="settingFolderToken" readonly>
-          <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">系统自动维护在“数据自动同步表”文件夹内。新建表格自动共享并开启企业可编辑权限。</div>
-        </div>
-        <div class="form-group">
-          <label>飞书告警群 Chat ID (机器人消息推送)</label>
-          <div style="display: flex; gap: 8px;">
-            <input type="text" class="form-control" id="settingChatId" placeholder="例如：oc_d48b8c0d06af4457ecc46c1c27289b5b">
-            <button class="btn btn-outline" onclick="createNotificationGroup()">一键创建告警群</button>
-          </div>
-          <div style="font-size: 12px; color: var(--text-muted); margin-top: 4px;">任务异常失败时自动推送告警消息。</div>
-        </div>
-        <div class="form-group">
-          <label>企业微信/飞书通用 Webhook (可选)</label>
-          <input type="text" class="form-control" id="settingWebhook" placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/...">
+          <div style="font-size: 12px; color: var(--text-muted); margin-top: 6px;">系统自动维护在“数据自动同步表”文件夹内。新建表格自动保存在此文件夹中并开启企业内员工全员可编辑权限。</div>
         </div>
       </div>
     </div>
@@ -944,17 +932,22 @@
     </div>
   </div>
 
-  <div class="modal-overlay" id="loginModal">
+  <div class="modal-overlay" id="adminAuthModal" style="display: none;">
     <div class="modal">
-      <h3 style="margin-bottom: 12px;">请输入访问口令</h3>
-      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">首次进入或凭据过期，请输入系统管理口令：</p>
-      <input type="password" id="loginPasswordInput" class="form-control" style="margin-bottom: 16px;" placeholder="默认：admin123456">
-      <button class="btn btn-primary" style="width: 100%;" onclick="submitLogin()">进入系统</button>
+      <h3 style="margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+        <span>🔒</span> 管理员身份验证
+      </h3>
+      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">此区域为系统管理后台，请输入管理密码后进入：</p>
+      <input type="password" id="adminPasswordInput" class="form-control" style="margin-bottom: 18px;" placeholder="请输入管理密码" onkeydown="if(event.key==='Enter') submitAdminLogin()">
+      <div style="display: flex; justify-content: flex-end; gap: 10px;">
+        <button class="btn btn-outline" onclick="cancelAdminLogin()">返回首页</button>
+        <button class="btn btn-primary" onclick="submitAdminLogin()">验证进入</button>
+      </div>
     </div>
   </div>
 
   <!-- 将 JavaScript 逻辑直接内嵌于页面，彻底杜绝浏览器静态文件缓存引起的失效 -->
-  <script src="/static/app.js?v=20260922_v4"></script>
+  <script src="/static/app.js?v=20260922_v5"></script>
 <div id="globalHoverTooltip" style="position: fixed; display: none; background: #1d2129; color: #ffffff; padding: 8px 12px; border-radius: 6px; font-size: 12px; line-height: 1.5; max-width: 420px; z-index: 99999; box-shadow: 0 4px 16px rgba(0,0,0,0.25); pointer-events: none; word-break: break-all; transition: opacity 0.15s ease;"></div>
 </body>
 </html>
