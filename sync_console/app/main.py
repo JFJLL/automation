@@ -35,6 +35,10 @@ def on_startup():
     init_scheduler()
 
 @app.get("/", response_class=HTMLResponse)
+@app.get("/import", response_class=HTMLResponse)
+@app.get("/tasks", response_class=HTMLResponse)
+@app.get("/runs", response_class=HTMLResponse)
+@app.get("/settings", response_class=HTMLResponse)
 def index_page():
     html_path = BASE_DIR / "web" / "index.html"
     return HTMLResponse(content=html_path.read_text(encoding="utf-8"))

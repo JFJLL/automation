@@ -48,19 +48,57 @@ function renderRunsPagination(total, page, pageSize, totalPages) {
   if (!pageNumbers) return;
   pageNumbers.innerHTML = '';
 
-  let start = Math.max(1, page - 2);
-  let end = Math.min(totalRunsPages, start + 4);
-  if (end - start < 4) {
-    start = Math.max(1, end - 4);
-  }
-
-  for (let i = start; i <= end; i++) {
+  const createPageBtn = (p) => {
     const btn = document.createElement('button');
-    btn.className = (i === page) ? 'btn btn-primary' : 'btn btn-outline';
-    btn.style.cssText = 'height: 32px; min-width: 32px; padding: 0 8px; font-size: 13px;';
-    btn.textContent = i;
-    btn.onclick = () => goToRunsPage(i);
-    pageNumbers.appendChild(btn);
+    btn.className = (p === page) ? 'btn btn-primary' : 'btn btn-outline';
+    btn.style.cssText = 'height: 32px; min-width: 32px; padding: 0 8px; font-size: 13px; border-radius: var(--radius-sm);';
+    btn.textContent = p;
+    btn.onclick = () => goToRunsPage(p);
+    return btn;
+  };
+
+  const createEllipsis = () => {
+    const span = document.createElement('span');
+    span.style.cssText = 'display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 32px; color: var(--text-muted); font-size: 13px; user-select: none;';
+    span.textContent = '...';
+    return span;
+  };
+
+  // 智能省略号折叠算法：页数超过 7 页时折叠中间
+  if (totalRunsPages <= 7) {
+    for (let i = 1; i <= totalRunsPages; i++) {
+      pageNumbers.appendChild(createPageBtn(i));
+    }
+  } else {
+    // 始终显示第 1 页
+    pageNumbers.appendChild(createPageBtn(1));
+
+    if (page > 4) {
+      pageNumbers.appendChild(createEllipsis());
+    }
+
+    // 中间动态区间
+    let start = Math.max(2, page - 1);
+    let end = Math.min(totalRunsPages - 1, page + 1);
+
+    if (page <= 4) {
+      start = 2;
+      end = 5;
+    } else if (page >= totalRunsPages - 3) {
+      start = totalRunsPages - 4;
+      end = totalRunsPages - 1;
+    }
+
+    for (let i = start; i <= end; i++) {
+      pageNumbers.appendChild(createPageBtn(i));
+    }
+
+    if (page < totalRunsPages - 3) {
+      pageNumbers.appendChild(createEllipsis());
+    }
+
+    // 始终显示最后一页
+    pageNumbers.appendChild(createPageBtn(totalRunsPages));
   }
 }
 
@@ -157,7 +195,7 @@ let uploadedAnalysis = null;
 let currentConfirmedSheet = null;
 let previewDataResult = null;
 
-function switchTab(name) {
+function switchTab(name, updateUrl = true) {
   // 1. 切换头部 tab 按钮激活态
   document.querySelectorAll('.nav-tab').forEach(t => {
     t.classList.remove('active');
@@ -184,7 +222,29 @@ function switchTab(name) {
   if (name === 'tasks') loadTasks();
   if (name === 'runs') loadRuns();
   if (name === 'settings') loadSettings();
+
+  // 4. 同步浏览器地址栏路径
+  if (updateUrl) {
+    const targetPath = (name === 'import') ? '/' : ('/' + name);
+    if (window.location.pathname !== targetPath) {
+      window.history.pushState({ tab: name }, '', targetPath);
+    }
+  }
 }
+
+function initRouter() {
+  const path = window.location.pathname.replace(/^\/+/, '').split('/')[0] || 'import';
+  const validTabs = ['import', 'tasks', 'runs', 'settings'];
+  const initialTab = validTabs.includes(path) ? path : 'import';
+  switchTab(initialTab, false);
+}
+
+window.addEventListener('popstate', function(e) {
+  const path = window.location.pathname.replace(/^\/+/, '').split('/')[0] || 'import';
+  const validTabs = ['import', 'tasks', 'runs', 'settings'];
+  const tab = validTabs.includes(path) ? path : 'import';
+  switchTab(tab, false);
+});
 
 function selectPlatform(code) {
   currentPlatform = code;
@@ -617,7 +677,7 @@ async function loadRuns(page = currentRunsPage) {
         '<td>' + finishTime + '</td>' +
         '<td>' + badge + '</td>' +
         '<td>' + (r.message || '-') + '</td>' +
-        (!r.error_detail ? '<td><span style="color:var(--text-muted);">-</span></td>' : '<td><div class="error-tooltip-wrap" data-run-id="' + r.id + '" data-tooltip="' + escapeHtml(r.error_detail) + '" title="' + escapeHtml(r.error_detail) + '"><span>⚠️</span><span class="error-text">' + escapeHtml(r.error_detail) + '</span></div></td>');
+        (!r.error_detail ? '<td><span style="color:var(--text-muted);">-</span></td>' : '<td><div class="error-tooltip-wrap" data-run-id="' + r.id + '" data-tooltip="' + escapeHtml(r.error_detail) + '"><span>⚠️</span><span class="error-text">' + escapeHtml(r.error_detail) + '</span></div></td>');
       tbody.appendChild(tr);
     });
   } catch (e) {
@@ -910,3 +970,9 @@ document.addEventListener('click', (e) => {
 window.addEventListener('DOMContentLoaded', () => {
   initCustomTimepicker();
 });
+
+// 初始化路由分发
+document.addEventListener('DOMContentLoaded', initRouter);
+if (document.readyState === 'complete' || document.readyState === 'interactive') {
+  initRouter();
+}
