@@ -1,0 +1,1277 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>关键词搜索指数与投放洞察 - 飞书同步中心</title>
+  <style>
+    :root {
+      --primary: #165dff;
+      --primary-hover: #0e42d2;
+      --primary-active: #0a34ab;
+      --primary-light: #e8f3ff;
+      --bg: #f5f7fa;
+      --card-bg: #ffffff;
+      --text: #1d2129;
+      --text-secondary: #4e5969;
+      --text-muted: #86909c;
+      --border: #e5e6eb;
+      --border-hover: #b4bccc;
+      --border-control: #d9dbe2;
+      --success: #00b42a;
+      --warning: #ff7d00;
+      --danger: #f53f3f;
+      --radius-sm: 6px;
+      --radius-md: 8px;
+      --radius-lg: 12px;
+      --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+      --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.06);
+      --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font-family);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.5;
+      padding-bottom: 70px;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* 顶部导航栏 (与主项目保持严格一致) */
+    .header {
+      background: #ffffff;
+      border-bottom: 1px solid var(--border);
+      padding: 14px 28px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
+    }
+    .header h1 {
+      font-size: 17px;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #1d2129;
+    }
+    .header h1 .badge {
+      background: #e8f3ff;
+      color: var(--primary);
+      font-size: 12px;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 500;
+    }
+
+    .nav-tabs {
+      display: flex;
+      gap: 6px;
+      background: #f2f3f5;
+      padding: 4px;
+      border-radius: var(--radius-md);
+    }
+    .nav-tab {
+      padding: 7px 18px;
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 500;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      transition: all 0.2s ease;
+      outline: none;
+    }
+    .nav-tab:hover { color: var(--text); background: rgba(255, 255, 255, 0.5); }
+    .nav-tab.active {
+      background: #ffffff;
+      color: var(--primary);
+      font-weight: 600;
+      box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+    }
+
+    .container { max-width: 1440px; margin: 24px auto; padding: 0 24px; }
+
+    /* 卡片系统 */
+    .card {
+      background: var(--card-bg);
+      border-radius: var(--radius-lg);
+      border: 1px solid var(--border);
+      padding: 24px;
+      margin-bottom: 22px;
+      box-shadow: var(--shadow-sm);
+      transition: box-shadow 0.2s ease;
+    }
+    .card:hover { box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05); }
+    .card-title {
+      font-size: 16px;
+      font-weight: 600;
+      margin-bottom: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      color: #1d2129;
+    }
+
+    /* 统一高质感非原生按钮系统 */
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 16px;
+      font-size: 13px;
+      font-weight: 500;
+      border-radius: var(--radius-md);
+      border: 1.5px solid transparent;
+      cursor: pointer;
+      transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+      text-decoration: none;
+      user-select: none;
+      outline: none;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+    .btn:active { transform: scale(0.985); }
+    .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none !important; }
+    .btn-primary {
+      background: linear-gradient(180deg, #2d6eff 0%, #165dff 100%);
+      color: #ffffff;
+      border-color: #165dff;
+      box-shadow: 0 2px 6px rgba(22, 93, 255, 0.2);
+    }
+    .btn-primary:hover:not(:disabled) {
+      background: linear-gradient(180deg, #4080ff 0%, #2065ff 100%);
+      box-shadow: 0 4px 12px rgba(22, 93, 255, 0.3);
+    }
+    .btn-success {
+      background: linear-gradient(180deg, #00c42f 0%, #00b42a 100%);
+      color: #ffffff;
+      border-color: #00b42a;
+      box-shadow: 0 2px 6px rgba(0, 180, 42, 0.2);
+    }
+    .btn-success:hover:not(:disabled) {
+      background: linear-gradient(180deg, #18d444 0%, #08bc31 100%);
+      box-shadow: 0 4px 12px rgba(0, 180, 42, 0.3);
+    }
+    .btn-outline {
+      background: #ffffff;
+      border-color: var(--border-control);
+      color: #333842;
+    }
+    .btn-outline:hover:not(:disabled) {
+      background: #f7f8fa;
+      border-color: var(--border-hover);
+      color: #1d2129;
+    }
+    .btn-sm { padding: 4px 10px; font-size: 12px; border-radius: var(--radius-sm); }
+
+    /* 自定义非原生表单控件 */
+    .form-control-custom {
+      height: 40px;
+      padding: 0 14px;
+      border: 1.5px solid var(--border-control);
+      border-radius: var(--radius-md);
+      font-size: 14px;
+      color: #1d2129;
+      background-color: #ffffff;
+      transition: all 0.2s ease;
+      outline: none;
+      font-family: inherit;
+    }
+    .form-control-custom:focus {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(22, 93, 255, 0.12);
+    }
+
+    /* 快捷时间 pill 选择组 */
+    .pill-group {
+      display: inline-flex;
+      background: #f2f3f5;
+      padding: 3px;
+      border-radius: var(--radius-sm);
+      gap: 3px;
+    }
+    .pill-btn {
+      padding: 5px 11px;
+      border-radius: 4px;
+      border: none;
+      background: transparent;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.15s ease;
+      white-space: nowrap;
+    }
+    .pill-btn:hover { color: var(--text); }
+    .pill-btn.active {
+      background: #ffffff;
+      color: var(--primary);
+      font-weight: 600;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+    }
+
+    /* 搜索栏结构 */
+    .search-flex-row {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+    .date-picker-box {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #fafbfc;
+      padding: 6px 12px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    .date-picker-box label {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-secondary);
+      margin: 0;
+    }
+    .kw-input-box {
+      flex: 1;
+      min-width: 320px;
+      position: relative;
+    }
+    .kw-input-box input {
+      width: 100%;
+      padding-left: 36px;
+    }
+    .kw-input-box .search-icon {
+      position: absolute;
+      left: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: var(--text-muted);
+      pointer-events: none;
+    }
+    .input-hint-text {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 6px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+
+    /* 动作按钮栏 (搜索结果展示时出现) */
+    .overview-actions-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      background: #f8fafc;
+      padding: 12px 18px;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border);
+    }
+    .overview-actions-bar .info-label {
+      font-size: 14px;
+      font-weight: 500;
+      color: #333842;
+    }
+
+    /* 复合大表格 (水平无限滚动、固定首列与双层复合表头) */
+    .table-scroll-wrap {
+      overflow-x: auto;
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      background: #ffffff;
+      max-height: 68vh;
+      scroll-behavior: smooth;
+    }
+    table.custom-grid {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      font-size: 13px;
+    }
+    table.custom-grid th, table.custom-grid td {
+      border-right: 1px solid var(--border);
+      border-bottom: 1px solid var(--border);
+      padding: 8px 14px;
+      white-space: nowrap;
+      text-align: right;
+    }
+    table.custom-grid th {
+      background: #f7f8fa;
+      color: #333842;
+      font-weight: 600;
+      text-align: center;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+    }
+    table.custom-grid thead tr:nth-child(2) th {
+      top: 37px;
+      font-size: 12px;
+      background: #f2f3f5;
+      color: var(--text-secondary);
+      font-weight: 500;
+    }
+    table.custom-grid th.col-sticky-kw, table.custom-grid td.col-sticky-kw {
+      position: sticky;
+      left: 0;
+      z-index: 20;
+      background: #ffffff;
+      text-align: left;
+      font-weight: 600;
+      min-width: 180px;
+      max-width: 240px;
+    }
+    table.custom-grid thead th.col-sticky-kw {
+      background: #f7f8fa;
+      z-index: 30;
+    }
+    table.custom-grid tbody tr:hover td {
+      background: #f9fbff;
+    }
+    table.custom-grid tbody tr:hover td.col-sticky-kw {
+      background: #f0f7ff;
+    }
+
+    /* 任务列表与运行记录宽屏表格 (彻底解决文字竖排问题) */
+    .table-responsive-wide {
+      overflow-x: auto;
+      border-radius: var(--radius-md);
+      border: 1px solid var(--border);
+    }
+    .simple-table {
+      width: 100%;
+      min-width: 1150px;
+      border-collapse: collapse;
+      font-size: 13.5px;
+    }
+    .simple-table th, .simple-table td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      text-align: left;
+      white-space: nowrap;
+      vertical-align: middle;
+    }
+    .simple-table th {
+      background: #fafbfc;
+      font-weight: 600;
+      color: #333842;
+      border-bottom: 2px solid var(--border);
+    }
+    .simple-table tbody tr:hover { background: #fafbfc; }
+
+    /* 关键词折叠标签胶囊 */
+    .kw-tag-item {
+      display: inline-block;
+      background: #f2f3f5;
+      color: #4e5969;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      margin: 2px 4px 2px 0;
+      border: 1px solid #e5e6eb;
+    }
+    .kw-tag-more {
+      display: inline-block;
+      background: #e8f3ff;
+      color: var(--primary);
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 600;
+      cursor: pointer;
+      border: 1px solid #bedaff;
+      transition: all 0.15s ease;
+    }
+    .kw-tag-more:hover {
+      background: #d0e7ff;
+    }
+
+    /* 状态徽章 */
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .status-success { background: #e8ffea; color: #00b42a; }
+    .status-running { background: #e8f3ff; color: #165dff; }
+    .status-failed { background: #ffece8; color: #f53f3f; }
+    .status-paused { background: #f2f3f5; color: #86909c; }
+
+    /* 弹窗系统 */
+    .modal-backdrop-custom {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.45);
+      backdrop-filter: blur(2px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 999;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+    .modal-backdrop-custom.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .modal-box {
+      background: #ffffff;
+      border-radius: var(--radius-lg);
+      width: 540px;
+      max-width: 90vw;
+      padding: 26px;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.15);
+      transform: translateY(12px);
+      transition: transform 0.2s ease;
+    }
+    .modal-backdrop-custom.active .modal-box {
+      transform: translateY(0);
+    }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 18px;
+      font-size: 16px;
+      font-weight: 600;
+      color: #1d2129;
+    }
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 10px;
+      margin-top: 24px;
+    }
+
+    /* 加载动画 */
+    .spinner {
+      display: inline-block;
+      width: 16px;
+      height: 16px;
+      border: 2px solid rgba(255, 255, 255, 0.4);
+      border-top-color: #ffffff;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+
+  <!-- 顶部主导航栏 -->
+  <header class="header">
+    <h1>
+      <span>📊 关键词搜索指数与投放洞察</span>
+      <span class="badge">小红书聚光</span>
+    </h1>
+
+    <div class="nav-tabs">
+      <button class="nav-tab active" id="tab-btn-search" onclick="switchMainTab('search')">🔍 关键词查询与概览</button>
+      <button class="nav-tab" id="tab-btn-tasks" onclick="switchMainTab('tasks')">📋 同步任务列表</button>
+      <button class="nav-tab" id="tab-btn-runs" onclick="switchMainTab('runs')">⏱️ 运行记录与状态</button>
+    </div>
+
+    <a href="/" class="btn btn-outline btn-sm">返回数据同步主中心</a>
+  </header>
+
+  <div class="container">
+
+    <!-- 提示消息横幅 -->
+    <div id="alertBanner" style="display:none; padding:14px 20px; border-radius:8px; margin-bottom:18px; font-size:14px;"></div>
+
+    <!-- 板块一：关键词查询与概览 -->
+    <div id="section-search">
+      <div class="card">
+        <form id="searchForm" onsubmit="event.preventDefault(); doSearch();">
+          <div class="search-flex-row">
+            
+            <!-- 时间选择器 (非原生样式 + 快捷Pill) -->
+            <div class="date-picker-box">
+              <label>时间区间：</label>
+              <input type="date" id="startDate" class="form-control-custom" style="width: 140px; height: 36px; padding: 0 8px;">
+              <span style="color: var(--text-muted); font-size: 13px;">至</span>
+              <input type="date" id="endDate" class="form-control-custom" style="width: 140px; height: 36px; padding: 0 8px;">
+              <div class="pill-group ms-1">
+                <button type="button" class="pill-btn" onclick="setDateRange(7, this)">近7天</button>
+                <button type="button" class="pill-btn" onclick="setDateRange(30, this)">近30天</button>
+                <button type="button" class="pill-btn active" id="pill90" onclick="setDateRange(90, this)">近90天</button>
+              </div>
+            </div>
+
+            <!-- 关键词输入框 (支持空格多词) -->
+            <div class="kw-input-box">
+              <span class="search-icon">🔍</span>
+              <input type="text" id="keywordInput" class="form-control-custom" placeholder="输入关键词，多个词请用 空格 隔开（例如：凯乐石 辛芷蕾同款凯乐石 北面）" required>
+            </div>
+
+            <!-- 搜索按钮 -->
+            <button type="submit" class="btn btn-primary" id="btnSearch" style="height: 40px; padding: 0 24px;">
+              <span id="btnSearchSpinner" class="spinner" style="display:none;"></span>
+              <span id="btnSearchText">查询数据</span>
+            </button>
+          </div>
+
+          <div class="input-hint-text">
+            <span>💡 提示：支持同时输入多个关键词，词与词之间使用 <strong>空格</strong> 分隔。系统将通过聚光官方接口逐词拉取完整日度指标。</span>
+          </div>
+        </form>
+      </div>
+
+      <!-- 搜索后数据概览区域 -->
+      <div class="card" id="resultCard" style="display: none;">
+        <!-- 动作操作条：直接生成飞书表格 或 创建定时任务 -->
+        <div class="overview-actions-bar">
+          <div class="info-label" id="resultMetaLabel">数据已就绪</div>
+          <div style="display: flex; gap: 10px; align-items: center;">
+            <button type="button" class="btn btn-outline btn-sm" id="btnSortOrder" onclick="toggleDateSortOrder()">
+              <span>📅 最新在前 (降序)</span>
+            </button>
+            <button type="button" class="btn btn-success" id="btnDirectFeishu" onclick="openDirectSheetModal()">
+              <span>📄 直接生成飞书表格</span>
+            </button>
+            <button type="button" class="btn btn-primary" id="btnCreateTaskModal" onclick="openCreateTaskModal()">
+              <span>⏰ 创建定时任务</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- 复合表格：第一行日期、第二行四个字段、第三行数据 -->
+        <div class="table-scroll-wrap" id="tableScrollWrap">
+          <table class="custom-grid" id="keywordGridTable">
+            <thead>
+              <tr id="gridHeaderRow1"></tr>
+              <tr id="gridHeaderRow2"></tr>
+            </thead>
+            <tbody id="gridTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 板块二：同步任务列表 (宽屏自适应、文字不竖折) -->
+    <div id="section-tasks" style="display: none;">
+      <div class="card">
+        <div class="card-title">
+          <span>📋 关键词同步任务列表</span>
+          <button class="btn btn-outline btn-sm" onclick="loadTasksList()">🔄 刷新列表</button>
+        </div>
+
+        <div class="table-responsive-wide">
+          <table class="simple-table">
+            <thead>
+              <tr>
+                <th style="width: 50px;">ID</th>
+                <th style="min-width: 140px;">任务名称</th>
+                <th style="min-width: 260px;">包含关键词</th>
+                <th style="min-width: 110px;">关联飞书表格</th>
+                <th style="min-width: 90px;">更新模式</th>
+                <th style="min-width: 130px;">频率周期</th>
+                <th style="min-width: 80px;">状态</th>
+                <th style="min-width: 130px;">上次运行</th>
+                <th style="min-width: 250px;">操作</th>
+              </tr>
+            </thead>
+            <tbody id="taskListBody">
+              <tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:30px;">加载中...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- 板块三：运行记录与状态 -->
+    <div id="section-runs" style="display: none;">
+      <div class="card">
+        <div class="card-title">
+          <span>⏱️ 关键词任务运行记录</span>
+          <button class="btn btn-outline btn-sm" onclick="loadRunsList()">🔄 刷新记录</button>
+        </div>
+
+        <div class="table-responsive-wide">
+          <table class="simple-table">
+            <thead>
+              <tr>
+                <th style="width: 60px;">ID</th>
+                <th style="min-width: 150px;">任务/记录名称</th>
+                <th style="min-width: 90px;">触发方式</th>
+                <th style="min-width: 140px;">开始时间</th>
+                <th style="min-width: 140px;">完成时间</th>
+                <th style="min-width: 80px;">状态</th>
+                <th style="min-width: 70px;">词数</th>
+                <th style="min-width: 70px;">天数</th>
+                <th style="min-width: 110px;">飞书表格</th>
+                <th style="min-width: 200px;">执行消息</th>
+              </tr>
+            </thead>
+            <tbody id="runListBody">
+              <tr><td colspan="10" style="text-align:center; color:var(--text-muted); padding:30px;">加载中...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- 查看完整关键词弹窗 Modal -->
+  <div class="modal-backdrop-custom" id="keywordsViewModal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span id="kwModalTitle">📋 任务包含的关键词详情</span>
+        <span style="cursor:pointer; font-size:18px; color:var(--text-muted);" onclick="closeKeywordsViewModal()">✕</span>
+      </div>
+      <div id="kwModalContent" style="display:flex; flex-wrap:wrap; gap:6px; max-height:300px; overflow-y:auto; padding:10px; background:#fafbfc; border-radius:8px; border:1px solid var(--border);"></div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="copyModalKeywords()">复制全部关键词</button>
+        <button type="button" class="btn btn-primary" onclick="closeKeywordsViewModal()">确定</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 添加关键词至已有任务 Modal -->
+  <div class="modal-backdrop-custom" id="appendWordsModal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span>添加关键词至现有任务</span>
+        <span style="cursor:pointer; font-size:18px; color:var(--text-muted);" onclick="closeAppendWordsModal()">✕</span>
+      </div>
+
+      <form id="appendWordsForm" onsubmit="event.preventDefault(); submitAppendWords();">
+        <input type="hidden" id="appendTaskId">
+        <div style="margin-bottom: 12px;">
+          <label style="display:block; font-size:13px; font-weight:500; margin-bottom:4px;">所属任务名称</label>
+          <div id="appendTaskNameDisplay" style="font-weight:600; color:var(--text); font-size:14px; padding:6px 0;"></div>
+        </div>
+
+        <div style="margin-bottom: 14px;">
+          <label style="display:block; font-size:13px; font-weight:500; margin-bottom:6px;">新增关键词（多个词请用 空格 隔开）</label>
+          <input type="text" id="appendWordsInput" class="form-control-custom" style="width:100%;" placeholder="例如：凯乐石鞋子 凯乐石背包 凯乐石软壳" required>
+        </div>
+
+        <div style="margin-bottom: 16px;">
+          <label style="display:flex; align-items:center; gap:8px; font-size:13px; cursor:pointer; color:#333842;">
+            <input type="checkbox" id="appendSyncNow" checked style="width:16px; height:16px;">
+            <span>立即调取新词数据并追加同步至该任务对应的飞书表格</span>
+          </label>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" onclick="closeAppendWordsModal()">取消</button>
+          <button type="submit" class="btn btn-primary" id="btnSubmitAppend">
+            <span id="btnSubmitAppendSpinner" class="spinner" style="display:none;"></span>
+            <span>确认添加</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 删除确认 Modal (替代浏览器被拦截的 window.confirm) -->
+  <div class="modal-backdrop-custom" id="deleteConfirmModal">
+    <div class="modal-box" style="width:440px;">
+      <div class="modal-header">
+        <span style="color:var(--danger);">🗑️ 确认删除任务</span>
+        <span style="cursor:pointer; font-size:18px; color:var(--text-muted);" onclick="closeDeleteModal()">✕</span>
+      </div>
+      <input type="hidden" id="deleteTaskId">
+      <div style="font-size:14px; color:var(--text-secondary); margin-bottom:20px; line-height:1.6;">
+        确定要删除同步任务 <strong id="deleteTaskNameDisplay" style="color:var(--text);"></strong> 吗？删除后将停止定时调度。
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline" onclick="closeDeleteModal()">取消</button>
+        <button type="button" class="btn btn-primary" style="background:var(--danger); border-color:var(--danger);" id="btnConfirmDelete" onclick="submitDeleteTask()">
+          <span id="btnDeleteSpinner" class="spinner" style="display:none;"></span>
+          <span>确认删除</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 直接生成飞书表格 Modal (替代原生 prompt) -->
+  <div class="modal-backdrop-custom" id="directSheetModal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span>📄 直接生成飞书表格</span>
+        <span style="cursor:pointer; font-size:18px; color:var(--text-muted);" onclick="closeDirectSheetModal()">✕</span>
+      </div>
+
+      <form id="directSheetForm" onsubmit="event.preventDefault(); submitDirectFeishuSheet();">
+        <div style="margin-bottom: 14px;">
+          <label style="display:block; font-size:13px; font-weight:500; margin-bottom:6px;">新飞书表格标题</label>
+          <input type="text" id="directSheetTitleInput" class="form-control-custom" style="width:100%;" required>
+        </div>
+
+        <div style="font-size:13px; color:var(--text-secondary); line-height:1.6; background:#f8fafc; padding:12px; border-radius:6px; border:1px solid var(--border);">
+          <div>✨ <strong>自动写入规则：</strong></div>
+          <div>1. 自动在共享文件夹创建电子表格。</div>
+          <div>2. 写入完整数据，并将第一行同期的四个字段单元格<strong>自动合并</strong>。</div>
+          <div>3. 自动设置为公开可读写权限，生成后可一键直达。</div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" onclick="closeDirectSheetModal()">取消</button>
+          <button type="submit" class="btn btn-success" id="btnSubmitDirectSheet">
+            <span id="btnSubmitDirectSpinner" class="spinner" style="display:none;"></span>
+            <span>立即生成并写入</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 创建定时任务 Modal -->
+  <div class="modal-backdrop-custom" id="taskModal">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span>⏰ 创建关键词定时同步任务</span>
+        <span style="cursor:pointer; font-size:18px; color:var(--text-muted);" onclick="closeTaskModal()">✕</span>
+      </div>
+
+      <form id="taskForm" onsubmit="event.preventDefault(); submitCreateTask();">
+        <div style="margin-bottom: 14px;">
+          <label style="display:block; font-size:13px; font-weight:500; margin-bottom:6px;">任务名称</label>
+          <input type="text" id="taskNameInput" class="form-control-custom" style="width:100%;" required>
+        </div>
+
+        <div style="margin-bottom: 14px;">
+          <label style="display:block; font-size:13px; font-weight:500; margin-bottom:6px;">同步关键词（空格分隔）</label>
+          <input type="text" id="taskKeywordsInput" class="form-control-custom" style="width:100%;" required>
+        </div>
+
+        <div style="margin-bottom: 14px;">
+          <label style="display:block; font-size:13px; font-weight:500; margin-bottom:6px;">数据更新方式</label>
+          <select id="taskUpdateMode" class="form-control-custom" style="width:100%;">
+            <option value="overwrite" selected>全量覆盖更新</option>
+            <option value="append">增量追加</option>
+          </select>
+        </div>
+
+        <div style="margin-bottom: 14px;">
+          <label style="display:block; font-size:13px; font-weight:500; margin-bottom:6px;">同步执行频率</label>
+          <select id="taskRrule" class="form-control-custom" style="width:100%;">
+            <option value="FREQ=DAILY;BYHOUR=12;BYMINUTE=30" selected>每天 12:30 执行</option>
+            <option value="FREQ=DAILY;BYHOUR=9;BYMINUTE=0">每天 09:00 执行</option>
+            <option value="FREQ=DAILY;BYHOUR=18;BYMINUTE=0">每天 18:00 执行</option>
+            <option value="FREQ=WORKDAY;BYHOUR=10;BYMINUTE=0">法定工作日 10:00 执行</option>
+          </select>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" onclick="closeTaskModal()">取消</button>
+          <button type="submit" class="btn btn-primary" id="btnSubmitTask">
+            <span id="btnSubmitTaskSpinner" class="spinner" style="display:none;"></span>
+            <span>确认创建并启动</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    let latestSearchResult = null;
+    let isDateDescending = false; // 默认升序，但自动平滑滚动至最右端（最新日期）
+    let modalKeywordsCache = [];
+
+    // 页面初始化
+    window.addEventListener('DOMContentLoaded', () => {
+      initDates();
+    });
+
+    function initDates() {
+      const now = new Date();
+      // 昨天 (T-1)
+      const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+      const past90 = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 90);
+      document.getElementById('endDate').value = formatYMD(yesterday);
+      document.getElementById('startDate').value = formatYMD(past90);
+    }
+
+    function formatYMD(d) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, '0');
+      const day = String(d.getDate()).padStart(2, '0');
+      return `${y}-${m}-${day}`;
+    }
+
+    function setDateRange(days, btn) {
+      const now = new Date();
+      const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+      const past = new Date(now.getFullYear(), now.getMonth(), now.getDate() - days);
+      document.getElementById('endDate').value = formatYMD(yesterday);
+      document.getElementById('startDate').value = formatYMD(past);
+
+      document.querySelectorAll('.pill-btn').forEach(b => b.classList.remove('active'));
+      if (btn) btn.classList.add('active');
+    }
+
+    function switchMainTab(tab) {
+      document.getElementById('section-search').style.display = tab === 'search' ? 'block' : 'none';
+      document.getElementById('section-tasks').style.display = tab === 'tasks' ? 'block' : 'none';
+      document.getElementById('section-runs').style.display = tab === 'runs' ? 'block' : 'none';
+
+      document.getElementById('tab-btn-search').classList.toggle('active', tab === 'search');
+      document.getElementById('tab-btn-tasks').classList.toggle('active', tab === 'tasks');
+      document.getElementById('tab-btn-runs').classList.toggle('active', tab === 'runs');
+
+      if (tab === 'tasks') loadTasksList();
+      if (tab === 'runs') loadRunsList();
+    }
+
+    function showAlert(msg, type = 'success') {
+      const b = document.getElementById('alertBanner');
+      b.style.display = 'block';
+      if (type === 'success') {
+        b.style.background = '#e8ffea';
+        b.style.border = '1px solid #b7eb8f';
+        b.style.color = '#00b42a';
+      } else {
+        b.style.background = '#ffece8';
+        b.style.border = '1px solid #f53f3f';
+        b.style.color = '#f53f3f';
+      }
+      b.innerHTML = msg;
+      setTimeout(() => { b.scrollIntoView({ behavior: 'smooth' }); }, 100);
+    }
+
+    // 切换日期升序/降序展示
+    function toggleDateSortOrder() {
+      isDateDescending = !isDateDescending;
+      document.getElementById('btnSortOrder').innerHTML = isDateDescending ? '<span>📅 最新在前 (降序)</span>' : '<span>📅 最早在前 (升序)</span>';
+      if (latestSearchResult) {
+        renderGrid(latestSearchResult);
+      }
+    }
+
+    // 搜索
+    async function doSearch() {
+      const rawKw = document.getElementById('keywordInput').value.trim();
+      if (!rawKw) return;
+
+      const startDate = document.getElementById('startDate').value;
+      const endDate = document.getElementById('endDate').value;
+
+      const btn = document.getElementById('btnSearch');
+      const spinner = document.getElementById('btnSearchSpinner');
+      btn.disabled = true;
+      spinner.style.display = 'inline-block';
+      document.getElementById('btnSearchText').innerText = '正在调取聚光接口...';
+
+      try {
+        const resp = await fetch('/api/keyword/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ keywords: rawKw, start_date: startDate, end_date: endDate })
+        });
+        const res = await resp.json();
+        if (!resp.ok || !res.success) {
+          throw new Error(res.detail || res.message || '查询失败');
+        }
+        latestSearchResult = res;
+        renderGrid(res);
+      } catch (err) {
+        showAlert('查询失败: ' + err.message, 'danger');
+      } finally {
+        btn.disabled = false;
+        spinner.style.display = 'none';
+        document.getElementById('btnSearchText').innerText = '查询数据';
+      }
+    }
+
+    // 渲染复合表头表格
+    function renderGrid(res) {
+      const { keywords, dates: rawDates, data } = res;
+      const dates = isDateDescending ? [...rawDates].reverse() : [...rawDates];
+
+      document.getElementById('resultMetaLabel').innerText = 
+        `共检索 ${keywords.length} 个关键词，时间范围 ${rawDates[0]} 至 ${rawDates[rawDates.length - 1]}（共 ${dates.length} 天）`;
+
+      // 表头第1行：日期（跨4列）
+      const hRow1 = document.getElementById('gridHeaderRow1');
+      hRow1.innerHTML = '<th rowspan="2" class="col-sticky-kw">关键词</th>';
+      dates.forEach(d => {
+        hRow1.innerHTML += `<th colspan="4" style="background:#edf2fc; color:#1e3a8a; border-left:2px solid #cbd5e1;">${d}</th>`;
+      });
+
+      // 表头第2行：四个字段
+      const hRow2 = document.getElementById('gridHeaderRow2');
+      hRow2.innerHTML = '';
+      dates.forEach(() => {
+        hRow2.innerHTML += `
+          <th style="color:#2563eb; border-left:2px solid #cbd5e1;">搜索指数</th>
+          <th style="color:#d97706;">广告曝光量</th>
+          <th style="color:#059669;">广告笔记数</th>
+          <th style="color:#7c3aed;">平均市场出价</th>
+        `;
+      });
+
+      // 数据行：每个关键词一行
+      const tbody = document.getElementById('gridTableBody');
+      tbody.innerHTML = '';
+      keywords.forEach(kw => {
+        const kwDaily = data[kw] || {};
+        let trHtml = `<tr><td class="col-sticky-kw">${kw}</td>`;
+        dates.forEach(d => {
+          const item = kwDaily[d];
+          const s = (item && item.search_num != null && item.search_num > 0) ? Number(item.search_num).toLocaleString() : '0';
+          const imp = (item && item.imp_num != null && item.imp_num > 0) ? Number(item.imp_num).toLocaleString() : '0';
+          const note = (item && item.note_num != null && item.note_num > 0) ? Number(item.note_num).toLocaleString() : '0';
+          const bid = (item && item.bid != null && item.bid > 0) ? ('￥' + Number(item.bid).toFixed(2)) : '￥0.00';
+          
+          trHtml += `
+            <td style="border-left:2px solid #cbd5e1;">${s}</td>
+            <td>${imp}</td>
+            <td>${note}</td>
+            <td>${bid}</td>
+          `;
+        });
+        trHtml += '</tr>';
+        tbody.innerHTML += trHtml;
+      });
+
+      document.getElementById('resultCard').style.display = 'block';
+      
+      // 升序时自动横向滚动到最右侧（最新日期区域），方便第一眼看到最新数据
+      setTimeout(() => {
+        const wrap = document.getElementById('tableScrollWrap');
+        if (wrap && !isDateDescending) {
+          wrap.scrollLeft = wrap.scrollWidth;
+        }
+        document.getElementById('resultCard').scrollIntoView({ behavior: 'smooth' });
+      }, 50);
+    }
+
+    // 直接生成飞书表格 Modal
+    function openDirectSheetModal() {
+      if (!latestSearchResult) return;
+      const defaultTitle = `关键词洞察_${latestSearchResult.keywords.slice(0, 3).join('_')}_${formatYMD(new Date())}`;
+      document.getElementById('directSheetTitleInput').value = defaultTitle;
+      document.getElementById('directSheetModal').classList.add('active');
+    }
+
+    function closeDirectSheetModal() {
+      document.getElementById('directSheetModal').classList.remove('active');
+    }
+
+    async function submitDirectFeishuSheet() {
+      if (!latestSearchResult) return;
+      const title = document.getElementById('directSheetTitleInput').value.trim();
+      const btn = document.getElementById('btnSubmitDirectSheet');
+      const spinner = document.getElementById('btnSubmitDirectSpinner');
+      btn.disabled = true;
+      spinner.style.display = 'inline-block';
+
+      try {
+        const resp = await fetch('/api/keyword/feishu/direct_create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            title: title || `关键词洞察_${formatYMD(new Date())}`,
+            keywords: latestSearchResult.keywords,
+            start_date: latestSearchResult.start_date,
+            end_date: latestSearchResult.end_date
+          })
+        });
+        const res = await resp.json();
+        if (!resp.ok || !res.success) {
+          throw new Error(res.detail || '生成飞书表格失败');
+        }
+        closeDirectSheetModal();
+        showAlert(`🎉 飞书表格创建并填充成功！已合并第一行日期表头单元格。<a href="${res.spreadsheet_url}" target="_blank" style="color:var(--primary); font-weight:600; text-decoration:underline; margin-left:8px;">点击立即打开飞书表格 ↗</a>`, 'success');
+      } catch (err) {
+        alert('飞书表格创建失败: ' + err.message);
+      } finally {
+        btn.disabled = false;
+        spinner.style.display = 'none';
+      }
+    }
+
+    // 定时任务 Modal 操作
+    function openCreateTaskModal() {
+      if (!latestSearchResult) return;
+      const kws = latestSearchResult.keywords.join(' ');
+      document.getElementById('taskKeywordsInput').value = kws;
+      document.getElementById('taskNameInput').value = `${latestSearchResult.keywords[0]}等关键词同步任务`;
+      document.getElementById('taskModal').classList.add('active');
+    }
+
+    function closeTaskModal() {
+      document.getElementById('taskModal').classList.remove('active');
+    }
+
+    async function submitCreateTask() {
+      const taskName = document.getElementById('taskNameInput').value.trim();
+      const kwStr = document.getElementById('taskKeywordsInput').value.trim();
+      const updateMode = document.getElementById('taskUpdateMode').value;
+      const rrule = document.getElementById('taskRrule').value;
+
+      const kws = kwStr.split(/\s+/).filter(Boolean);
+      if (!kws.length) return alert('请至少填写一个关键词');
+
+      const btn = document.getElementById('btnSubmitTask');
+      const spinner = document.getElementById('btnSubmitTaskSpinner');
+      btn.disabled = true;
+      spinner.style.display = 'inline-block';
+
+      try {
+        const resp = await fetch('/api/keyword/tasks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            task_name: taskName,
+            keywords: kws,
+            update_mode: updateMode,
+            rrule: rrule,
+            days_range: 90
+          })
+        });
+        const res = await resp.json();
+        if (!resp.ok || !res.success) throw new Error(res.detail || '创建任务失败');
+
+        closeTaskModal();
+        showAlert(`✅ 定时同步任务创建成功！已建立飞书表格并录入调度。<a href="${res.spreadsheet_url}" target="_blank" style="color:var(--primary); font-weight:600; text-decoration:underline; margin-left:8px;">打开飞书表格 ↗</a>`, 'success');
+        switchMainTab('tasks');
+      } catch (e) {
+        alert('创建任务失败: ' + e.message);
+      } finally {
+        btn.disabled = false;
+        spinner.style.display = 'none';
+      }
+    }
+
+    // 查看完整关键词弹窗
+    function openKeywordsViewModal(name, keywords) {
+      modalKeywordsCache = keywords;
+      document.getElementById('kwModalTitle').innerText = `📋 ${name} - 包含关键词 (${keywords.length} 个)`;
+      const container = document.getElementById('kwModalContent');
+      container.innerHTML = keywords.map(k => `<span class="kw-tag-item">${k}</span>`).join('');
+      document.getElementById('keywordsViewModal').classList.add('active');
+    }
+
+    function closeKeywordsViewModal() {
+      document.getElementById('keywordsViewModal').classList.remove('active');
+    }
+
+    function copyModalKeywords() {
+      if (!modalKeywordsCache.length) return;
+      navigator.clipboard.writeText(modalKeywordsCache.join(' ')).then(() => {
+        alert('已复制全部关键词到剪贴板！');
+      });
+    }
+
+    // 添加关键词 Modal 操作
+    function openAddWordsModal(id, name) {
+      document.getElementById('appendTaskId').value = id;
+      document.getElementById('appendTaskNameDisplay').innerText = `#${id} ${name}`;
+      document.getElementById('appendWordsInput').value = '';
+      document.getElementById('appendWordsModal').classList.add('active');
+    }
+
+    function closeAppendWordsModal() {
+      document.getElementById('appendWordsModal').classList.remove('active');
+    }
+
+    async function submitAppendWords() {
+      const id = document.getElementById('appendTaskId').value;
+      const kwStr = document.getElementById('appendWordsInput').value.trim();
+      const syncNow = document.getElementById('appendSyncNow').checked;
+      const kws = kwStr.split(/\s+/).filter(Boolean);
+
+      if (!kws.length) return alert('请至少填写一个新关键词');
+
+      const btn = document.getElementById('btnSubmitAppend');
+      const spinner = document.getElementById('btnSubmitAppendSpinner');
+      btn.disabled = true;
+      spinner.style.display = 'inline-block';
+
+      try {
+        const resp = await fetch(`/api/keyword/tasks/${id}/append_keywords`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ keywords: kws, sync_now: syncNow })
+        });
+        const res = await resp.json();
+        if (!resp.ok || !res.success) throw new Error(res.detail || '添加关键词失败');
+
+        closeAppendWordsModal();
+        showAlert(`🎉 成功为任务追加 ${res.added_count} 个关键词！${syncNow ? '已自动将新词数据写入飞书表格。' : ''} <a href="${res.spreadsheet_url}" target="_blank" style="color:var(--primary); font-weight:600; text-decoration:underline; margin-left:8px;">查看飞书表格 ↗</a>`, 'success');
+        loadTasksList();
+      } catch (e) {
+        alert('追加关键词失败: ' + e.message);
+      } finally {
+        btn.disabled = false;
+        spinner.style.display = 'none';
+      }
+    }
+
+    // 删除弹窗操作 (替代被拦截的 confirm)
+    function openDeleteModal(id, name) {
+      document.getElementById('deleteTaskId').value = id;
+      document.getElementById('deleteTaskNameDisplay').innerText = `#${id} ${name}`;
+      document.getElementById('deleteConfirmModal').classList.add('active');
+    }
+
+    function closeDeleteModal() {
+      document.getElementById('deleteConfirmModal').classList.remove('active');
+    }
+
+    async function submitDeleteTask() {
+      const id = document.getElementById('deleteTaskId').value;
+      const btn = document.getElementById('btnConfirmDelete');
+      const spinner = document.getElementById('btnDeleteSpinner');
+      btn.disabled = true;
+      spinner.style.display = 'inline-block';
+
+      try {
+        const resp = await fetch(`/api/keyword/tasks/${id}`, { method: 'DELETE' });
+        const res = await resp.json();
+        if (!resp.ok) throw new Error(res.detail || '删除失败');
+        closeDeleteModal();
+        showAlert(`🗑️ 任务 #${id} 已成功删除。已停止后续调度。`, 'success');
+        loadTasksList();
+      } catch (e) {
+        alert('删除失败: ' + e.message);
+      } finally {
+        btn.disabled = false;
+        spinner.style.display = 'none';
+      }
+    }
+
+    // 加载任务列表 (防文字竖排设计 + ➕加词操作)
+    async function loadTasksList() {
+      const tbody = document.getElementById('taskListBody');
+      tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:30px;">正在加载...</td></tr>';
+
+      try {
+        const resp = await fetch('/api/keyword/tasks');
+        const tasks = await resp.json();
+        if (!tasks.length) {
+          tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:30px;">暂无同步任务，可在查询页面点击“创建定时任务”添加。</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = tasks.map(t => {
+          const kws = t.keywords || [];
+          let kwHtml = '';
+          const escapedName = (t.name || '').replace(/'/g, "\'");
+          if (kws.length <= 2) {
+            kwHtml = kws.map(k => `<span class="kw-tag-item">${k}</span>`).join('');
+          } else {
+            const first2 = kws.slice(0, 2).map(k => `<span class="kw-tag-item">${k}</span>`).join('');
+            const escapedKws = JSON.stringify(kws).replace(/"/g, '&quot;');
+            kwHtml = `${first2}<span class="kw-tag-more" onclick="openKeywordsViewModal('${escapedName}', ${escapedKws})">+${kws.length - 2} 个词...</span>`;
+          }
+
+          const statusClass = t.status === 'active' ? 'status-success' : 'status-paused';
+          const statusText = t.status === 'active' ? '● 运行中' : '❚❚ 已暂停';
+          const modeText = t.update_mode === 'overwrite' ? '全量覆盖' : '增量追加';
+
+          return `
+            <tr>
+              <td>${t.id}</td>
+              <td style="font-weight:600; white-space:nowrap;">${t.name}</td>
+              <td style="white-space:nowrap;">${kwHtml}</td>
+              <td style="white-space:nowrap;"><a href="${t.spreadsheet_url}" target="_blank" style="color:var(--primary); text-decoration:none; font-weight:500;">查看表格 ↗</a></td>
+              <td style="white-space:nowrap;">${modeText}</td>
+              <td style="font-size:12px; color:var(--text-secondary); white-space:nowrap;">${t.rrule}</td>
+              <td style="white-space:nowrap;"><span class="status-badge ${statusClass}">${statusText}</span></td>
+              <td style="font-size:12px; color:var(--text-muted); white-space:nowrap;">${t.last_run_at ? t.last_run_at.substring(0, 16).replace('T', ' ') : '-'}</td>
+              <td style="white-space:nowrap;">
+                <div style="display:inline-flex; gap:6px; align-items:center;">
+                  <button class="btn btn-outline btn-sm" style="color:var(--primary); font-weight:600;" onclick="openAddWordsModal(${t.id}, '${escapedName}')">加词</button>
+                  <button class="btn btn-outline btn-sm" onclick="runTaskNow(${t.id})">立即运行</button>
+                  <button class="btn btn-outline btn-sm" onclick="toggleTask(${t.id})">${t.status === 'active' ? '暂停' : '恢复'}</button>
+                  <button class="btn btn-outline btn-sm" style="color:var(--danger);" onclick="openDeleteModal(${t.id}, '${escapedName}')">删除</button>
+                </div>
+              </td>
+            </tr>
+          `;
+        }).join('');
+      } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--danger); padding:30px;">加载失败: ${e.message}</td></tr>`;
+      }
+    }
+
+    async function runTaskNow(id) {
+      showAlert('正在后台运行同步任务并写入飞书表格...', 'success');
+      try {
+        const resp = await fetch(`/api/keyword/tasks/${id}/run_now`, { method: 'POST' });
+        const res = await resp.json();
+        if (!resp.ok) throw new Error(res.detail || '执行失败');
+        showAlert('🎉 任务同步执行成功！飞书表格已更新。<a href="' + res.url + '" target="_blank" style="margin-left:8px; text-decoration:underline; font-weight:600;">打开飞书表格 ↗</a>', 'success');
+        loadTasksList();
+      } catch (e) {
+        alert('触发失败: ' + e.message);
+      }
+    }
+
+    async function toggleTask(id) {
+      try {
+        await fetch(`/api/keyword/tasks/${id}/toggle`, { method: 'POST' });
+        loadTasksList();
+      } catch (e) {
+        alert('操作失败: ' + e.message);
+      }
+    }
+
+    // 加载运行记录
+    async function loadRunsList() {
+      const tbody = document.getElementById('runListBody');
+      tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:var(--text-muted); padding:30px;">正在加载...</td></tr>';
+
+      try {
+        const resp = await fetch('/api/keyword/runs');
+        const runs = await resp.json();
+        if (!runs.length) {
+          tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:var(--text-muted); padding:30px;">暂无运行历史记录。</td></tr>';
+          return;
+        }
+
+        tbody.innerHTML = runs.map(r => {
+          const statusClass = r.status === 'success' ? 'status-success' : (r.status === 'failed' ? 'status-failed' : 'status-running');
+          const triggerMap = {
+            'direct_create': '直接生成',
+            'scheduled': '定时调度',
+            'manual': '手动运行',
+            'append_words': '追加加词',
+            'task_init': '任务创建'
+          };
+          const triggerText = triggerMap[r.trigger_type] || r.trigger_type;
+          return `
+            <tr>
+              <td>${r.id}</td>
+              <td style="font-weight:600; white-space:nowrap;">${r.task_name || '-'}</td>
+              <td style="white-space:nowrap;"><span class="badge" style="background:#f2f3f5; color:#4e5969;">${triggerText}</span></td>
+              <td style="font-size:12px; white-space:nowrap;">${r.started_at ? r.started_at.substring(0, 19).replace('T', ' ') : '-'}</td>
+              <td style="font-size:12px; white-space:nowrap;">${r.finished_at ? r.finished_at.substring(0, 19).replace('T', ' ') : '-'}</td>
+              <td style="white-space:nowrap;"><span class="status-badge ${statusClass}">${r.status}</span></td>
+              <td>${r.keywords_count || 0}</td>
+              <td>${r.days_count || 0}</td>
+              <td style="white-space:nowrap;">${r.spreadsheet_url ? `<a href="${r.spreadsheet_url}" target="_blank" style="color:var(--primary); text-decoration:none;">打开表格 ↗</a>` : '-'}</td>
+              <td style="font-size:12px; color:var(--text-secondary); max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${r.message || r.error_detail || '-'}</td>
+            </tr>
+          `;
+        }).join('');
+      } catch (e) {
+        tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; color:var(--danger); padding:30px;">加载失败: ${e.message}</td></tr>`;
+      }
+    }
+  </script>
+</body>
+</html>

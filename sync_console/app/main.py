@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, UploadFile, File, Form, Header, HTTPException, Depends, Request, Response
@@ -22,6 +23,13 @@ from core.scheduler import init_scheduler, reschedule_task, remove_job, parse_ne
 
 app = FastAPI(title="飞书数据自动同步中心")
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "web")), name="static")
+
+automation_root = str(BASE_DIR.parent)
+if automation_root not in sys.path:
+    sys.path.insert(0, automation_root)
+
+from keyword_service.router import router as keyword_router
+app.include_router(keyword_router)
 
 def verify_admin_token(request: Request) -> bool:
     token = request.headers.get("X-Access-Token") or request.cookies.get("access_token")
