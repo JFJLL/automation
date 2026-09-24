@@ -35,6 +35,7 @@ sync_console/.env
 logs/
 tokens/
 sync_console/tokens/
+keyword_service/token.json
 
 # Subdirectory sensitive files
 **/.env

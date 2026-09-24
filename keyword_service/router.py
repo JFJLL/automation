@@ -1,10 +1,11 @@
 import os
 import sys
 import json
+import hmac
 from pathlib import Path
 from typing import Optional, List, Union
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, FastAPI
+from fastapi import APIRouter, Depends, HTTPException, FastAPI, Request, Response
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
@@ -17,8 +18,16 @@ from keyword_service.sync_engine import (
     append_keywords_to_task
 )
 from keyword_service.scheduler import init_keyword_scheduler, reschedule_keyword_task, remove_keyword_job
+from app.config import ACCESS_TOKEN
 
 router = APIRouter()
+
+def require_keyword_access(request: Request):
+    token = request.headers.get("X-Access-Token") or request.cookies.get("access_token")
+    if not token or not hmac.compare_digest(token, ACCESS_TOKEN):
+        raise HTTPException(status_code=401, detail="请先使用管理员密码登录")
+
+private_router = APIRouter(prefix="/api/keyword", dependencies=[Depends(require_keyword_access)])
 HTML_PATH = Path(__file__).parent / "templates" / "keyword.html"
 
 # 初始化数据库
@@ -46,13 +55,16 @@ class AppendKeywordsRequest(BaseModel):
     keywords: Union[str, List[str]]
     sync_now: bool = True
 
+class KeywordLoginRequest(BaseModel):
+    password: str
+
 @router.get("/keyword", response_class=HTMLResponse)
 def keyword_page():
     if not HTML_PATH.exists():
         raise HTTPException(status_code=404, detail="Page template not found")
     return HTMLResponse(content=HTML_PATH.read_text(encoding="utf-8"))
 
-@router.post("/api/keyword/search")
+@private_router.post("/search")
 def search_keywords(req: KeywordSearchRequest):
     if isinstance(req.keywords, str):
         kw_list = [w.strip() for w in req.keywords.split() if w.strip()]
@@ -72,7 +84,7 @@ def search_keywords(req: KeywordSearchRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/api/keyword/feishu/direct_create")
+@private_router.post("/feishu/direct_create")
 def create_feishu_sheet_directly(req: DirectSheetRequest):
     if not req.keywords:
         raise HTTPException(status_code=400, detail="关键词列表不能为空")
@@ -87,7 +99,7 @@ def create_feishu_sheet_directly(req: DirectSheetRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.get("/api/keyword/tasks")
+@private_router.get("/tasks")
 def list_keyword_tasks():
     with get_db() as conn:
         cursor = conn.cursor()
@@ -99,7 +111,7 @@ def list_keyword_tasks():
             tasks.append(item)
     return tasks
 
-@router.post("/api/keyword/tasks")
+@private_router.post("/tasks")
 def add_keyword_task(req: CreateKeywordTaskRequest):
     if not req.keywords:
         raise HTTPException(status_code=400, detail="任务至少需要包含一个关键词")
@@ -116,7 +128,7 @@ def add_keyword_task(req: CreateKeywordTaskRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/api/keyword/tasks/{task_id}/append_keywords")
+@private_router.post("/tasks/{task_id}/append_keywords")
 def append_words_endpoint(task_id: int, req: AppendKeywordsRequest):
     if isinstance(req.keywords, str):
         kw_list = [w.strip() for w in req.keywords.split() if w.strip()]
@@ -132,7 +144,7 @@ def append_words_endpoint(task_id: int, req: AppendKeywordsRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/api/keyword/tasks/{task_id}/run_now")
+@private_router.post("/tasks/{task_id}/run_now")
 def run_task_immediately(task_id: int):
     try:
         res = run_keyword_task(task_id, trigger_type="manual")
@@ -140,7 +152,7 @@ def run_task_immediately(task_id: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@router.post("/api/keyword/tasks/{task_id}/toggle")
+@private_router.post("/tasks/{task_id}/toggle")
 def toggle_task(task_id: int):
     with get_db() as conn:
         cursor = conn.cursor()
@@ -155,7 +167,7 @@ def toggle_task(task_id: int):
     reschedule_keyword_task(task_id)
     return {"status": new_status}
 
-@router.delete("/api/keyword/tasks/{task_id}")
+@private_router.delete("/tasks/{task_id}")
 def delete_task(task_id: int):
     with get_db() as conn:
         cursor = conn.cursor()
@@ -167,7 +179,7 @@ def delete_task(task_id: int):
     remove_keyword_job(task_id)
     return {"success": True, "message": f"任务 #{task_id} 已成功删除"}
 
-@router.get("/api/keyword/runs")
+@private_router.get("/runs")
 def list_keyword_runs(task_id: Optional[int] = None):
     with get_db() as conn:
         cursor = conn.cursor()
@@ -178,9 +190,18 @@ def list_keyword_runs(task_id: Optional[int] = None):
         runs = [dict(r) for r in cursor.fetchall()]
     return runs
 
+router.include_router(private_router)
+
 # 允许作为独立应用启动
 app = FastAPI(title="关键词搜索指数服务")
 app.include_router(router)
+
+@app.post("/api/auth/login")
+def standalone_login(req: KeywordLoginRequest, response: Response):
+    if not hmac.compare_digest(req.password, ACCESS_TOKEN):
+        raise HTTPException(status_code=401, detail="密码错误")
+    response.set_cookie("access_token", ACCESS_TOKEN, max_age=86400, httponly=True, samesite="lax")
+    return {"success": True}
 
 @app.on_event("startup")
 def on_startup():

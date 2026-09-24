@@ -784,10 +784,91 @@
     </div>
   </div>
 
+  <div class="modal-backdrop-custom" id="keywordLoginModal" role="dialog" aria-modal="true" aria-labelledby="keywordLoginTitle">
+    <div class="modal-box" style="width:420px;">
+      <div class="modal-header">
+        <span id="keywordLoginTitle">管理员登录</span>
+        <button type="button" class="btn btn-outline btn-sm" onclick="cancelKeywordLogin()" aria-label="关闭">✕</button>
+      </div>
+      <form onsubmit="event.preventDefault(); submitKeywordLogin();">
+        <label for="keywordLoginPassword" style="display:block; font-size:13px; margin-bottom:6px;">请输入管理员密码以访问关键词数据和同步任务</label>
+        <input type="password" id="keywordLoginPassword" class="form-control-custom" style="width:100%;" autocomplete="current-password" required>
+        <p id="keywordLoginError" role="alert" style="color:var(--danger); font-size:13px; min-height:20px; margin-top:8px;"></p>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" onclick="cancelKeywordLogin()">取消</button>
+          <button type="submit" class="btn btn-primary" id="keywordLoginSubmit">登录并继续</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script>
     let latestSearchResult = null;
     let isDateDescending = false; // 默认升序，但自动平滑滚动至最右端（最新日期）
     let modalKeywordsCache = [];
+    let keywordLoginPromise = null;
+    let resolveKeywordLogin = null;
+    let rejectKeywordLogin = null;
+
+    function requestKeywordLogin() {
+      if (keywordLoginPromise) return keywordLoginPromise;
+      document.getElementById('keywordLoginError').textContent = '';
+      document.getElementById('keywordLoginPassword').value = '';
+      document.getElementById('keywordLoginModal').classList.add('active');
+      document.getElementById('keywordLoginPassword').focus();
+      keywordLoginPromise = new Promise((resolve, reject) => {
+        resolveKeywordLogin = resolve;
+        rejectKeywordLogin = reject;
+      });
+      return keywordLoginPromise;
+    }
+
+    function closeKeywordLogin() {
+      document.getElementById('keywordLoginModal').classList.remove('active');
+      document.getElementById('keywordLoginPassword').value = '';
+      keywordLoginPromise = null;
+      resolveKeywordLogin = null;
+      rejectKeywordLogin = null;
+    }
+
+    function cancelKeywordLogin() {
+      const reject = rejectKeywordLogin;
+      closeKeywordLogin();
+      if (reject) reject(new Error('已取消登录'));
+    }
+
+    async function submitKeywordLogin() {
+      const password = document.getElementById('keywordLoginPassword').value;
+      const button = document.getElementById('keywordLoginSubmit');
+      button.disabled = true;
+      try {
+        const response = await fetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password })
+        });
+        if (!response.ok) {
+          document.getElementById('keywordLoginError').textContent = '密码错误，请重试';
+          return;
+        }
+        const resolve = resolveKeywordLogin;
+        closeKeywordLogin();
+        if (resolve) resolve();
+      } catch (error) {
+        document.getElementById('keywordLoginError').textContent = '登录失败，请检查网络后重试';
+      } finally {
+        button.disabled = false;
+      }
+    }
+
+    async function keywordFetch(url, options) {
+      let response = await fetch(url, options);
+      if (response.status === 401) {
+        await requestKeywordLogin();
+        response = await fetch(url, options);
+      }
+      return response;
+    }
 
     // 页面初始化
     window.addEventListener('DOMContentLoaded', () => {
@@ -874,7 +955,7 @@
       document.getElementById('btnSearchText').innerText = '正在调取聚光接口...';
 
       try {
-        const resp = await fetch('/api/keyword/search', {
+        const resp = await keywordFetch('/api/keyword/search', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ keywords: rawKw, start_date: startDate, end_date: endDate })
@@ -978,7 +1059,7 @@
       spinner.style.display = 'inline-block';
 
       try {
-        const resp = await fetch('/api/keyword/feishu/direct_create', {
+        const resp = await keywordFetch('/api/keyword/feishu/direct_create', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1030,7 +1111,7 @@
       spinner.style.display = 'inline-block';
 
       try {
-        const resp = await fetch('/api/keyword/tasks', {
+        const resp = await keywordFetch('/api/keyword/tasks', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1101,7 +1182,7 @@
       spinner.style.display = 'inline-block';
 
       try {
-        const resp = await fetch(`/api/keyword/tasks/${id}/append_keywords`, {
+        const resp = await keywordFetch(`/api/keyword/tasks/${id}/append_keywords`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ keywords: kws, sync_now: syncNow })
@@ -1139,7 +1220,7 @@
       spinner.style.display = 'inline-block';
 
       try {
-        const resp = await fetch(`/api/keyword/tasks/${id}`, { method: 'DELETE' });
+        const resp = await keywordFetch(`/api/keyword/tasks/${id}`, { method: 'DELETE' });
         const res = await resp.json();
         if (!resp.ok) throw new Error(res.detail || '删除失败');
         closeDeleteModal();
@@ -1159,7 +1240,8 @@
       tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:30px;">正在加载...</td></tr>';
 
       try {
-        const resp = await fetch('/api/keyword/tasks');
+        const resp = await keywordFetch('/api/keyword/tasks');
+        if (!resp.ok) throw new Error('加载任务失败');
         const tasks = await resp.json();
         if (!tasks.length) {
           tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:30px;">暂无同步任务，可在查询页面点击“创建定时任务”添加。</td></tr>';
@@ -1211,7 +1293,7 @@
     async function runTaskNow(id) {
       showAlert('正在后台运行同步任务并写入飞书表格...', 'success');
       try {
-        const resp = await fetch(`/api/keyword/tasks/${id}/run_now`, { method: 'POST' });
+        const resp = await keywordFetch(`/api/keyword/tasks/${id}/run_now`, { method: 'POST' });
         const res = await resp.json();
         if (!resp.ok) throw new Error(res.detail || '执行失败');
         showAlert('🎉 任务同步执行成功！飞书表格已更新。<a href="' + res.url + '" target="_blank" style="margin-left:8px; text-decoration:underline; font-weight:600;">打开飞书表格 ↗</a>', 'success');
@@ -1223,7 +1305,8 @@
 
     async function toggleTask(id) {
       try {
-        await fetch(`/api/keyword/tasks/${id}/toggle`, { method: 'POST' });
+        const resp = await keywordFetch(`/api/keyword/tasks/${id}/toggle`, { method: 'POST' });
+        if (!resp.ok) throw new Error('操作失败');
         loadTasksList();
       } catch (e) {
         alert('操作失败: ' + e.message);
@@ -1236,7 +1319,8 @@
       tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:var(--text-muted); padding:30px;">正在加载...</td></tr>';
 
       try {
-        const resp = await fetch('/api/keyword/runs');
+        const resp = await keywordFetch('/api/keyword/runs');
+        if (!resp.ok) throw new Error('加载记录失败');
         const runs = await resp.json();
         if (!runs.length) {
           tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:var(--text-muted); padding:30px;">暂无运行历史记录。</td></tr>';

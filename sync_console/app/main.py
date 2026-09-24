@@ -29,6 +29,7 @@ if automation_root not in sys.path:
     sys.path.insert(0, automation_root)
 
 from keyword_service.router import router as keyword_router
+from keyword_service.scheduler import init_keyword_scheduler
 app.include_router(keyword_router)
 
 def verify_admin_token(request: Request) -> bool:
@@ -44,6 +45,7 @@ def verify_token(request: Request) -> bool:
 def on_startup():
     init_db()
     init_scheduler()
+    init_keyword_scheduler()
 
 @app.get("/", response_class=HTMLResponse)
 @app.get("/import", response_class=HTMLResponse)
