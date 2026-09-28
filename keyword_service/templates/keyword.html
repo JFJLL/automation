@@ -938,6 +938,49 @@
       return `${y}-${m}-${day}`;
     }
 
+    function formatRruleText(rrule) {
+      if (!rrule) return '-';
+      const clean = rrule.replace(/^RRULE:/i, '').trim();
+      const map = {
+        'FREQ=DAILY;BYHOUR=12;BYMINUTE=30': '每天 12:30',
+        'FREQ=DAILY;BYHOUR=9;BYMINUTE=0': '每天 09:00',
+        'FREQ=DAILY;BYHOUR=18;BYMINUTE=0': '每天 18:00',
+        'FREQ=WORKDAY;BYHOUR=10;BYMINUTE=0': '法定工作日 10:00',
+        'FREQ=DAILY;BYHOUR=13;BYMINUTE=30': '每天 13:30'
+      };
+      if (map[clean]) return map[clean];
+
+      const freqMatch = clean.match(/FREQ=([A-Z]+)/i);
+      const hourMatch = clean.match(/BYHOUR=(\d+)/i);
+      const minMatch = clean.match(/BYMINUTE=(\d+)/i);
+      const intervalMatch = clean.match(/INTERVAL=(\d+)/i);
+      const byDayMatch = clean.match(/BYDAY=([A-Z,]+)/i);
+
+      let timeStr = '';
+      if (hourMatch && minMatch) {
+        timeStr = ` ${String(hourMatch[1]).padStart(2, '0')}:${String(minMatch[1]).padStart(2, '0')}`;
+      } else if (hourMatch) {
+        timeStr = ` ${String(hourMatch[1]).padStart(2, '0')}:00`;
+      }
+
+      if (freqMatch) {
+        const f = freqMatch[1].toUpperCase();
+        if (f === 'DAILY') return `每天${timeStr}`;
+        if (f === 'WORKDAY') return `工作日${timeStr}`;
+        if (f === 'HOURLY') return `每 ${intervalMatch ? intervalMatch[1] : 1} 小时`;
+        if (f === 'WEEKLY') {
+          if (byDayMatch) {
+            const dayMap = { MO: '周一', TU: '周二', WE: '周三', TH: '周四', FR: '周五', SA: '周六', SU: '周日' };
+            const days = byDayMatch[1].split(',').map(d => dayMap[d] || d).join('、');
+            return `每周 (${days})${timeStr}`;
+          }
+          return `每周${timeStr}`;
+        }
+        if (f === 'MONTHLY') return `每月${timeStr}`;
+      }
+      return clean;
+    }
+
     function setDateRange(days, btn) {
       const now = new Date();
       const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
@@ -1421,7 +1464,15 @@
               <td style="white-space:nowrap;">${kwHtml}</td>
               <td style="white-space:nowrap;"><a href="${t.spreadsheet_url}" target="_blank" style="color:var(--primary); text-decoration:none; font-weight:500;">查看表格 ↗</a></td>
               <td style="white-space:nowrap;">${modeText}</td>
-              <td style="font-size:12px; color:var(--text-secondary); white-space:nowrap;">${t.rrule}</td>
+              <td style="white-space:nowrap;">
+                <span class="freq-tag" title="${t.rrule}" style="background:#f2f3f5; color:#333842; font-size:12px; font-weight:500; padding:3px 8px; border-radius:4px; display:inline-flex; align-items:center; gap:4px;">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="opacity:0.6;">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="12 6 12 12 16 14"></polyline>
+                  </svg>
+                  <span>${formatRruleText(t.rrule)}</span>
+                </span>
+              </td>
               <td style="white-space:nowrap;"><span class="status-badge ${statusClass}">${statusText}</span></td>
               <td style="font-size:12px; color:var(--text-muted); white-space:nowrap;">${t.last_run_at ? t.last_run_at.substring(0, 16).replace('T', ' ') : '-'}</td>
               <td style="white-space:nowrap;">
