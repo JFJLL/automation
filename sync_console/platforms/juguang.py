@@ -1,10 +1,16 @@
 import json
 import time
+import re
+import os
 import requests
+import oss2
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 from platforms.registry import fetch_oss_token
-from app.config import JUGUANG_OSS_OBJECT_KEY, BASE_DIR
+from app.config import (
+    JUGUANG_OSS_OBJECT_KEY, JUGUANG_OSS_SUBACCOUNT_PREFIX, BASE_DIR,
+    OSS_ENDPOINT, OSS_BUCKET, OSS_ACCESS_KEY_ID, OSS_ACCESS_KEY_SECRET
+)
 
 LOCAL_FALLBACK = BASE_DIR.parent / "feishu_three_sync" / "jg_sync" / "session_headers.json"
 REPORT_URL = "https://ad.xiaohongshu.com/api/leona/rtb/common/data/report"
@@ -46,8 +52,116 @@ def get_juguang_headers() -> Dict[str, str]:
                 return data
     raise RuntimeError("聚光 会话配置未配置或无法从 OSS 获取")
 
-def fetch_juguang_data(entity_id: str, split_type: str, start_date: str, end_date: str, headers_override: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
-    hdrs = headers_override or get_juguang_headers()
+def get_juguang_subaccount_headers(sub_account_id: str) -> Dict[str, str]:
+    """从 OSS (或本地缓存) 读取指定聚光子账号的 Cookie 并组装请求头"""
+    cookie_text = ""
+    object_key = f"{JUGUANG_OSS_SUBACCOUNT_PREFIX.rstrip('/')}/{sub_account_id.strip()}.txt"
+    try:
+        cookie_text = fetch_oss_token(object_key).strip()
+    except Exception as e:
+        print(f"[Juguang] Read OSS subaccount token failed ({object_key}): {e}")
+    
+    if not cookie_text:
+        local_candidates = [
+            BASE_DIR / "tokens" / f"{sub_account_id}.txt",
+            Path("D:/download/pic-vec/oss-upload/cookies") / f"{sub_account_id}.txt"
+        ]
+        for p in local_candidates:
+            if p.exists() and p.is_file():
+                cookie_text = p.read_text(encoding="utf-8").strip()
+                break
+                
+    if not cookie_text:
+        raise RuntimeError(f"未获取到聚光子账号 [{sub_account_id}] 的 Cookie，请检查 OSS 或 Cookie 同步状态")
+        
+    return {
+        "cookie": cookie_text,
+        "v-seller-id": sub_account_id.strip(),
+        "origin": "https://ad.xiaohongshu.com",
+        "referer": "https://ad.xiaohongshu.com/aurora/ad/datareports-b",
+        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+        "content-type": "application/json"
+    }
+
+_subaccounts_cache = {"timestamp": 0.0, "data": []}
+
+def get_juguang_subaccounts_list(force_refresh: bool = False) -> List[Dict[str, str]]:
+    """动态从 OSS 扫描发现所有最新的子账号 token 文件，并结合名称对照表自动更新返回"""
+    global _subaccounts_cache
+    now = time.time()
+    if not force_refresh and _subaccounts_cache["data"] and (now - _subaccounts_cache["timestamp"] < 30):
+        return _subaccounts_cache["data"]
+
+    known_names = {}
+    json_file = BASE_DIR / "tokens" / "juguang_subaccounts.json"
+    if json_file.exists():
+        try:
+            for item in json.loads(json_file.read_text(encoding="utf-8")):
+                if item.get("id") and item.get("name"):
+                    known_names[item["id"]] = item["name"]
+        except Exception:
+            pass
+
+    log_path = Path("D:/download/pic-vec/oss-upload/sync_cookies.log")
+    if log_path.exists():
+        try:
+            with open(log_path, "rb") as f:
+                for line in f.read().splitlines():
+                    try:
+                        dec = line.decode("utf-8")
+                    except Exception:
+                        continue
+                    m = re.findall(r"([a-f0-9]{24})", dec)
+                    for fid in m:
+                        if "(" in dec:
+                            idx = dec.find("(" + fid)
+                            if idx != -1:
+                                pre = dec[:idx].strip()
+                                if ":" in pre:
+                                    known_names[fid] = pre.split(":")[-1].strip()
+        except Exception:
+            pass
+
+    oss_ids = set()
+    if OSS_ACCESS_KEY_ID and OSS_ACCESS_KEY_SECRET and OSS_BUCKET:
+        try:
+            auth = oss2.Auth(OSS_ACCESS_KEY_ID, OSS_ACCESS_KEY_SECRET)
+            bucket = oss2.Bucket(auth, OSS_ENDPOINT, OSS_BUCKET)
+            prefix = JUGUANG_OSS_SUBACCOUNT_PREFIX.lstrip("/")
+            for obj in oss2.ObjectIterator(bucket, prefix=prefix):
+                if obj.key.endswith(".txt"):
+                    sid = obj.key.split("/")[-1][:-4]
+                    if len(sid) == 24:
+                        oss_ids.add(sid)
+        except Exception as e:
+            print(f"[Juguang] List OSS subaccount tokens failed: {e}")
+
+    target_ids = sorted(list(oss_ids)) if oss_ids else sorted(list(known_names.keys()))
+
+    subaccounts = []
+    for sid in target_ids:
+        name = known_names.get(sid, f"聚光子账号_{sid[:8]}")
+        subaccounts.append({"id": sid, "name": name})
+
+    if subaccounts:
+        try:
+            json_file.parent.mkdir(parents=True, exist_ok=True)
+            json_file.write_text(json.dumps(subaccounts, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+        _subaccounts_cache["timestamp"] = now
+        _subaccounts_cache["data"] = subaccounts
+        return subaccounts
+
+    return _subaccounts_cache["data"]
+
+def fetch_juguang_data(entity_id: str, split_type: str, start_date: str, end_date: str, headers_override: Optional[Dict[str, str]] = None, sub_account_id: Optional[str] = None) -> List[Dict[str, Any]]:
+    if headers_override:
+        hdrs = headers_override
+    elif sub_account_id:
+        hdrs = get_juguang_subaccount_headers(sub_account_id)
+    else:
+        hdrs = get_juguang_headers()
     session = requests.Session()
     session.trust_env = False
     session.headers.update(hdrs)

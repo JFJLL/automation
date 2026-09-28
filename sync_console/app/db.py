@@ -22,6 +22,8 @@ def init_db():
             update_mode TEXT NOT NULL DEFAULT 'append', -- 'append' 或 'overwrite'
             calibration_days INTEGER NOT NULL DEFAULT 2,
             rrule TEXT NOT NULL,
+            sub_account_id TEXT,
+            sub_account_name TEXT,
             status TEXT NOT NULL DEFAULT 'active', -- 'active', 'paused', 'archived'
             next_run_at TEXT,
             last_run_at TEXT,
@@ -31,6 +33,12 @@ def init_db():
             updated_at TEXT NOT NULL
         )
         """)
+        cursor.execute("PRAGMA table_info(tasks)")
+        task_cols = [row[1] for row in cursor.fetchall()]
+        if "sub_account_id" not in task_cols:
+            cursor.execute("ALTER TABLE tasks ADD COLUMN sub_account_id TEXT")
+        if "sub_account_name" not in task_cols:
+            cursor.execute("ALTER TABLE tasks ADD COLUMN sub_account_name TEXT")
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS task_sheets (
             id INTEGER PRIMARY KEY AUTOINCREMENT,

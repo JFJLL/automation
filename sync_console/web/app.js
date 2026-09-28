@@ -292,8 +292,111 @@ function selectPlatform(code) {
   document.querySelectorAll('.platform-card').forEach(c => c.classList.remove('selected'));
   const el = document.getElementById('card-' + code);
   if (el) el.classList.add('selected');
+  
+  // 控制聚光子账号选框显隐
+  const subSection = document.getElementById('juguangSubAccountSection');
+  if (subSection) {
+    if (code === 'juguang') {
+      subSection.style.display = 'block';
+      loadJuguangSubaccounts();
+    } else {
+      subSection.style.display = 'none';
+    }
+  }
+
   if (uploadedAnalysis && document.getElementById('excelFileInput').files.length > 0) {
     reanalyzeUploadedFile();
+  }
+}
+
+let cachedSubAccounts = [];
+
+async function loadJuguangSubaccounts() {
+  const container = document.getElementById('subAccountOptionsContainer');
+  const tip = document.getElementById('subAccountCountTip');
+  if (cachedSubAccounts.length > 0) {
+    renderSubAccountOptions(cachedSubAccounts);
+    return;
+  }
+  if (container) {
+    container.innerHTML = '<div style="padding: 12px; text-align: center; color: var(--text-muted); font-size: 13px;"><div class="spinner"></div> 正在从 OSS 凭据库同步子账号清单...</div>';
+  }
+  try {
+    const list = await apiFetch('/api/platforms/juguang/subaccounts');
+    cachedSubAccounts = list || [];
+    if (tip) {
+      tip.innerText = '已从 OSS 匹配 ' + cachedSubAccounts.length + ' 个可用子账号凭据';
+    }
+    renderSubAccountOptions(cachedSubAccounts);
+    const curId = document.getElementById('selectedSubAccountId').value;
+    if (!curId && cachedSubAccounts.length > 0) {
+      selectSubAccount(cachedSubAccounts[0].id, cachedSubAccounts[0].name);
+    }
+  } catch (e) {
+    if (container) {
+      container.innerHTML = '<div style="padding: 12px; text-align: center; color: var(--danger); font-size: 13px;">加载失败: ' + escapeHtml(e.message) + '</div>';
+    }
+  }
+}
+
+function renderSubAccountOptions(list) {
+  const container = document.getElementById('subAccountOptionsContainer');
+  if (!container) return;
+  if (!list || list.length === 0) {
+    container.innerHTML = '<div style="padding: 12px; text-align: center; color: var(--text-muted); font-size: 13px;">未找到匹配的子账号</div>';
+    return;
+  }
+  const curId = document.getElementById('selectedSubAccountId').value;
+  let html = '';
+  list.forEach(item => {
+    const isSelected = item.id === curId;
+    html += '<div class="custom-select-option ' + (isSelected ? 'selected' : '') + '" ' +
+            'data-value="' + escapeHtml(item.id) + '" ' +
+            'data-name="' + escapeHtml(item.name) + '" ' +
+            'onclick="selectSubAccount(\'' + escapeHtml(item.id) + '\', \'' + escapeHtml(item.name).replace(/'/g, "\\'") + '\')">' +
+            '<div style="display: flex; flex-direction: column; overflow: hidden;">' +
+            '<span style="font-weight: 500; color: #1d2129; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">' + escapeHtml(item.name) + '</span>' +
+            '<span style="font-size: 11px; color: var(--text-muted); font-family: monospace;">ID: ' + escapeHtml(item.id) + '</span>' +
+            '</div>' +
+            '<svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>' +
+            '</div>';
+  });
+  container.innerHTML = html;
+}
+
+function filterSubAccounts(keyword) {
+  const kw = (keyword || '').trim().toLowerCase();
+  if (!kw) {
+    renderSubAccountOptions(cachedSubAccounts);
+    return;
+  }
+  const filtered = cachedSubAccounts.filter(item => 
+    (item.name && item.name.toLowerCase().includes(kw)) ||
+    (item.id && item.id.toLowerCase().includes(kw))
+  );
+  renderSubAccountOptions(filtered);
+}
+
+function selectSubAccount(id, name) {
+  const idInput = document.getElementById('selectedSubAccountId');
+  const nameInput = document.getElementById('selectedSubAccountName');
+  const display = document.getElementById('juguangSubAccountDisplay');
+  const wrapper = document.getElementById('wrapper-juguangSubAccountSelect');
+
+  if (idInput) idInput.value = id;
+  if (nameInput) nameInput.value = name;
+  if (display) {
+    display.innerHTML = '<span style="font-weight: 600; color: var(--primary);">' + escapeHtml(name) + '</span> <span style="font-size: 12px; color: var(--text-muted); font-family: monospace;">(' + escapeHtml(id.slice(0, 8)) + '...)</span>';
+  }
+  if (wrapper) {
+    wrapper.classList.remove('open');
+    wrapper.querySelectorAll('.custom-select-option').forEach(opt => {
+      opt.classList.toggle('selected', opt.getAttribute('data-value') === String(id));
+    });
+  }
+
+  if (currentPlatform === 'juguang' && currentConfirmedSheet && document.getElementById('previewCard').style.display !== 'none') {
+    runPreviewFetch();
   }
 }
 
@@ -467,6 +570,12 @@ async function runPreviewFetch() {
   yesterday.setDate(yesterday.getDate() - 1);
   const yesterdayStr = yesterday.toISOString().slice(0, 10);
   
+  const subId = currentPlatform === 'juguang' ? document.getElementById('selectedSubAccountId').value : null;
+  if (currentPlatform === 'juguang' && !subId) {
+    document.getElementById('previewStatus').innerHTML = '<span style="color:var(--warning)">⚠️ 请先在上方选择聚光子账号</span>';
+    return;
+  }
+
   // 智能决策预览日期窗口：如果用户上传的是历史归档表（如8月份），必须优先对齐样本真实起止日
   let startStr, endStr;
   if (s.min_sample_date && s.max_sample_date) {
@@ -492,7 +601,8 @@ async function runPreviewFetch() {
         date_column: s.date_column,
         dimension: s.dimension,
         start_date: startStr,
-        end_date: endStr
+        end_date: endStr,
+        sub_account_id: subId
       })
     });
 
@@ -566,6 +676,12 @@ async function submitCreateTask() {
     alert('请输入飞书表格名称');
     return;
   }
+  const subId = currentPlatform === 'juguang' ? document.getElementById('selectedSubAccountId').value : null;
+  const subName = currentPlatform === 'juguang' ? document.getElementById('selectedSubAccountName').value : null;
+  if (currentPlatform === 'juguang' && !subId) {
+    alert('请选择聚光子账号');
+    return;
+  }
   const updateMode = document.getElementById('updateModeSelect').value;
   const calEl = document.getElementById('calibrationDaysSelect'); const calibrationDays = calEl ? (parseInt(calEl.value, 10) || 0) : 2;
   const rrule = document.getElementById('rruleInput').value;
@@ -599,6 +715,8 @@ async function submitCreateTask() {
       body: JSON.stringify({
         task_name: taskName,
         platform: currentPlatform,
+        sub_account_id: subId,
+        sub_account_name: subName,
         update_mode: updateMode,
         calibration_days: calibrationDays,
         rrule: rrule,
@@ -643,12 +761,13 @@ async function loadTasks(force = false) {
       const statusBadge = t.status === 'active' ? '<span class="badge badge-success">运行中</span>' : '<span class="badge badge-gray">已暂停</span>';
       const lastBadge = t.last_status === 'success' ? '<span class="badge badge-success">成功</span>' : (t.last_status === 'failed' ? '<span class="badge badge-danger">异常</span>' : '<span class="badge badge-gray">未跑</span>');
       const pName = platformNames[t.platform] || t.platform;
+      const subBadge = (t.platform === 'juguang' && t.sub_account_name) ? '<div style="font-size:12px; color:var(--text-secondary); margin-top:3px;"><span style="background:#e8f3ff; color:var(--primary); padding:1px 6px; border-radius:4px; font-weight:500;">子账号: ' + escapeHtml(t.sub_account_name) + '</span></div>' : '';
       const modeText = t.update_mode === 'append' ? '<span class="ok-pill">增量追加</span>' : '<span class="unmapped-pill">全量覆写</span>';
       const nextTime = t.next_run_at ? t.next_run_at.slice(0, 19).replace('T', ' ') : '-';
       html += '<tr>' +
         '<td>' + t.id + '</td>' +
         '<td><div style="font-weight:600; font-size:14px; margin-bottom:2px;">' + t.name + '</div>' + statusBadge + '</td>' +
-        '<td><strong style="color:var(--primary)">' + pName + '</strong></td>' +
+        '<td><strong style="color:var(--primary)">' + pName + '</strong>' + subBadge + '</td>' +
         '<td>' + modeText + '</td>' +
         '<td><a href="' + t.spreadsheet_url + '" target="_blank" style="color:var(--primary); font-weight:500; text-decoration:none; display:inline-flex; align-items:center; gap:4px;">查看飞书表格 <span style="font-size:11px;">↗</span></a></td>' +
         '<td>' + nextTime + '</td>' +

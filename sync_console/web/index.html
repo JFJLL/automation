@@ -463,6 +463,34 @@
             <div class="desc">小红书后台报表 (创意/定向/关键词/账户)</div>
           </div>
         </div>
+        <!-- 聚光专属：子账号选择区域 (纯前端自定义组件，完全剔除浏览器原生外观) -->
+        <div id="juguangSubAccountSection" style="display: none; margin-bottom: 22px; padding: 18px 20px; background: #f8fafc; border: 1.5px solid #dbeafe; border-radius: var(--radius-lg);">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <label style="font-size: 14px; font-weight: 600; color: #1e3a8a; display: flex; align-items: center; gap: 6px;">
+              <span>🏢</span> 选择聚光子账号
+            </label>
+            <span style="font-size: 12px; color: var(--text-muted);" id="subAccountCountTip">正在连接 OSS 凭据库...</span>
+          </div>
+          <div class="custom-select" id="wrapper-juguangSubAccountSelect">
+            <div class="custom-select-trigger" onclick="toggleCustomSelect('wrapper-juguangSubAccountSelect')">
+              <span class="custom-select-label" id="juguangSubAccountDisplay">请选择聚光子账号...</span>
+              <svg class="arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </div>
+            <div class="custom-select-menu" id="juguangSubAccountMenu" style="max-height: 280px; padding: 8px;">
+              <div style="padding: 0 4px 8px 4px; border-bottom: 1px solid var(--border); margin-bottom: 6px;" onclick="event.stopPropagation()">
+                <input type="text" id="subAccountSearchInput" class="form-control" placeholder="🔍 输入子账号名称或 ID 搜索..." style="height: 34px; font-size: 13px;" oninput="filterSubAccounts(this.value)">
+              </div>
+              <div id="subAccountOptionsContainer">
+                <div style="padding: 12px; text-align: center; color: var(--text-muted); font-size: 13px;">加载中...</div>
+              </div>
+            </div>
+            <input type="hidden" id="selectedSubAccountId" value="">
+            <input type="hidden" id="selectedSubAccountName" value="">
+          </div>
+          <div style="font-size: 12px; color: #64748b; margin-top: 8px; display: flex; align-items: center; gap: 4px;">
+            <span>💡 提示：系统将根据所选子账号自动从 OSS 获取对应 Cookie 并注入专属虚拟卖家 ID（v-seller-id），多子账号互不干扰。</span>
+          </div>
+        </div>
         <div class="card-title">第二步：上传包含表头的数据表样本 (Excel)</div>
         <div class="upload-box" onclick="document.getElementById('excelFileInput').click()">
           <input type="file" id="excelFileInput" accept=".xlsx, .xls" style="display:none;" onchange="handleFileSelected(event)">
@@ -921,7 +949,7 @@
   </div>
 
   <!-- 将 JavaScript 逻辑直接内嵌于页面，彻底杜绝浏览器静态文件缓存引起的失效 -->
-  <script src="/static/app.js?v=20260922_v6"></script>
+  <script src="/static/app.js?v=20260928_subaccount_v1"></script>
 <div id="globalHoverTooltip" style="position: fixed; display: none; background: #1d2129; color: #ffffff; padding: 8px 12px; border-radius: 6px; font-size: 12px; line-height: 1.5; max-width: 420px; z-index: 99999; box-shadow: 0 4px 16px rgba(0,0,0,0.25); pointer-events: none; word-break: break-all; transition: opacity 0.15s ease;"></div>
 </body>
 </html>

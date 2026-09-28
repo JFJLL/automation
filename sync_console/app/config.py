@@ -16,10 +16,16 @@ SHARED_FOLDER_TOKEN = os.getenv("SHARED_FOLDER_TOKEN", "")
 SHARED_FOLDER_NAME = os.getenv("SHARED_FOLDER_NAME", "数据自动同步表")
 ACCESS_TOKEN = os.getenv("ACCESS_TOKEN", "redmagic2026")
 
+OSS_ENDPOINT = os.getenv("OSS_ENDPOINT", "https://oss-cn-beijing.aliyuncs.com").strip()
+OSS_BUCKET = os.getenv("OSS_BUCKET", "redmagic").strip()
+OSS_ACCESS_KEY_ID = os.getenv("OSS_ACCESS_KEY_ID", "").strip()
+OSS_ACCESS_KEY_SECRET = os.getenv("OSS_ACCESS_KEY_SECRET", "").strip()
+
 ADSTAR_OSS_BASE_URL = os.getenv("ADSTAR_OSS_BASE_URL", "https://redmagic.oss-cn-beijing.aliyuncs.com")
-ADSTAR_OSS_OBJECT_KEY = os.getenv("ADSTAR_OSS_OBJECT_KEY", "KOL/adstar_token.txt")
+ADSTAR_OSS_OBJECT_KEY = os.getenv("ADSTAR_OSS_OBJECT_KEY", "KOL/adstar.txt")
 JZT_OSS_OBJECT_KEY = os.getenv("JZT_OSS_OBJECT_KEY", "KOL/jzt_token.txt")
 JUGUANG_OSS_OBJECT_KEY = os.getenv("JUGUANG_OSS_OBJECT_KEY", "KOL/juguang_token.txt")
+JUGUANG_OSS_SUBACCOUNT_PREFIX = os.getenv("JUGUANG_OSS_SUBACCOUNT_PREFIX", "token/")
 
 FEISHU_CHAT_ID = os.getenv("FEISHU_CHAT_ID", "")
 NOTIFICATION_WEBHOOK = os.getenv("NOTIFICATION_WEBHOOK", "")

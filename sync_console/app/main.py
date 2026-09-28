@@ -17,6 +17,7 @@ from app.db import get_db, init_db
 from feishu.client import FeishuClient
 from feishu.notify import Notifier
 from platforms.registry import PLATFORMS
+from platforms.juguang import get_juguang_subaccounts_list
 from core.ingest import parse_excel_sheets, analyze_sheet_for_platform
 from core.sync import preview_fetch, execute_task_sync
 from core.scheduler import init_scheduler, reschedule_task, remove_job, parse_next_run
@@ -103,6 +104,10 @@ def get_platforms(_=Depends(verify_token)):
         for code, p in PLATFORMS.items()
     }
 
+@app.get("/api/platforms/juguang/subaccounts")
+def get_juguang_subaccounts(_=Depends(verify_token)):
+    return get_juguang_subaccounts_list()
+
 @app.get("/api/settings")
 def get_settings(_=Depends(verify_admin_token)):
     feishu = FeishuClient()
@@ -154,6 +159,7 @@ class PreviewRequest(BaseModel):
     dimension: str
     start_date: str
     end_date: str
+    sub_account_id: Optional[str] = None
 
 @app.post("/api/preview")
 def fetch_preview(req: PreviewRequest, _=Depends(verify_token)):
@@ -165,7 +171,8 @@ def fetch_preview(req: PreviewRequest, _=Depends(verify_token)):
         end_date=req.end_date,
         headers=req.headers,
         id_col=req.id_column,
-        date_col=req.date_column
+        date_col=req.date_column,
+        sub_account_id=req.sub_account_id
     )
     return res
 
@@ -187,6 +194,8 @@ class CreateTaskRequest(BaseModel):
     rrule: str
     sheets: List[SheetConfig]
     write_initial_data: bool = True
+    sub_account_id: Optional[str] = None
+    sub_account_name: Optional[str] = None
 
 @app.post("/api/create_task")
 def create_task(req: CreateTaskRequest, _=Depends(verify_token)):
@@ -238,12 +247,12 @@ def create_task(req: CreateTaskRequest, _=Depends(verify_token)):
         cursor.execute(
             """
             INSERT INTO tasks (
-                name, platform, folder_token, spreadsheet_token, spreadsheet_url,
+                name, platform, sub_account_id, sub_account_name, folder_token, spreadsheet_token, spreadsheet_url,
                 update_mode, calibration_days, rrule, status, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)
             """,
             (
-                req.task_name, req.platform, folder_token, ss_token, ss_url,
+                req.task_name, req.platform, req.sub_account_id, req.sub_account_name, folder_token, ss_token, ss_url,
                 req.update_mode, req.calibration_days, req.rrule, now, now
             )
         )

@@ -45,7 +45,8 @@ def preview_fetch(
     end_date: str,
     headers: List[str],
     id_col: str,
-    date_col: str
+    date_col: str,
+    sub_account_id: Optional[str] = None
 ) -> Dict[str, Any]:
     all_raw_rows = []
     errors = []
@@ -60,7 +61,7 @@ def preview_fetch(
             elif platform == "taobao":
                 data = fetch_taobao_data(eid, dimension, start_date, end_date)
             elif platform == "juguang":
-                data = fetch_juguang_data(eid, dimension, start_date, end_date)
+                data = fetch_juguang_data(eid, dimension, start_date, end_date, sub_account_id=sub_account_id)
             else:
                 raise ValueError(f"未知平台: {platform}")
             all_raw_rows.extend(data[:50])
@@ -178,13 +179,14 @@ def execute_task_sync(task_id: int, trigger_type: str = "scheduled") -> Dict[str
             
             # 4. 调接口抓取数据
             fetched_items = []
+            sub_acc_id = task["sub_account_id"] if "sub_account_id" in task.keys() else None
             for eid in entity_ids:
                 if task["platform"] == "jzt":
                     items = fetch_jzt_data(eid, start_date, cutoff_date)
                 elif task["platform"] == "taobao":
                     items = fetch_taobao_data(eid, dimension, start_date, cutoff_date)
                 elif task["platform"] == "juguang":
-                    items = fetch_juguang_data(eid, dimension, start_date, cutoff_date)
+                    items = fetch_juguang_data(eid, dimension, start_date, cutoff_date, sub_account_id=sub_acc_id)
                 else:
                     items = []
                 fetched_items.extend(items)
