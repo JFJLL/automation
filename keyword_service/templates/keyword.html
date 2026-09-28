@@ -908,90 +908,13 @@
     </div>
   </div>
 
-  <div class="modal-backdrop-custom" id="keywordLoginModal" role="dialog" aria-modal="true" aria-labelledby="keywordLoginTitle">
-    <div class="modal-box" style="width:420px;">
-      <div class="modal-header">
-        <span id="keywordLoginTitle">管理员登录</span>
-        <button type="button" class="btn btn-outline btn-sm" onclick="cancelKeywordLogin()" aria-label="关闭">✕</button>
-      </div>
-      <form onsubmit="event.preventDefault(); submitKeywordLogin();">
-        <label for="keywordLoginPassword" style="display:block; font-size:13px; margin-bottom:6px;">请输入管理员密码以访问关键词数据和同步任务</label>
-        <input type="password" id="keywordLoginPassword" class="form-control-custom" style="width:100%;" autocomplete="current-password" required>
-        <p id="keywordLoginError" role="alert" style="color:var(--danger); font-size:13px; min-height:20px; margin-top:8px;"></p>
-        <div class="modal-footer">
-          <button type="button" class="btn btn-outline" onclick="cancelKeywordLogin()">取消</button>
-          <button type="submit" class="btn btn-primary" id="keywordLoginSubmit">登录并继续</button>
-        </div>
-      </form>
-    </div>
-  </div>
-
   <script>
     let latestSearchResult = null;
     let isDateDescending = false; // 默认升序，但自动平滑滚动至最右端（最新日期）
     let modalKeywordsCache = [];
-    let keywordLoginPromise = null;
-    let resolveKeywordLogin = null;
-    let rejectKeywordLogin = null;
-
-    function requestKeywordLogin() {
-      if (keywordLoginPromise) return keywordLoginPromise;
-      document.getElementById('keywordLoginError').textContent = '';
-      document.getElementById('keywordLoginPassword').value = '';
-      document.getElementById('keywordLoginModal').classList.add('active');
-      document.getElementById('keywordLoginPassword').focus();
-      keywordLoginPromise = new Promise((resolve, reject) => {
-        resolveKeywordLogin = resolve;
-        rejectKeywordLogin = reject;
-      });
-      return keywordLoginPromise;
-    }
-
-    function closeKeywordLogin() {
-      document.getElementById('keywordLoginModal').classList.remove('active');
-      document.getElementById('keywordLoginPassword').value = '';
-      keywordLoginPromise = null;
-      resolveKeywordLogin = null;
-      rejectKeywordLogin = null;
-    }
-
-    function cancelKeywordLogin() {
-      const reject = rejectKeywordLogin;
-      closeKeywordLogin();
-      if (reject) reject(new Error('已取消登录'));
-    }
-
-    async function submitKeywordLogin() {
-      const password = document.getElementById('keywordLoginPassword').value;
-      const button = document.getElementById('keywordLoginSubmit');
-      button.disabled = true;
-      try {
-        const response = await fetch('/api/auth/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ password })
-        });
-        if (!response.ok) {
-          document.getElementById('keywordLoginError').textContent = '密码错误，请重试';
-          return;
-        }
-        const resolve = resolveKeywordLogin;
-        closeKeywordLogin();
-        if (resolve) resolve();
-      } catch (error) {
-        document.getElementById('keywordLoginError').textContent = '登录失败，请检查网络后重试';
-      } finally {
-        button.disabled = false;
-      }
-    }
 
     async function keywordFetch(url, options) {
-      let response = await fetch(url, options);
-      if (response.status === 401) {
-        await requestKeywordLogin();
-        response = await fetch(url, options);
-      }
-      return response;
+      return await fetch(url, options);
     }
 
     // 页面初始化
@@ -1261,7 +1184,10 @@
 
         closeTaskModal();
         showAlert(`✅ 定时同步任务创建成功！已建立飞书表格并录入调度。<a href="${res.spreadsheet_url}" target="_blank" style="color:var(--primary); font-weight:600; text-decoration:underline; margin-left:8px;">打开飞书表格 ↗</a>`, 'success');
+        tabCache.tasks.loaded = false;
+        tabCache.runs.loaded = false;
         switchMainTab('tasks');
+        loadTasksList(true);
       } catch (e) {
         alert('创建任务失败: ' + e.message);
       } finally {

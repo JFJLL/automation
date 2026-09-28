@@ -23,12 +23,7 @@ from app.config import ACCESS_TOKEN
 
 router = APIRouter()
 
-def require_keyword_access(request: Request):
-    token = request.headers.get("X-Access-Token") or request.cookies.get("access_token")
-    if not token or not hmac.compare_digest(token, ACCESS_TOKEN):
-        raise HTTPException(status_code=401, detail="请先使用管理员密码登录")
-
-private_router = APIRouter(prefix="/api/keyword", dependencies=[Depends(require_keyword_access)])
+private_router = APIRouter(prefix="/api/keyword")
 HTML_PATH = Path(__file__).parent / "templates" / "keyword.html"
 
 # 初始化数据库

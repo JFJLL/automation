@@ -10,7 +10,7 @@ from app.main import app
 from app.config import ACCESS_TOKEN
 
 def run_tests():
-    client = TestClient(app, headers={"X-Access-Token": ACCESS_TOKEN})
+    client = TestClient(app)
     
     # 1. 验证 HTML 页面无冗余组件且包含自定义 Modal、纯文字“加词”与无括号频率文案
     r_page = client.get("/keyword")

@@ -32,12 +32,6 @@ class TestKeywordStartup(unittest.TestCase):
                 try:
                     with TestClient(app) as client:
                         self.assertEqual(client.get("/keyword").status_code, 200)
-                        self.assertEqual(client.get("/api/keyword/tasks").status_code, 401)
-                        self.assertEqual(client.post(f"/api/keyword/tasks/{task_id}/toggle").status_code, 401)
-                        with closing(get_db()) as conn:
-                            status = conn.execute("SELECT status FROM keyword_tasks WHERE id = ?", (task_id,)).fetchone()[0]
-                        self.assertEqual(status, "active")
-                        self.assertEqual(client.post("/api/auth/login", json={"password": ACCESS_TOKEN}).status_code, 200)
                         self.assertEqual(client.get("/api/keyword/tasks").status_code, 200)
                         self.assertTrue(kw_scheduler.running)
                         self.assertIsNotNone(kw_scheduler.get_job(f"kw_task_{task_id}"))
@@ -45,8 +39,6 @@ class TestKeywordStartup(unittest.TestCase):
                             next_run = conn.execute("SELECT next_run_at FROM keyword_tasks WHERE id = ?", (task_id,)).fetchone()[0]
                         self.assertIsNotNone(next_run)
                     standalone_client = TestClient(standalone_app)
-                    self.assertEqual(standalone_client.get("/api/keyword/tasks").status_code, 401)
-                    self.assertEqual(standalone_client.post("/api/auth/login", json={"password": ACCESS_TOKEN}).status_code, 200)
                     self.assertEqual(standalone_client.get("/api/keyword/tasks").status_code, 200)
                 finally:
                     if kw_scheduler.running:
