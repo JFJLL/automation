@@ -93,34 +93,50 @@ def get_juguang_subaccounts_list(force_refresh: bool = False) -> List[Dict[str, 
         return _subaccounts_cache["data"]
 
     known_names = {}
-    json_file = BASE_DIR / "tokens" / "juguang_subaccounts.json"
-    if json_file.exists():
-        try:
-            for item in json.loads(json_file.read_text(encoding="utf-8")):
-                if item.get("id") and item.get("name"):
-                    known_names[item["id"]] = item["name"]
-        except Exception:
-            pass
+    candidate_json_files = [
+        Path(__file__).parent / "juguang_subaccounts.json",
+        BASE_DIR / "platforms" / "juguang_subaccounts.json",
+        BASE_DIR / "tokens" / "juguang_subaccounts.json"
+    ]
+    for jf in candidate_json_files:
+        if jf.exists():
+            try:
+                for item in json.loads(jf.read_text(encoding="utf-8")):
+                    sid = item.get("id")
+                    sname = item.get("name")
+                    if sid and sname and not sname.startswith("聚光子账号_"):
+                        known_names[sid] = sname
+                    elif sid and sname and sid not in known_names:
+                        known_names[sid] = sname
+            except Exception:
+                pass
 
-    log_path = Path("D:/download/pic-vec/oss-upload/sync_cookies.log")
-    if log_path.exists():
-        try:
-            with open(log_path, "rb") as f:
-                for line in f.read().splitlines():
-                    try:
-                        dec = line.decode("utf-8")
-                    except Exception:
-                        continue
-                    m = re.findall(r"([a-f0-9]{24})", dec)
-                    for fid in m:
-                        if "(" in dec:
-                            idx = dec.find("(" + fid)
-                            if idx != -1:
-                                pre = dec[:idx].strip()
-                                if ":" in pre:
-                                    known_names[fid] = pre.split(":")[-1].strip()
-        except Exception:
-            pass
+    local_log_candidates = [
+        Path("D:/download/pic-vec/oss-upload/sync_cookies.log"),
+        BASE_DIR / "tokens" / "sync_cookies.log",
+        BASE_DIR / "sync_cookies.log"
+    ]
+    for lp in local_log_candidates:
+        if lp.exists():
+            try:
+                with open(lp, "rb") as f:
+                    for line in f.read().splitlines():
+                        try:
+                            dec = line.decode("utf-8")
+                        except Exception:
+                            continue
+                        m = re.findall(r"([a-f0-9]{24})", dec)
+                        for fid in m:
+                            if "(" in dec:
+                                idx = dec.find("(" + fid)
+                                if idx != -1:
+                                    pre = dec[:idx].strip()
+                                    if ":" in pre:
+                                        name_cand = pre.split(":")[-1].strip()
+                                        if name_cand:
+                                            known_names[fid] = name_cand
+            except Exception:
+                pass
 
     oss_ids = set()
     if OSS_ACCESS_KEY_ID and OSS_ACCESS_KEY_SECRET and OSS_BUCKET:
@@ -144,11 +160,12 @@ def get_juguang_subaccounts_list(force_refresh: bool = False) -> List[Dict[str, 
         subaccounts.append({"id": sid, "name": name})
 
     if subaccounts:
-        try:
-            json_file.parent.mkdir(parents=True, exist_ok=True)
-            json_file.write_text(json.dumps(subaccounts, ensure_ascii=False, indent=2), encoding="utf-8")
-        except Exception:
-            pass
+        for jf in [Path(__file__).parent / "juguang_subaccounts.json", BASE_DIR / "tokens" / "juguang_subaccounts.json"]:
+            try:
+                jf.parent.mkdir(parents=True, exist_ok=True)
+                jf.write_text(json.dumps(subaccounts, ensure_ascii=False, indent=2), encoding="utf-8")
+            except Exception:
+                pass
         _subaccounts_cache["timestamp"] = now
         _subaccounts_cache["data"] = subaccounts
         return subaccounts
