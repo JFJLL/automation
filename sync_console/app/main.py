@@ -58,15 +58,30 @@ def index_page():
     return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
 
 @app.get("/favicon.svg")
-@app.get("/favicon.ico")
-def favicon():
-    ico_path = BASE_DIR / "web" / "favicon.ico"
-    if ico_path.exists():
-        return Response(content=ico_path.read_bytes(), media_type="image/x-icon")
-    svg_path = BASE_DIR / "web" / "favicon.svg"
-    if svg_path.exists():
-        return Response(content=svg_path.read_bytes(), media_type="image/svg+xml")
+def favicon_svg():
+    candidates = [
+        BASE_DIR / "web" / "favicon.svg",
+        BASE_DIR / "sync_console" / "web" / "favicon.svg",
+        Path(__file__).parent.parent / "web" / "favicon.svg",
+        Path(__file__).parent.parent / "sync_console" / "web" / "favicon.svg"
+    ]
+    for p in candidates:
+        if p.exists():
+            return Response(content=p.read_bytes(), media_type="image/svg+xml")
     return Response(status_code=404)
+
+@app.get("/favicon.ico")
+def favicon_ico():
+    candidates = [
+        BASE_DIR / "web" / "favicon.ico",
+        BASE_DIR / "sync_console" / "web" / "favicon.ico",
+        Path(__file__).parent.parent / "web" / "favicon.ico",
+        Path(__file__).parent.parent / "sync_console" / "web" / "favicon.ico"
+    ]
+    for p in candidates:
+        if p.exists():
+            return Response(content=p.read_bytes(), media_type="image/x-icon")
+    return favicon_svg()
 
 @app.post("/api/auth/login")
 def login(payload: Dict[str, str], response: Response):

@@ -64,12 +64,26 @@ def keyword_page():
     return HTMLResponse(content=HTML_PATH.read_text(encoding="utf-8"))
 
 @router.get("/favicon.svg")
-@router.get("/favicon.ico")
-def keyword_favicon():
-    svg_path = Path(__file__).parent.parent / "sync_console" / "web" / "favicon.svg"
-    if svg_path.exists():
-        return Response(content=svg_path.read_bytes(), media_type="image/svg+xml")
+def keyword_favicon_svg():
+    candidates = [
+        Path(__file__).parent.parent / "sync_console" / "web" / "favicon.svg",
+        Path(__file__).parent.parent / "web" / "favicon.svg"
+    ]
+    for p in candidates:
+        if p.exists():
+            return Response(content=p.read_bytes(), media_type="image/svg+xml")
     return Response(status_code=404)
+
+@router.get("/favicon.ico")
+def keyword_favicon_ico():
+    candidates = [
+        Path(__file__).parent.parent / "sync_console" / "web" / "favicon.ico",
+        Path(__file__).parent.parent / "web" / "favicon.ico"
+    ]
+    for p in candidates:
+        if p.exists():
+            return Response(content=p.read_bytes(), media_type="image/x-icon")
+    return keyword_favicon_svg()
 
 @private_router.post("/search")
 def search_keywords(req: KeywordSearchRequest):
