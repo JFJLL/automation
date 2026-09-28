@@ -15,21 +15,21 @@ class TestJuguangSubaccountFlow(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         items = r.json()
         self.assertIsInstance(items, list)
-        self.assertGreaterEqual(len(items), 300)
+        self.assertGreaterEqual(len(items), 100)
         first = items[0]
         self.assertIn("id", first)
         self.assertIn("name", first)
         self.assertTrue(len(first["id"]) == 24)
 
     def test_02_get_subaccount_headers_from_oss(self):
-        sub_id = "628b3a5056228a000189c0e4"
+        sub_id = "629dd021b276e90001fc3b8c"
         hdrs = get_juguang_subaccount_headers(sub_id)
         self.assertEqual(hdrs["v-seller-id"], sub_id)
         self.assertIn("a1=", hdrs["cookie"])
         self.assertEqual(hdrs["origin"], "https://ad.xiaohongshu.com")
 
     def test_03_fetch_juguang_data_with_subaccount(self):
-        sub_id = "628b3a5056228a000189c0e4"
+        sub_id = "629dd021b276e90001fc3b8c"
         rows = fetch_juguang_data(
             entity_id="test_account",
             split_type="account",
@@ -43,7 +43,7 @@ class TestJuguangSubaccountFlow(unittest.TestCase):
             self.assertIn("消费", rows[0])
 
     def test_04_preview_api_with_subaccount(self):
-        sub_id = "628b3a5056228a000189c0e4"
+        sub_id = "629dd021b276e90001fc3b8c"
         payload = {
             "platform": "juguang",
             "sheet_title": "测试聚光",

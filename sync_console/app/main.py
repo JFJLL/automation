@@ -105,8 +105,8 @@ def get_platforms(_=Depends(verify_token)):
     }
 
 @app.get("/api/platforms/juguang/subaccounts")
-def get_juguang_subaccounts(_=Depends(verify_token)):
-    return get_juguang_subaccounts_list()
+def get_juguang_subaccounts(refresh: bool = False, _=Depends(verify_token)):
+    return get_juguang_subaccounts_list(force_refresh=refresh)
 
 @app.get("/api/settings")
 def get_settings(_=Depends(verify_admin_token)):

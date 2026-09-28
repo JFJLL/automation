@@ -311,21 +311,22 @@ function selectPlatform(code) {
 
 let cachedSubAccounts = [];
 
-async function loadJuguangSubaccounts() {
+async function loadJuguangSubaccounts(force = false) {
   const container = document.getElementById('subAccountOptionsContainer');
   const tip = document.getElementById('subAccountCountTip');
-  if (cachedSubAccounts.length > 0) {
+  if (!force && cachedSubAccounts.length > 0) {
     renderSubAccountOptions(cachedSubAccounts);
     return;
   }
   if (container) {
-    container.innerHTML = '<div style="padding: 12px; text-align: center; color: var(--text-muted); font-size: 13px;"><div class="spinner"></div> 正在从 OSS 凭据库同步子账号清单...</div>';
+    container.innerHTML = '<div style="padding: 12px; text-align: center; color: var(--text-muted); font-size: 13px;"><div class="spinner"></div> 正在从 OSS 实时获取最新子账号清单...</div>';
   }
   try {
-    const list = await apiFetch('/api/platforms/juguang/subaccounts');
+    const url = '/api/platforms/juguang/subaccounts' + (force ? '?refresh=true' : '');
+    const list = await apiFetch(url);
     cachedSubAccounts = list || [];
     if (tip) {
-      tip.innerText = '已从 OSS 匹配 ' + cachedSubAccounts.length + ' 个可用子账号凭据';
+      tip.innerHTML = '已从 OSS 动态获取 ' + cachedSubAccounts.length + ' 个子账号凭据 <a href="javascript:void(0)" onclick="loadJuguangSubaccounts(true)" style="margin-left:8px; color:var(--primary); text-decoration:none; font-weight:500;">🔄 刷新最新</a>';
     }
     renderSubAccountOptions(cachedSubAccounts);
     const curId = document.getElementById('selectedSubAccountId').value;
@@ -355,7 +356,7 @@ function renderSubAccountOptions(list) {
             'data-name="' + escapeHtml(item.name) + '" ' +
             'onclick="selectSubAccount(\'' + escapeHtml(item.id) + '\', \'' + escapeHtml(item.name).replace(/'/g, "\\'") + '\')">' +
             '<div style="display: flex; flex-direction: column; overflow: hidden;">' +
-            '<span style="font-weight: 500; color: #1d2129; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">' + escapeHtml(item.name) + '</span>' +
+            '<div style="display:flex; align-items:center;"><span style="font-weight: 500; color: ' + (item.status && item.status !== 1 ? '#86909c' : '#1d2129') + '; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">' + escapeHtml(item.name) + '</span>' + (item.status && item.status !== 1 ? '<span class="badge" style="background:#fff2e8; color:#fa541c; font-size:10px; margin-left:6px; border:1px solid #ffbb96;">已冻结</span>' : '') + '</div>' +
             '<span style="font-size: 11px; color: var(--text-muted); font-family: monospace;">ID: ' + escapeHtml(item.id) + '</span>' +
             '</div>' +
             '<svg class="check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>' +

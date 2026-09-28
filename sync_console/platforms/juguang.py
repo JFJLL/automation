@@ -86,55 +86,46 @@ def get_juguang_subaccount_headers(sub_account_id: str) -> Dict[str, str]:
 _subaccounts_cache = {"timestamp": 0.0, "data": []}
 
 def get_juguang_subaccounts_list(force_refresh: bool = False) -> List[Dict[str, str]]:
-    """动态从 OSS 扫描发现所有最新的子账号 token 文件，并结合名称对照表自动更新返回"""
+    """动态从 OSS 获取最新的子账号元数据映射及 Token 列表，支持动态账号增减与状态识别，无需代码固化"""
     global _subaccounts_cache
     now = time.time()
-    if not force_refresh and _subaccounts_cache["data"] and (now - _subaccounts_cache["timestamp"] < 30):
+    if not force_refresh and _subaccounts_cache["data"] and (now - _subaccounts_cache["timestamp"] < 60):
         return _subaccounts_cache["data"]
 
-    known_names = {}
-    candidate_json_files = [
-        Path(__file__).parent / "juguang_subaccounts.json",
-        BASE_DIR / "platforms" / "juguang_subaccounts.json",
+    known_meta = {}
+
+    # 1. 优先从 OSS 动态实时拉取 subaccounts_meta.json 元数据映射
+    meta_key = f"{JUGUANG_OSS_SUBACCOUNT_PREFIX.rstrip('/')}/subaccounts_meta.json"
+    try:
+        meta_raw = fetch_oss_token(meta_key).strip()
+        if meta_raw:
+            for item in json.loads(meta_raw):
+                sid = item.get("id") or item.get("subId")
+                sname = item.get("name")
+                if sid and sname:
+                    known_meta[sid] = {
+                        "name": sname,
+                        "status": item.get("status", 1)
+                    }
+    except Exception as e:
+        print(f"[Juguang] Dynamic fetch OSS subaccounts_meta failed ({meta_key}): {e}")
+
+    # 2. 运行时本地动态缓存兜底（仅在 OSS 偶发网络超时时应急，不入 Git 仓库）
+    cache_candidates = [
+        BASE_DIR / "data" / "juguang_subaccounts_cache.json",
         BASE_DIR / "tokens" / "juguang_subaccounts.json"
     ]
-    for jf in candidate_json_files:
-        if jf.exists():
+    for cf in cache_candidates:
+        if cf.exists():
             try:
-                for item in json.loads(jf.read_text(encoding="utf-8")):
-                    sid = item.get("id")
+                for item in json.loads(cf.read_text(encoding="utf-8")):
+                    sid = item.get("id") or item.get("subId")
                     sname = item.get("name")
-                    if sid and sname and not sname.startswith("聚光子账号_"):
-                        known_names[sid] = sname
-                    elif sid and sname and sid not in known_names:
-                        known_names[sid] = sname
-            except Exception:
-                pass
-
-    local_log_candidates = [
-        Path("D:/download/pic-vec/oss-upload/sync_cookies.log"),
-        BASE_DIR / "tokens" / "sync_cookies.log",
-        BASE_DIR / "sync_cookies.log"
-    ]
-    for lp in local_log_candidates:
-        if lp.exists():
-            try:
-                with open(lp, "rb") as f:
-                    for line in f.read().splitlines():
-                        try:
-                            dec = line.decode("utf-8")
-                        except Exception:
-                            continue
-                        m = re.findall(r"([a-f0-9]{24})", dec)
-                        for fid in m:
-                            if "(" in dec:
-                                idx = dec.find("(" + fid)
-                                if idx != -1:
-                                    pre = dec[:idx].strip()
-                                    if ":" in pre:
-                                        name_cand = pre.split(":")[-1].strip()
-                                        if name_cand:
-                                            known_names[fid] = name_cand
+                    if sid and sname and sid not in known_meta:
+                        known_meta[sid] = {
+                            "name": sname,
+                            "status": item.get("status", 1)
+                        }
             except Exception:
                 pass
 
@@ -152,20 +143,28 @@ def get_juguang_subaccounts_list(force_refresh: bool = False) -> List[Dict[str, 
         except Exception as e:
             print(f"[Juguang] List OSS subaccount tokens failed: {e}")
 
-    target_ids = sorted(list(oss_ids)) if oss_ids else sorted(list(known_names.keys()))
+    target_ids = sorted(list(oss_ids)) if oss_ids else sorted(list(known_meta.keys()))
 
     subaccounts = []
     for sid in target_ids:
-        name = known_names.get(sid, f"聚光子账号_{sid[:8]}")
-        subaccounts.append({"id": sid, "name": name})
+        info = known_meta.get(sid, {})
+        raw_name = info.get("name") if isinstance(info, dict) else str(info)
+        name = raw_name if raw_name and not raw_name.startswith("聚光子账号_") else f"聚光子账号_{sid[:8]}"
+        status = info.get("status", 1) if isinstance(info, dict) else 1
+        subaccounts.append({
+            "id": sid,
+            "name": name,
+            "status": status
+        })
 
     if subaccounts:
-        for jf in [Path(__file__).parent / "juguang_subaccounts.json", BASE_DIR / "tokens" / "juguang_subaccounts.json"]:
-            try:
-                jf.parent.mkdir(parents=True, exist_ok=True)
-                jf.write_text(json.dumps(subaccounts, ensure_ascii=False, indent=2), encoding="utf-8")
-            except Exception:
-                pass
+        # 仅将运行时状态保存在本地数据目录供离线兜底，不提交 Git
+        try:
+            cache_file = BASE_DIR / "data" / "juguang_subaccounts_cache.json"
+            cache_file.parent.mkdir(parents=True, exist_ok=True)
+            cache_file.write_text(json.dumps(subaccounts, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception:
+            pass
         _subaccounts_cache["timestamp"] = now
         _subaccounts_cache["data"] = subaccounts
         return subaccounts
