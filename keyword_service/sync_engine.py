@@ -101,41 +101,70 @@ def write_matrix_to_sheet(feishu: FeishuClient, ss_token: str, sheet_id: str, ma
             "valueRange": {"range": range_str, "values": chunk_rows}
         })
 
-def merge_date_headers(feishu: FeishuClient, ss_token: str, sheet_id: str, num_dates: int, max_workers: int = 8):
-    token = feishu.get_token()
-    
-    # 1. 合并 A1:A2 为 "关键词" 单元格
-    try:
-        feishu.session.post(
-            f"https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/{ss_token}/merge_cells",
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-            json={"range": f"{sheet_id}!A1:A2", "mergeType": "MERGE_ALL"},
-            timeout=10
-        )
-    except Exception as e:
-        print(f"[Feishu] Merge A1:A2 warning: {e}")
+def merge_date_headers(feishu: FeishuClient, ss_token: str, sheet_id: str, num_dates: int, retry_limit: int = 3):
+    if num_dates <= 0:
+        return
         
-    # 2. 依次合并每个日期的4个字段单元格 (B1:E1, F1:I1, J1:M1...)
-    ranges = []
+    # 1. 确保列数充足，避免 90202 范围越界
+    required_cols = 1 + num_dates * 4
+    try:
+        sheets = feishu.get_sheets(ss_token)
+        curr_sheet = next((s for s in sheets if s["sheet_id"] == sheet_id), None)
+        if curr_sheet:
+            curr_cols = curr_sheet.get("grid_properties", {}).get("column_count", 20)
+            if curr_cols < required_cols:
+                feishu.request("POST", f"sheets/v2/spreadsheets/{ss_token}/dimension_range", json={
+                    "dimension": {"sheetId": sheet_id, "majorDimension": "COLUMNS", "length": required_cols - curr_cols + 20}
+                })
+    except Exception as e:
+        print(f"[Feishu] Ensure column count warning: {e}")
+        
+    merge_url = f"https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/{ss_token}/merge_cells"
+    
+    # 2. 合并 A1:A2 为 "关键词" 单元格 (带重试)
+    for attempt in range(retry_limit):
+        try:
+            t = feishu.get_token()
+            r = feishu.session.post(
+                merge_url,
+                headers={"Authorization": f"Bearer {t}", "Content-Type": "application/json"},
+                json={"range": f"{sheet_id}!A1:A2", "mergeType": "MERGE_ALL"},
+                timeout=10
+            )
+            if r.json().get("code") == 0:
+                break
+        except Exception as e:
+            print(f"[Feishu] Merge A1:A2 attempt {attempt+1} warning: {e}")
+        time.sleep(0.1)
+        
+    # 3. 依序合并每个日期的4个字段单元格 (B1:E1, F1:I1, J1:M1...)
+    # 飞书对同一文档操作要求串行，并发会导致锁竞争和限流从而漏合并
     for idx in range(num_dates):
         c_start = 2 + idx * 4
         c_end = c_start + 3
-        ranges.append(f"{sheet_id}!{column_letter(c_start)}1:{column_letter(c_end)}1")
-        
-    def merge_one(rng):
-        try:
-            r = feishu.session.post(
-                f"https://open.feishu.cn/open-apis/sheets/v2/spreadsheets/{ss_token}/merge_cells",
-                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
-                json={"range": rng, "mergeType": "MERGE_ALL"},
-                timeout=10
-            )
-            return r.status_code == 200
-        except Exception:
-            return False
-            
-    with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        list(ex.map(merge_one, ranges))
+        rng = f"{sheet_id}!{column_letter(c_start)}1:{column_letter(c_end)}1"
+        for attempt in range(retry_limit):
+            try:
+                t = feishu.get_token()
+                r = feishu.session.post(
+                    merge_url,
+                    headers={"Authorization": f"Bearer {t}", "Content-Type": "application/json"},
+                    json={"range": rng, "mergeType": "MERGE_ALL"},
+                    timeout=10
+                )
+                data = r.json()
+                if data.get("code") == 0:
+                    break
+                if data.get("code") == 90202 and attempt < retry_limit - 1:
+                    try:
+                        feishu.request("POST", f"sheets/v2/spreadsheets/{ss_token}/dimension_range", json={
+                            "dimension": {"sheetId": sheet_id, "majorDimension": "COLUMNS", "length": 30}
+                        })
+                    except Exception:
+                        pass
+                time.sleep(0.08 * (attempt + 1))
+            except Exception:
+                time.sleep(0.08 * (attempt + 1))
 
 def direct_create_feishu_sheet(
     keywords: List[str],
@@ -235,9 +264,9 @@ def create_keyword_task(
         cursor.execute("""
             INSERT INTO keyword_tasks (
                 name, keywords_json, folder_token, spreadsheet_token, spreadsheet_url,
-                update_mode, days_range, rrule, status, last_run_at, last_status,
+                removed_keywords_json, update_mode, days_range, rrule, status, last_run_at, last_status,
                 created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, 'success', ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, '[]', ?, ?, ?, 'active', ?, 'success', ?, ?)
         """, (
             task_name, json.dumps(insight_res["keywords"], ensure_ascii=False),
             folder_token, ss_token, ss_url, update_mode, days_range, rrule_str,
@@ -276,6 +305,8 @@ def run_keyword_task(task_id: int, trigger_type: str = "manual") -> Dict[str, An
         
     task_name = task["name"]
     keywords = json.loads(task["keywords_json"] or "[]")
+    task_dict = dict(task)
+    removed_keywords = json.loads(task_dict.get("removed_keywords_json") or "[]")
     ss_token = task["spreadsheet_token"]
     ss_url = task["spreadsheet_url"]
     days_range = task["days_range"] or 90
@@ -284,13 +315,90 @@ def run_keyword_task(task_id: int, trigger_type: str = "manual") -> Dict[str, An
     start_date = (datetime.now() - timedelta(days=days_range)).strftime("%Y-%m-%d")
     
     try:
-        insight_res = fetch_keywords_insight(keywords, start_date, end_date)
-        matrix = build_sheet_matrix(insight_res["keywords"], insight_res["dates"], insight_res["data"])
-        
         feishu = FeishuClient()
         sheets = feishu.get_sheets(ss_token)
         first_sheet_id = sheets[0]["sheet_id"] if sheets else "0"
         
+        # 仅针对有效关键词拉取聚光接口，已减掉的词不再请求
+        insight_res = fetch_keywords_insight(keywords, start_date, end_date)
+        dates = insight_res["dates"]
+        data = insight_res["data"]
+        
+        # 读取表格现有数据，确保被减掉的词对应行保留历史数据且不再更新，避免整表覆写错位
+        existing_rows = []
+        try:
+            col_bound = column_letter(1 + len(dates) * 4)
+            existing_rows = feishu.read_values(ss_token, first_sheet_id, f"A1:{col_bound}500") or []
+        except Exception as e:
+            print(f"[Feishu] Read existing rows warning: {e}")
+            
+        if len(existing_rows) >= 3:
+            # 表头构建
+            row1 = ["关键词"]
+            row2 = [""]
+            for d in dates:
+                row1.extend([d, "", "", ""])
+                row2.extend(["搜索指数", "广告曝光量", "广告笔记数", "平均市场出价"])
+            matrix = [row1, row2]
+            
+            # 收集已有行中各关键词位置及历史行数据
+            existing_kw_map = {}
+            for r in existing_rows[2:]:
+                if r and len(r) > 0 and str(r[0]).strip():
+                    kw_name = str(r[0]).strip()
+                    existing_kw_map[kw_name] = r
+                    
+            # 遍历原有表格的行顺序
+            for kw_name, old_r in existing_kw_map.items():
+                if kw_name in removed_keywords:
+                    # 被减掉的词：保留原行数据，不更新，补齐可能的新列空缺
+                    padded_r = list(old_r)
+                    target_len = 1 + len(dates) * 4
+                    if len(padded_r) < target_len:
+                        padded_r.extend([""] * (target_len - len(padded_r)))
+                    elif len(padded_r) > target_len:
+                        padded_r = padded_r[:target_len]
+                    matrix.append(padded_r)
+                elif kw_name in keywords:
+                    # 有效关键词：填入最新抓取的数据
+                    kw_daily = data.get(kw_name, {})
+                    row = [kw_name]
+                    for d in dates:
+                        item = kw_daily.get(d)
+                        if item:
+                            row.append(item.get("search_num", 0))
+                            row.append(item.get("imp_num", 0))
+                            row.append(item.get("note_num", 0))
+                            row.append(item.get("bid", 0.0))
+                        else:
+                            row.extend([0, 0, 0, 0.0])
+                    matrix.append(row)
+                else:
+                    # 其它现有行保留原样
+                    padded_r = list(old_r)
+                    target_len = 1 + len(dates) * 4
+                    if len(padded_r) < target_len:
+                        padded_r.extend([""] * (target_len - len(padded_r)))
+                    matrix.append(padded_r)
+                    
+            # 若有新加且此前不在表格里的关键词，追加到新行
+            for kw in keywords:
+                if kw not in existing_kw_map:
+                    kw_daily = data.get(kw, {})
+                    row = [kw]
+                    for d in dates:
+                        item = kw_daily.get(d)
+                        if item:
+                            row.append(item.get("search_num", 0))
+                            row.append(item.get("imp_num", 0))
+                            row.append(item.get("note_num", 0))
+                            row.append(item.get("bid", 0.0))
+                        else:
+                            row.extend([0, 0, 0, 0.0])
+                    matrix.append(row)
+        else:
+            matrix = build_sheet_matrix(insight_res["keywords"], insight_res["dates"], insight_res["data"])
+            
         write_matrix_to_sheet(feishu, ss_token, first_sheet_id, matrix)
         merge_date_headers(feishu, ss_token, first_sheet_id, len(insight_res["dates"]))
             
@@ -340,6 +448,8 @@ def append_keywords_to_task(task_id: int, new_keywords: List[str], sync_now: boo
         raise ValueError(f"Task #{task_id} not found")
         
     curr_kws = json.loads(task["keywords_json"] or "[]")
+    task_dict = dict(task)
+    removed_kws = json.loads(task_dict.get("removed_keywords_json") or "[]")
     clean_new = []
     seen = set(curr_kws)
     for k in new_keywords:
@@ -359,12 +469,14 @@ def append_keywords_to_task(task_id: int, new_keywords: List[str], sync_now: boo
         }
         
     updated_kws = curr_kws + clean_new
+    # 如果重新添加了此前减掉的词，则从已减列表中移除
+    updated_removed = [w for w in removed_kws if w not in set(clean_new)]
     now = datetime.now().isoformat()
     
     with get_db() as conn:
         conn.execute(
-            "UPDATE keyword_tasks SET keywords_json = ?, updated_at = ? WHERE id = ?",
-            (json.dumps(updated_kws, ensure_ascii=False), now, task_id)
+            "UPDATE keyword_tasks SET keywords_json = ?, removed_keywords_json = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(updated_kws, ensure_ascii=False), json.dumps(updated_removed, ensure_ascii=False), now, task_id)
         )
         conn.commit()
         
@@ -376,6 +488,52 @@ def append_keywords_to_task(task_id: int, new_keywords: List[str], sync_now: boo
         "added_count": len(clean_new),
         "added": clean_new,
         "total_count": len(updated_kws),
+        "spreadsheet_url": task["spreadsheet_url"]
+    }
+
+def remove_keywords_from_task(task_id: int, remove_keywords: List[str]) -> Dict[str, Any]:
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM keyword_tasks WHERE id = ?", (task_id,))
+        task = cursor.fetchone()
+        
+    if not task:
+        raise ValueError(f"Task #{task_id} not found")
+        
+    curr_kws = json.loads(task["keywords_json"] or "[]")
+    task_dict = dict(task)
+    removed_kws = json.loads(task_dict.get("removed_keywords_json") or "[]")
+    
+    to_remove = set(w.strip() for w in remove_keywords if w.strip())
+    actually_removed = [w for w in curr_kws if w in to_remove]
+    
+    if not actually_removed:
+        return {
+            "success": True,
+            "removed_count": 0,
+            "removed": [],
+            "active_count": len(curr_kws),
+            "message": "未在当前任务中找到指定的有效关键词",
+            "spreadsheet_url": task["spreadsheet_url"]
+        }
+        
+    updated_active = [w for w in curr_kws if w not in to_remove]
+    updated_removed = list(dict.fromkeys(removed_kws + actually_removed))
+    now = datetime.now().isoformat()
+    
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE keyword_tasks SET keywords_json = ?, removed_keywords_json = ?, updated_at = ? WHERE id = ?",
+            (json.dumps(updated_active, ensure_ascii=False), json.dumps(updated_removed, ensure_ascii=False), now, task_id)
+        )
+        conn.commit()
+        
+    return {
+        "success": True,
+        "removed_count": len(actually_removed),
+        "removed": actually_removed,
+        "active_count": len(updated_active),
+        "message": f"已成功减去 {len(actually_removed)} 个关键词，飞书表格中对应行将停止更新。",
         "spreadsheet_url": task["spreadsheet_url"]
     }
 

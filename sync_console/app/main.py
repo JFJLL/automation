@@ -57,6 +57,17 @@ def index_page():
     html_path = BASE_DIR / "web" / "index.html"
     return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
 
+@app.get("/favicon.svg")
+@app.get("/favicon.ico")
+def favicon():
+    ico_path = BASE_DIR / "web" / "favicon.ico"
+    if ico_path.exists():
+        return Response(content=ico_path.read_bytes(), media_type="image/x-icon")
+    svg_path = BASE_DIR / "web" / "favicon.svg"
+    if svg_path.exists():
+        return Response(content=svg_path.read_bytes(), media_type="image/svg+xml")
+    return Response(status_code=404)
+
 @app.post("/api/auth/login")
 def login(payload: Dict[str, str], response: Response):
     pwd = payload.get("password", "")

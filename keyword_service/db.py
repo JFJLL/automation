@@ -18,6 +18,7 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL,
             keywords_json TEXT NOT NULL,
+            removed_keywords_json TEXT NOT NULL DEFAULT '[]',
             folder_token TEXT,
             spreadsheet_token TEXT NOT NULL,
             spreadsheet_url TEXT NOT NULL,
@@ -49,6 +50,10 @@ def init_db():
             error_detail TEXT
         )
         """)
+        cursor.execute("PRAGMA table_info(keyword_tasks)")
+        cols = [r[1] for r in cursor.fetchall()]
+        if "removed_keywords_json" not in cols:
+            cursor.execute("ALTER TABLE keyword_tasks ADD COLUMN removed_keywords_json TEXT NOT NULL DEFAULT '[]'")
         conn.commit()
 
 if __name__ == "__main__":

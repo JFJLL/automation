@@ -7,27 +7,40 @@ sys.path.insert(0, console_dir)
 
 from fastapi.testclient import TestClient
 from app.main import app
+from app.config import ACCESS_TOKEN
 
 def run_tests():
-    client = TestClient(app)
+    client = TestClient(app, headers={"X-Access-Token": ACCESS_TOKEN})
     
     # 1. 验证 HTML 页面无冗余组件且包含自定义 Modal、纯文字“加词”与无括号频率文案
     r_page = client.get("/keyword")
     assert r_page.status_code == 200
     html = r_page.text
     assert "appendWordsModal" in html
+    assert "removeWordsModal" in html
     assert "deleteConfirmModal" in html
     assert "directSheetModal" in html
     assert "statsRow" not in html
     assert "btnExport" not in html
     assert "导出表格" not in html
     assert "加词" in html
+    assert "减词" in html
     assert ">加词</button>" in html, "Must have clean button label without emoji"
+    assert ">减词</button>" in html
     assert "➕ 加词" not in html, "Emoji must be removed from button"
     assert "推荐，T-1数据就绪" not in html, "Parentheses and notes must be removed"
     assert "每天 12:30 执行" in html
     assert "confirm(" not in html
+    assert "favicon.svg" in html
     print("[1] UI 规范、纯文字按钮与精简选项校验通过")
+
+    # 验证网站图标端点
+    r_fav_svg = client.get("/favicon.svg")
+    assert r_fav_svg.status_code == 200
+    assert "image/svg+xml" in r_fav_svg.headers.get("content-type", "")
+    r_fav_ico = client.get("/favicon.ico")
+    assert r_fav_ico.status_code == 200
+    print("[1.1] 网站图标端点校验通过")
 
     # 2. 验证多词搜索接口
     r_search = client.post("/api/keyword/search", json={
@@ -55,6 +68,16 @@ def run_tests():
         assert r_append.status_code == 200
         assert r_append.json()["success"] is True
         print(f"[3] 任务 #{t_id} 追加新词验证通过")
+
+        # 4. 验证减词接口
+        r_remove = client.post(f"/api/keyword/tasks/{t_id}/remove_keywords", json={
+            "keywords": ["测试新词"]
+        })
+        assert r_remove.status_code == 200
+        res_rem = r_remove.json()
+        assert res_rem["success"] is True
+        assert "测试新词" in res_rem["removed"]
+        print(f"[4] 任务 #{t_id} 减词验证通过")
 
     print("ALL TESTS PASSED SUCCESSFULLY!")
 

@@ -15,7 +15,8 @@ from keyword_service.sync_engine import (
     direct_create_feishu_sheet,
     create_keyword_task,
     run_keyword_task,
-    append_keywords_to_task
+    append_keywords_to_task,
+    remove_keywords_from_task
 )
 from keyword_service.scheduler import init_keyword_scheduler, reschedule_keyword_task, remove_keyword_job
 from app.config import ACCESS_TOKEN
@@ -55,6 +56,9 @@ class AppendKeywordsRequest(BaseModel):
     keywords: Union[str, List[str]]
     sync_now: bool = True
 
+class RemoveKeywordsRequest(BaseModel):
+    keywords: Union[str, List[str]]
+
 class KeywordLoginRequest(BaseModel):
     password: str
 
@@ -63,6 +67,14 @@ def keyword_page():
     if not HTML_PATH.exists():
         raise HTTPException(status_code=404, detail="Page template not found")
     return HTMLResponse(content=HTML_PATH.read_text(encoding="utf-8"))
+
+@router.get("/favicon.svg")
+@router.get("/favicon.ico")
+def keyword_favicon():
+    svg_path = Path(__file__).parent.parent / "sync_console" / "web" / "favicon.svg"
+    if svg_path.exists():
+        return Response(content=svg_path.read_bytes(), media_type="image/svg+xml")
+    return Response(status_code=404)
 
 @private_router.post("/search")
 def search_keywords(req: KeywordSearchRequest):
@@ -108,6 +120,7 @@ def list_keyword_tasks():
         for r in cursor.fetchall():
             item = dict(r)
             item["keywords"] = json.loads(item.get("keywords_json") or "[]")
+            item["removed_keywords"] = json.loads(item.get("removed_keywords_json") or "[]")
             tasks.append(item)
     return tasks
 
@@ -140,6 +153,22 @@ def append_words_endpoint(task_id: int, req: AppendKeywordsRequest):
         
     try:
         res = append_keywords_to_task(task_id, kw_list, sync_now=req.sync_now)
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@private_router.post("/tasks/{task_id}/remove_keywords")
+def remove_words_endpoint(task_id: int, req: RemoveKeywordsRequest):
+    if isinstance(req.keywords, str):
+        kw_list = [w.strip() for w in req.keywords.split() if w.strip()]
+    else:
+        kw_list = [w.strip() for w in req.keywords if w.strip()]
+        
+    if not kw_list:
+        raise HTTPException(status_code=400, detail="请至少提供一个要减掉的关键词")
+        
+    try:
+        res = remove_keywords_from_task(task_id, kw_list)
         return res
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
