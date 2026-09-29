@@ -266,6 +266,7 @@ function switchTab(name, updateUrl = true) {
 }
 
 function initRouter() {
+  updateTaskCountBadge();
   const path = window.location.pathname.replace(/^\/+/, '').split('/')[0] || 'import';
   if (path === 'admin') {
     switchTab('admin', false);
@@ -738,10 +739,99 @@ async function submitCreateTask() {
   }
 }
 
+function renderTasksList(tasks) {
+  const container = document.getElementById('tasksListContainer');
+  if (!container) return;
+  if (!tasks || tasks.length === 0) {
+    container.innerHTML = '<div style="text-align:center; padding: 40px; color: var(--text-muted); font-size: 14px;">暂无运行中的同步任务，请先在“导入与新建”中配置并生成。</div>';
+    return;
+  }
+  const platformNames = { jzt: '京准通', taobao: '淘宝星河', juguang: '聚光' };
+  let html = '<div class="table-container"><table><thead><tr><th style="width:60px;">ID</th><th>任务名称</th><th>投放平台</th><th>更新机制</th><th>飞书在线表格</th><th>下次执行时间 (北京时间)</th><th>最近运行</th><th style="text-align:center;">快捷操作</th></tr></thead><tbody>';
+  tasks.forEach(t => {
+    const statusBadge = t.status === 'active' ? '<span class="badge badge-success">运行中</span>' : '<span class="badge badge-gray">已暂停</span>';
+    const lastBadge = t.last_status === 'success' ? '<span class="badge badge-success">成功</span>' : (t.last_status === 'failed' ? '<span class="badge badge-danger">异常</span>' : '<span class="badge badge-gray">未跑</span>');
+    const pName = platformNames[t.platform] || t.platform;
+    const subBadge = (t.platform === 'juguang' && t.sub_account_name) ? '<div style="font-size:12px; color:var(--text-secondary); margin-top:3px;"><span style="background:#e8f3ff; color:var(--primary); padding:1px 6px; border-radius:4px; font-weight:500;">子账号: ' + escapeHtml(t.sub_account_name) + '</span></div>' : '';
+    const modeText = t.update_mode === 'append' ? '<span class="ok-pill">增量追加</span>' : '<span class="unmapped-pill">全量覆写</span>';
+    const nextTime = t.next_run_at ? t.next_run_at.slice(0, 19).replace('T', ' ') : '-';
+    html += '<tr>' +
+      '<td>' + t.id + '</td>' +
+      '<td><div style="font-weight:600; font-size:14px; margin-bottom:2px;">' + t.name + '</div>' + statusBadge + '</td>' +
+      '<td><strong style="color:var(--primary)">' + pName + '</strong>' + subBadge + '</td>' +
+      '<td>' + modeText + '</td>' +
+      '<td><a href="' + t.spreadsheet_url + '" target="_blank" style="color:var(--primary); font-weight:500; text-decoration:none; display:inline-flex; align-items:center; gap:4px;">查看飞书表格 <span style="font-size:11px;">↗</span></a></td>' +
+      '<td>' + nextTime + '</td>' +
+      '<td>' + lastBadge + '</td>' +
+      '<td style="text-align:center;">' +
+        '<div style="display:inline-flex; gap:6px;">' +
+          '<button class="btn btn-outline btn-sm" onclick="runTaskNow(' + t.id + ')">⚡ 立即同步</button>' +
+          '<button class="btn btn-outline btn-sm" onclick="toggleTask(' + t.id + ')">' + (t.status === 'active' ? '暂停' : '恢复') + '</button>' +
+          '<button class="btn btn-danger btn-sm" onclick="archiveTask(' + t.id + ')">归档</button>' +
+        '</div>' +
+      '</td>' +
+    '</tr>';
+  });
+  html += '</tbody></table></div>';
+  container.innerHTML = html;
+}
+
+async function updateTaskCountBadge() {
+  try {
+    const cached = sessionStorage.getItem('sync_tasks_cache');
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed && Array.isArray(parsed.data)) {
+        const badge = document.getElementById('taskCountBadge');
+        if (badge) badge.innerText = parsed.data.length;
+        if (!viewCache.tasks.loaded) {
+          viewCache.tasks.loaded = true;
+          viewCache.tasks.data = parsed.data;
+          renderTasksList(parsed.data);
+        }
+      }
+    }
+  } catch (e) {}
+  try {
+    const tasks = await apiFetch('/api/tasks');
+    viewCache.tasks.loaded = true;
+    viewCache.tasks.data = tasks;
+    try {
+      sessionStorage.setItem('sync_tasks_cache', JSON.stringify({ data: tasks, time: Date.now() }));
+    } catch (e) {}
+    const badge = document.getElementById('taskCountBadge');
+    if (badge) badge.innerText = tasks.length;
+    const tabTasks = document.getElementById('tab-tasks');
+    if (tabTasks && tabTasks.style.display !== 'none') {
+      renderTasksList(tasks);
+    }
+  } catch (e) {
+    console.error('Failed to update task count badge:', e);
+  }
+}
+
 async function loadTasks(force = false) {
   const container = document.getElementById('tasksListContainer');
   if (!force && viewCache.tasks.loaded && viewCache.tasks.data) {
+    renderTasksList(viewCache.tasks.data);
     return; // 已有有效视图缓存，直接展示
+  }
+  if (!force && !viewCache.tasks.loaded) {
+    try {
+      const cached = sessionStorage.getItem('sync_tasks_cache');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && Array.isArray(parsed.data)) {
+          viewCache.tasks.loaded = true;
+          viewCache.tasks.data = parsed.data;
+          const badge = document.getElementById('taskCountBadge');
+          if (badge) badge.innerText = parsed.data.length;
+          renderTasksList(parsed.data);
+          updateTaskCountBadge();
+          return;
+        }
+      }
+    } catch (e) {}
   }
   if (container && (!viewCache.tasks.loaded || force)) {
     container.innerHTML = '<div style="text-align:center; padding: 30px;"><div class="spinner"></div> 正在加载同步任务...</div>';
@@ -750,41 +840,12 @@ async function loadTasks(force = false) {
     const tasks = await apiFetch('/api/tasks');
     viewCache.tasks.loaded = true;
     viewCache.tasks.data = tasks;
+    try {
+      sessionStorage.setItem('sync_tasks_cache', JSON.stringify({ data: tasks, time: Date.now() }));
+    } catch (e) {}
     const badge = document.getElementById('taskCountBadge');
     if (badge) badge.innerText = tasks.length;
-    if (!container) return;
-    if (!tasks || tasks.length === 0) {
-      container.innerHTML = '<div style="text-align:center; padding: 40px; color: var(--text-muted); font-size: 14px;">暂无运行中的同步任务，请先在“导入与新建”中配置并生成。</div>';
-      return;
-    }
-    const platformNames = { jzt: '京准通', taobao: '淘宝星河', juguang: '聚光' };
-    let html = '<div class="table-container"><table><thead><tr><th style="width:60px;">ID</th><th>任务名称</th><th>投放平台</th><th>更新机制</th><th>飞书在线表格</th><th>下次执行时间 (北京时间)</th><th>最近运行</th><th style="text-align:center;">快捷操作</th></tr></thead><tbody>';
-    tasks.forEach(t => {
-      const statusBadge = t.status === 'active' ? '<span class="badge badge-success">运行中</span>' : '<span class="badge badge-gray">已暂停</span>';
-      const lastBadge = t.last_status === 'success' ? '<span class="badge badge-success">成功</span>' : (t.last_status === 'failed' ? '<span class="badge badge-danger">异常</span>' : '<span class="badge badge-gray">未跑</span>');
-      const pName = platformNames[t.platform] || t.platform;
-      const subBadge = (t.platform === 'juguang' && t.sub_account_name) ? '<div style="font-size:12px; color:var(--text-secondary); margin-top:3px;"><span style="background:#e8f3ff; color:var(--primary); padding:1px 6px; border-radius:4px; font-weight:500;">子账号: ' + escapeHtml(t.sub_account_name) + '</span></div>' : '';
-      const modeText = t.update_mode === 'append' ? '<span class="ok-pill">增量追加</span>' : '<span class="unmapped-pill">全量覆写</span>';
-      const nextTime = t.next_run_at ? t.next_run_at.slice(0, 19).replace('T', ' ') : '-';
-      html += '<tr>' +
-        '<td>' + t.id + '</td>' +
-        '<td><div style="font-weight:600; font-size:14px; margin-bottom:2px;">' + t.name + '</div>' + statusBadge + '</td>' +
-        '<td><strong style="color:var(--primary)">' + pName + '</strong>' + subBadge + '</td>' +
-        '<td>' + modeText + '</td>' +
-        '<td><a href="' + t.spreadsheet_url + '" target="_blank" style="color:var(--primary); font-weight:500; text-decoration:none; display:inline-flex; align-items:center; gap:4px;">查看飞书表格 <span style="font-size:11px;">↗</span></a></td>' +
-        '<td>' + nextTime + '</td>' +
-        '<td>' + lastBadge + '</td>' +
-        '<td style="text-align:center;">' +
-          '<div style="display:inline-flex; gap:6px;">' +
-            '<button class="btn btn-outline btn-sm" onclick="runTaskNow(' + t.id + ')">⚡ 立即同步</button>' +
-            '<button class="btn btn-outline btn-sm" onclick="toggleTask(' + t.id + ')">' + (t.status === 'active' ? '暂停' : '恢复') + '</button>' +
-            '<button class="btn btn-danger btn-sm" onclick="archiveTask(' + t.id + ')">归档</button>' +
-          '</div>' +
-        '</td>' +
-      '</tr>';
-    });
-    html += '</tbody></table></div>';
-    container.innerHTML = html;
+    renderTasksList(tasks);
   } catch (e) {
     if (container) container.innerHTML = '<div style="text-align:center; padding: 20px; color:var(--danger)">加载任务失败: ' + e.message + '</div>';
   }
@@ -820,10 +881,59 @@ async function archiveTask(id) {
   }
 }
 
+function renderRunsTable(runs) {
+  const tbody = document.getElementById('runsTableBody');
+  if (!tbody) return;
+  if (!runs || runs.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:30px; color:var(--text-muted);">暂无任何历史运行记录</td></tr>';
+    return;
+  }
+  tbody.innerHTML = '';
+  const triggerMap = { scheduled: '定时触发', manual: '手动执行', catch_up: '错峰补跑' };
+  window.__runsCache = runs;
+  runs.forEach(r => {
+    const tr = document.createElement('tr');
+    const badge = r.status === 'success' ? '<span class="badge badge-success">成功</span>' : '<span class="badge badge-danger">异常</span>';
+    const trig = triggerMap[r.trigger_type] || r.trigger_type;
+    const startTime = r.started_at ? r.started_at.slice(0, 19).replace('T', ' ') : '-';
+    const finishTime = r.finished_at ? r.finished_at.slice(0, 19).replace('T', ' ') : '-';
+    tr.innerHTML = 
+      '<td>' + r.id + '</td>' +
+      '<td><strong>' + (r.task_name || ('任务' + r.task_id)) + '</strong></td>' +
+      '<td><span class="badge badge-gray">' + trig + '</span></td>' +
+      '<td>' + startTime + '</td>' +
+      '<td>' + finishTime + '</td>' +
+      '<td>' + badge + '</td>' +
+      '<td>' + (r.message || '-') + '</td>' +
+      (!r.error_detail ? '<td><span style="color:var(--text-muted);">-</span></td>' : '<td><div class="error-tooltip-wrap" data-run-id="' + r.id + '" data-tooltip="' + escapeHtml(r.error_detail) + '"><span>⚠️</span><span class="error-text">' + escapeHtml(r.error_detail) + '</span></div></td>');
+    tbody.appendChild(tr);
+  });
+}
+
 async function loadRuns(page = currentRunsPage, force = false) {
   const tbody = document.getElementById('runsTableBody');
   if (!force && viewCache.runs.loaded && viewCache.runs.page === page && viewCache.runs.pageSize === currentRunsPageSize) {
+    if (viewCache.runs.items) renderRunsTable(viewCache.runs.items);
     return; // 当前页已在缓存中，直接展示无需重复请求
+  }
+  const cacheKey = 'sync_runs_cache_p' + page + '_s' + currentRunsPageSize;
+  if (!force && !viewCache.runs.loaded) {
+    try {
+      const cached = sessionStorage.getItem(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && Array.isArray(parsed.items)) {
+          viewCache.runs.loaded = true;
+          viewCache.runs.page = page;
+          viewCache.runs.pageSize = currentRunsPageSize;
+          viewCache.runs.total = parsed.total;
+          viewCache.runs.items = parsed.items;
+          renderRunsPagination(parsed.total, page, currentRunsPageSize, parsed.totalPages || 1);
+          renderRunsTable(parsed.items);
+          return;
+        }
+      }
+    } catch (e) {}
   }
   if (tbody) {
     tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:20px;"><div class="spinner"></div> 正在加载运行记录...</td></tr>';
@@ -831,10 +941,6 @@ async function loadRuns(page = currentRunsPage, force = false) {
   try {
     currentRunsPage = page;
     const res = await apiFetch('/api/runs?page=' + currentRunsPage + '&page_size=' + currentRunsPageSize);
-    viewCache.runs.loaded = true;
-    viewCache.runs.page = currentRunsPage;
-    viewCache.runs.pageSize = currentRunsPageSize;
-    if (!tbody) return;
 
     let runs = [];
     let total = 0;
@@ -849,32 +955,17 @@ async function loadRuns(page = currentRunsPage, force = false) {
       totalPages = Math.ceil(total / currentRunsPageSize) || 1;
     }
 
-    renderRunsPagination(total, currentRunsPage, currentRunsPageSize, totalPages);
+    viewCache.runs.loaded = true;
+    viewCache.runs.page = currentRunsPage;
+    viewCache.runs.pageSize = currentRunsPageSize;
+    viewCache.runs.total = total;
+    viewCache.runs.items = runs;
+    try {
+      sessionStorage.setItem(cacheKey, JSON.stringify({ items: runs, total: total, totalPages: totalPages, time: Date.now() }));
+    } catch (e) {}
 
-    if (!runs || runs.length === 0) {
-      tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; padding:30px; color:var(--text-muted);">暂无任何历史运行记录</td></tr>';
-      return;
-    }
-    tbody.innerHTML = '';
-    const triggerMap = { scheduled: '定时触发', manual: '手动执行', catch_up: '错峰补跑' };
-    window.__runsCache = runs;
-    runs.forEach(r => {
-      const tr = document.createElement('tr');
-      const badge = r.status === 'success' ? '<span class="badge badge-success">成功</span>' : '<span class="badge badge-danger">异常</span>';
-      const trig = triggerMap[r.trigger_type] || r.trigger_type;
-      const startTime = r.started_at ? r.started_at.slice(0, 19).replace('T', ' ') : '-';
-      const finishTime = r.finished_at ? r.finished_at.slice(0, 19).replace('T', ' ') : '-';
-      tr.innerHTML = 
-        '<td>' + r.id + '</td>' +
-        '<td><strong>' + (r.task_name || ('任务' + r.task_id)) + '</strong></td>' +
-        '<td><span class="badge badge-gray">' + trig + '</span></td>' +
-        '<td>' + startTime + '</td>' +
-        '<td>' + finishTime + '</td>' +
-        '<td>' + badge + '</td>' +
-        '<td>' + (r.message || '-') + '</td>' +
-        (!r.error_detail ? '<td><span style="color:var(--text-muted);">-</span></td>' : '<td><div class="error-tooltip-wrap" data-run-id="' + r.id + '" data-tooltip="' + escapeHtml(r.error_detail) + '"><span>⚠️</span><span class="error-text">' + escapeHtml(r.error_detail) + '</span></div></td>');
-      tbody.appendChild(tr);
-    });
+    renderRunsPagination(total, currentRunsPage, currentRunsPageSize, totalPages);
+    renderRunsTable(runs);
   } catch (e) {
     if (tbody) tbody.innerHTML = '<tr><td colspan="8" style="text-align:center; color:var(--danger); padding:20px;">加载运行日志失败: ' + e.message + '</td></tr>';
   }

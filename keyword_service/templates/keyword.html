@@ -648,6 +648,10 @@
     .sidebar-link { width: 100%; height: 50px; border: 0; border-radius: 8px; padding: 0 16px; display: flex; align-items: center; gap: 12px; background: transparent; color: #53627a; font: 500 15px var(--font-family); cursor: pointer; text-decoration: none; transition: all .18s ease; text-align: left; }
     .sidebar-link:hover { color: var(--primary); background: #fff7f7; }
     .sidebar-link.active { color: var(--primary); background: #fff0f1; font-weight: 600; }
+    .badge { display: inline-flex; align-items: center; justify-content: center; padding: 2px 8px; border-radius: 9999px; font-size: 12px; font-weight: 500; line-height: 1.2; }
+    .badge-gray { background: #f2f3f5; color: var(--text-muted); }
+    .sidebar-link .badge { margin-left: auto; }
+    .sidebar-link.active .badge-gray { background: #fee8eb; color: var(--primary); font-weight: 600; }
     .sidebar-divider { height: 1px; background: var(--border); margin: 20px 6px; }
     .sidebar-spacer { flex: 1; }
     .sidebar-link.muted { font-size: 14px; }
@@ -1073,6 +1077,7 @@
     }
 
   
+    #runsPageSizeSelect .custom-select-menu,
     #wrapper-kwRunsPageSize .custom-select-menu,
     #wrapper-runsPageSize .custom-select-menu {
       top: auto;
@@ -1230,7 +1235,7 @@
       <a class="sidebar-link" href="/"><i data-lucide="layout-dashboard" class="icon"></i><span class="nav-label">数据同步中心</span></a>
       <div class="sidebar-divider"></div>
       <button class="sidebar-link active" id="tab-btn-search" onclick="switchMainTab('search')"><i data-lucide="search" class="icon"></i><span class="nav-label">查询与概览</span></button>
-      <button class="sidebar-link" id="tab-btn-tasks" onclick="switchMainTab('tasks')"><i data-lucide="clipboard-list" class="icon"></i><span class="nav-label">同步任务列表</span></button>
+      <button class="sidebar-link" id="tab-btn-tasks" onclick="switchMainTab('tasks')"><i data-lucide="clipboard-list" class="icon"></i><span class="nav-label">同步任务列表</span><span id="kwTaskCountBadge" class="badge badge-gray">0</span></button>
       <button class="sidebar-link" id="tab-btn-runs" onclick="switchMainTab('runs')"><i data-lucide="clock-3" class="icon"></i><span class="nav-label">运行记录</span></button>
     </nav>
     <div class="sidebar-spacer"></div>
@@ -1352,7 +1357,7 @@
       <div class="card">
         <div class="card-title">
           <span>📋 关键词同步任务列表</span>
-          <button class="btn btn-outline btn-sm" onclick="loadTasksList()">🔄 刷新列表</button>
+          <button class="btn btn-outline btn-sm" onclick="loadTasksList(true)">🔄 刷新列表</button>
         </div>
 
         <div class="table-responsive-wide">
@@ -1383,7 +1388,7 @@
       <div class="card">
         <div class="card-title">
           <span>⏱️ 关键词任务运行记录</span>
-          <button class="btn btn-outline btn-sm" onclick="loadRunsList()">🔄 刷新记录</button>
+          <button class="btn btn-outline btn-sm" onclick="loadRunsList(currentRunsPage, true)">🔄 刷新记录</button>
         </div>
 
         <div class="table-responsive-wide">
@@ -1811,33 +1816,36 @@
     });
     let currentRunsPage = 1;
     let currentRunsPageSize = 20;
-    let totalKwRunsCount = 0;
-    let totalKwRunsPages = 1;
-    function selectKwRunsPageSize(size, label) {
+    let totalRunsCount = 0;
+    let totalRunsPages = 1;
+    function selectRunsPageSize(size, label) {
       currentRunsPageSize = size;
-      const labelEl = document.getElementById('kwRunsPageSizeDisplay');
+      const labelEl = document.getElementById('runsPageSizeLabel') || document.getElementById('kwRunsPageSizeDisplay');
       if (labelEl) labelEl.textContent = label;
-      const wrapper = document.getElementById('wrapper-kwRunsPageSize');
+      const wrapper = document.getElementById('runsPageSizeSelect') || document.getElementById('wrapper-kwRunsPageSize');
       if (wrapper) {
         wrapper.classList.remove('open');
         wrapper.querySelectorAll('.custom-select-option').forEach(opt => {
-          opt.classList.toggle('selected', opt.textContent.trim() === label);
+          opt.classList.toggle('selected', parseInt(opt.getAttribute('data-value'), 10) === size);
         });
       }
       currentRunsPage = 1;
       loadRunsList(1, true);
     }
-    function changeKwRunsPage(delta) {
+    const selectKwRunsPageSize = selectRunsPageSize;
+    function changeRunsPage(delta) {
       const target = currentRunsPage + delta;
-      if (target >= 1 && target <= totalKwRunsPages) {
-        goToKwRunsPage(target);
+      if (target >= 1 && target <= totalRunsPages) {
+        goToRunsPage(target);
       }
     }
-    function goToKwRunsPage(p) {
-      if (p < 1 || p > totalKwRunsPages) return;
+    const changeKwRunsPage = changeRunsPage;
+    function goToRunsPage(p) {
+      if (p < 1 || p > totalRunsPages) return;
       currentRunsPage = p;
       loadRunsList(p, true);
     }
+    const goToKwRunsPage = goToRunsPage;
     function renderRunsPagination(total, page, pageSize, totalPages) {
       totalRunsCount = total;
       currentRunsPage = page;
@@ -1965,6 +1973,7 @@
     window.addEventListener('DOMContentLoaded', () => {
       initDates();
       loadKeywordLibrary();
+      initKeywordRouter();
       const appendInput = document.getElementById('appendWordsInput');
       appendInput.addEventListener('keydown', handleAppendWordsKeydown);
       appendInput.addEventListener('blur', commitAppendWordInput);
@@ -2219,7 +2228,7 @@
       if (btn) btn.classList.add('active');
     }
 
-    function switchMainTab(tab) {
+    function switchMainTab(tab, updateUrl = true) {
       document.getElementById('section-search').style.display = tab === 'search' ? 'block' : 'none';
       document.getElementById('section-tasks').style.display = tab === 'tasks' ? 'block' : 'none';
       document.getElementById('section-runs').style.display = tab === 'runs' ? 'block' : 'none';
@@ -2227,9 +2236,43 @@
       document.getElementById('tab-btn-search').classList.toggle('active', tab === 'search');
       document.getElementById('tab-btn-tasks').classList.toggle('active', tab === 'tasks');
       document.getElementById('tab-btn-runs').classList.toggle('active', tab === 'runs');
-      if (tab === 'tasks') tabCache.tasks.loaded = false;
-      loadTasksList(true);
-      if (tab === 'runs') loadRunsList();
+      if (tab === 'tasks') {
+        if (!tabCache.tasks.loaded) loadTasksList(false);
+      } else if (tab === 'runs') {
+        if (!tabCache.runs.loaded) loadRunsList(currentRunsPage, false);
+      }
+
+      if (updateUrl) {
+        let target = '/keyword';
+        if (tab === 'tasks') target = '/keyword/tasks';
+        else if (tab === 'runs') target = '/keyword/runs';
+        if (window.location.pathname !== target) {
+          window.history.pushState({ tab: tab }, '', target);
+        }
+      }
+    }
+
+    function initKeywordRouter() {
+      const normPath = window.location.pathname.replace(/\/+$/, '') || '/keyword';
+      if (normPath === '/keyword/tasks') {
+        switchMainTab('tasks', false);
+      } else if (normPath === '/keyword/runs') {
+        switchMainTab('runs', false);
+      } else {
+        switchMainTab('search', false);
+      }
+      updateKeywordTaskBadge();
+    }
+
+    window.addEventListener('popstate', function(e) {
+      const normPath = window.location.pathname.replace(/\/+$/, '') || '/keyword';
+      if (normPath === '/keyword/tasks') {
+        switchMainTab('tasks', false);
+      } else if (normPath === '/keyword/runs') {
+        switchMainTab('runs', false);
+      } else {
+        switchMainTab('search', false);
+      }
     }
 
     function showAlert(msg, type = 'success') {
@@ -2670,7 +2713,8 @@
         if (!resp.ok) throw new Error(res.detail || '删除失败');
         closeDeleteModal();
         showAlert(`🗑️ 任务 #${id} 已成功删除。已停止后续调度。`, 'success');
-        loadTasksList();
+        tabCache.tasks.loaded = false;
+        loadTasksList(true);
       } catch (e) {
         alert('删除失败: ' + e.message);
       } finally {
@@ -2679,11 +2723,122 @@
       }
     }
 
+    function renderTasksTable(tasks) {
+      const tbody = document.getElementById('taskListBody');
+      if (!tbody) return;
+      if (!tasks || !tasks.length) {
+        tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:30px;">暂无同步任务，可在查询页面点击“创建定时任务”添加。</td></tr>';
+        return;
+      }
+      tbody.innerHTML = tasks.map(t => {
+        const kws = t.keywords || [];
+        const removedKws = t.removed_keywords || [];
+        let kwHtml = '';
+        const escapedName = (t.name || '').replace(/'/g, "\\'");
+        const escapedKws = JSON.stringify(kws).replace(/"/g, '&quot;');
+        const escapedRemovedKws = JSON.stringify(removedKws).replace(/"/g, '&quot;');
+        if (kws.length <= 2) {
+          kwHtml = kws.map(k => '<span class="kw-tag-item">' + k + '</span>').join('');
+        } else {
+          const first2 = kws.slice(0, 2).map(k => '<span class="kw-tag-item">' + k + '</span>').join('');
+          kwHtml = first2 + '<span class="kw-tag-more" onclick="openKeywordsViewModal(\'' + escapedName + '\', ' + escapedKws + ', ' + escapedRemovedKws + ')">+' + (kws.length - 2) + ' 个词...</span>';
+        }
+        if (removedKws.length > 0) {
+          kwHtml += '<span class="badge" style="background:#f2f3f5; color:#86909c; font-size:11px; margin-left:4px;" title="已停更关键词：' + removedKws.join(' ') + '">(' + removedKws.length + '个已停更)</span>';
+        }
+        const statusClass = t.status === 'active' ? 'status-success' : 'status-paused';
+        const statusText = t.status === 'active' ? '● 运行中' : '❚❚ 已暂停';
+        const modeText = t.update_mode === 'overwrite' ? '全量覆盖' : '增量追加';
+        return '<tr>' +
+          '<td>' + t.id + '</td>' +
+          '<td style="font-weight:600; white-space:nowrap;">' + (t.name || '') + '</td>' +
+          '<td style="white-space:nowrap;">' + kwHtml + '</td>' +
+          '<td style="white-space:nowrap;"><a href="' + t.spreadsheet_url + '" target="_blank" style="color:var(--primary); text-decoration:none; font-weight:500;">查看表格 ↗</a></td>' +
+          '<td style="white-space:nowrap;">' + modeText + '</td>' +
+          '<td style="white-space:nowrap;">' +
+            '<span class="freq-tag" title="' + (t.rrule || '') + '">' +
+              '<i data-lucide="clock" class="icon" style="width:12px; height:12px; opacity:0.7;"></i>' +
+              '<span>' + formatRruleText(t.rrule) + '</span>' +
+            '</span>' +
+          '</td>' +
+          '<td style="white-space:nowrap;"><span class="status-badge ' + statusClass + '">' + statusText + '</span></td>' +
+          '<td style="font-size:12px; color:var(--text-muted); white-space:nowrap;">' + (t.last_run_at ? t.last_run_at.substring(0, 16).replace('T', ' ') : '-') + '</td>' +
+          '<td style="white-space:nowrap;">' +
+            '<div style="display:inline-flex; gap:6px; align-items:center;">' +
+              '<button class="btn btn-outline btn-sm" style="color:var(--primary); font-weight:600;" onclick="openAddWordsModal(' + t.id + ', \'' + escapedName + '\', ' + escapedKws + ')">加词</button>' +
+              '<button class="btn btn-outline btn-sm" style="color:#d97706; font-weight:600;" onclick="openRemoveWordsModal(' + t.id + ', \'' + escapedName + '\', ' + escapedKws + ', ' + escapedRemovedKws + ')">减词</button>' +
+              '<button class="btn btn-outline btn-sm" onclick="runTaskNow(' + t.id + ')">立即同步</button>' +
+              '<button class="btn btn-outline btn-sm" onclick="toggleTask(' + t.id + ')">' + (t.status === 'active' ? '暂停' : '恢复') + '</button>' +
+              '<button class="btn btn-outline btn-sm" style="color:var(--danger);" onclick="openDeleteModal(' + t.id + ', \'' + escapedName + '\')">删除</button>' +
+            '</div>' +
+          '</td>' +
+        '</tr>';
+      }).join('');
+      if (window.lucide) window.lucide.createIcons();
+    }
+
+    async function updateKeywordTaskBadge() {
+      try {
+        const cached = sessionStorage.getItem('kw_tasks_cache');
+        if (cached) {
+          const parsed = JSON.parse(cached);
+          if (parsed && Array.isArray(parsed.data)) {
+            const badge = document.getElementById('kwTaskCountBadge');
+            if (badge) badge.innerText = parsed.data.length;
+            if (!tabCache.tasks.loaded) {
+              tabCache.tasks.loaded = true;
+              tabCache.tasks.data = parsed.data;
+              const tasksSec = document.getElementById('section-tasks');
+              if (tasksSec && tasksSec.style.display !== 'none') {
+                renderTasksTable(parsed.data);
+              }
+            }
+          }
+        }
+      } catch (e) {}
+      try {
+        const resp = await keywordFetch('/api/keyword/tasks');
+        if (!resp.ok) return;
+        const tasks = await resp.json();
+        tabCache.tasks.loaded = true;
+        tabCache.tasks.data = tasks;
+        try {
+          sessionStorage.setItem('kw_tasks_cache', JSON.stringify({ data: tasks, time: Date.now() }));
+        } catch (e) {}
+        const badge = document.getElementById('kwTaskCountBadge');
+        if (badge) badge.innerText = tasks.length;
+        const tasksSec = document.getElementById('section-tasks');
+        if (tasksSec && tasksSec.style.display !== 'none') {
+          renderTasksTable(tasks);
+        }
+      } catch (e) {
+        console.error('Failed to load keyword tasks badge:', e);
+      }
+    }
+
     // 加载任务列表 (防文字竖排设计 + ➕加词操作)
     async function loadTasksList(force = false) {
       const tbody = document.getElementById('taskListBody');
       if (!force && tabCache.tasks.loaded && tabCache.tasks.data) {
+        renderTasksTable(tabCache.tasks.data);
         return;
+      }
+      if (!force && !tabCache.tasks.loaded) {
+        try {
+          const cached = sessionStorage.getItem('kw_tasks_cache');
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (parsed && Array.isArray(parsed.data)) {
+              tabCache.tasks.loaded = true;
+              tabCache.tasks.data = parsed.data;
+              const badge = document.getElementById('kwTaskCountBadge');
+              if (badge) badge.innerText = parsed.data.length;
+              renderTasksTable(parsed.data);
+              updateKeywordTaskBadge();
+              return;
+            }
+          }
+        } catch (e) {}
       }
       tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:30px;">正在加载...</td></tr>';
       try {
@@ -2692,59 +2847,14 @@
         const tasks = await resp.json();
         tabCache.tasks.loaded = true;
         tabCache.tasks.data = tasks;
-        if (!tasks.length) {
-          tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:30px;">暂无同步任务，可在查询页面点击“创建定时任务”添加。</td></tr>';
-          return;
-        }
-        tbody.innerHTML = tasks.map(t => {
-          const kws = t.keywords || [];
-          const removedKws = t.removed_keywords || [];
-          let kwHtml = '';
-          const escapedName = (t.name || '').replace(/'/g, "\'");
-          const escapedKws = JSON.stringify(kws).replace(/"/g, '&quot;');
-          const escapedRemovedKws = JSON.stringify(removedKws).replace(/"/g, '&quot;');
-          if (kws.length <= 2) {
-            kwHtml = kws.map(k => `<span class="kw-tag-item">${k}</span>`).join('');
-          } else {
-            const first2 = kws.slice(0, 2).map(k => `<span class="kw-tag-item">${k}</span>`).join('');
-            kwHtml = `${first2}<span class="kw-tag-more" onclick="openKeywordsViewModal('${escapedName}', ${escapedKws}, ${escapedRemovedKws})">+${kws.length - 2} 个词...</span>`;
-          }
-          if (removedKws.length > 0) {
-            kwHtml += `<span class="badge" style="background:#f2f3f5; color:#86909c; font-size:11px; margin-left:4px;" title="已停更关键词：${removedKws.join(' ')}">(${removedKws.length}个已停更)</span>`;
-          }
-          const statusClass = t.status === 'active' ? 'status-success' : 'status-paused';
-          const statusText = t.status === 'active' ? '● 运行中' : '❚❚ 已暂停';
-          const modeText = t.update_mode === 'overwrite' ? '全量覆盖' : '增量追加';
-          return `
-            <tr>
-              <td>${t.id}</td>
-              <td style="font-weight:600; white-space:nowrap;">${t.name || ''}</td>
-              <td style="white-space:nowrap;">${kwHtml}</td>
-              <td style="white-space:nowrap;"><a href="${t.spreadsheet_url}" target="_blank" style="color:var(--primary); text-decoration:none; font-weight:500;">查看表格 ↗</a></td>
-              <td style="white-space:nowrap;">${modeText}</td>
-              <td style="white-space:nowrap;">
-                <span class="freq-tag" title="${t.rrule || ''}">
-                  <i data-lucide="clock" class="icon" style="width:12px; height:12px; opacity:0.7;"></i>
-                  <span>${formatRruleText(t.rrule)}</span>
-                </span>
-              </td>
-              <td style="white-space:nowrap;"><span class="status-badge ${statusClass}">${statusText}</span></td>
-              <td style="font-size:12px; color:var(--text-muted); white-space:nowrap;">${t.last_run_at ? t.last_run_at.substring(0, 16).replace('T', ' ') : '-'}</td>
-              <td style="white-space:nowrap;">
-                <div style="display:inline-flex; gap:6px; align-items:center;">
-                  <button class="btn btn-outline btn-sm" style="color:var(--primary); font-weight:600;" onclick="openAddWordsModal(${t.id}, '${escapedName}', ${escapedKws})">加词</button>
-                  <button class="btn btn-outline btn-sm" style="color:#d97706; font-weight:600;" onclick="openRemoveWordsModal(${t.id}, '${escapedName}', ${escapedKws}, ${escapedRemovedKws})">减词</button>
-                  <button class="btn btn-outline btn-sm" onclick="runTaskNow(${t.id})">立即同步</button>
-                  <button class="btn btn-outline btn-sm" onclick="toggleTask(${t.id})">${t.status === 'active' ? '暂停' : '恢复'}</button>
-                  <button class="btn btn-outline btn-sm" style="color:var(--danger);" onclick="openDeleteModal(${t.id}, '${escapedName}')">删除</button>
-                </div>
-              </td>
-            </tr>
-          `;
-        }).join('');
-        if (window.lucide) window.lucide.createIcons();
+        try {
+          sessionStorage.setItem('kw_tasks_cache', JSON.stringify({ data: tasks, time: Date.now() }));
+        } catch (e) {}
+        const badge = document.getElementById('kwTaskCountBadge');
+        if (badge) badge.innerText = tasks.length;
+        renderTasksTable(tasks);
       } catch (e) {
-        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; color:var(--danger); padding:30px;">加载失败: ${e.message}</td></tr>`;
+        if (tbody) tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--danger); padding:30px;">加载失败: ' + e.message + '</td></tr>';
       }
     }
 
@@ -2774,14 +2884,71 @@
       }
     }
 
+    function renderRunsTable(runs) {
+      const tbody = document.getElementById('runListBody');
+      if (!tbody) return;
+      if (!runs || !runs.length) {
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:var(--text-muted); padding:30px;">暂无运行历史记录。</td></tr>';
+        return;
+      }
+      tbody.innerHTML = runs.map(r => {
+        const statusClass = r.status === 'success' ? 'status-success' : (r.status === 'failed' ? 'status-failed' : 'status-running');
+        const triggerMap = {
+          'direct_create': '直接生成',
+          'scheduled': '定时调度',
+          'manual': '手动运行',
+          'append_words': '追加加词',
+          'task_init': '任务创建'
+        };
+        const triggerText = triggerMap[r.trigger_type] || r.trigger_type;
+        let row = '<tr>';
+        row += '<td>' + r.id + '</td>';
+        row += '<td style="font-weight:600; white-space:nowrap;">' + (r.task_name || '-') + '</td>';
+        row += '<td style="white-space:nowrap;"><span class="badge" style="background:#f2f3f5; color:#4e5969;">' + triggerText + '</span></td>';
+        row += '<td style="font-size:12px; white-space:nowrap;">' + (r.started_at ? r.started_at.substring(0, 19).replace('T', ' ') : '-') + '</td>';
+        row += '<td style="font-size:12px; white-space:nowrap;">' + (r.finished_at ? r.finished_at.substring(0, 19).replace('T', ' ') : '-') + '</td>';
+        row += '<td style="white-space:nowrap;"><span class="status-badge ' + statusClass + '">' + r.status + '</span></td>';
+        row += '<td>' + (r.keywords_count || 0) + '</td>';
+        row += '<td>' + (r.days_count || 0) + '</td>';
+        row += '<td style="white-space:nowrap;">' + (r.spreadsheet_url ? '<a href="' + r.spreadsheet_url + '" target="_blank" style="color:var(--primary); text-decoration:none;">打开表格 ↗</a>' : '-') + '</td>';
+        row += '<td style="font-size:12px; color:var(--text-secondary); max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + (r.message || r.error_detail || '-') + '</td>';
+        row += '</tr>';
+        return row;
+      }).join('');
+      if (window.lucide) window.lucide.createIcons();
+    }
+
     // 加载运行记录
     async function loadRunsList(page = currentRunsPage, force = false) {
       const tbody = document.getElementById('runListBody');
-      if (!force && tabCache.runs.loaded && tabCache.runs.page === page && tabCache.runs.pageSize === currentRunsPageSize) {
+      if (!force && tabCache.runs.loaded && tabCache.runs.page === page && tabCache.runs.pageSize === currentRunsPageSize && tabCache.runs.data) {
+        renderRunsPagination(totalRunsCount, page, currentRunsPageSize, totalRunsPages);
+        renderRunsTable(tabCache.runs.data);
         return;
+      }
+      const cacheKey = 'kw_runs_cache_p' + page + '_s' + currentRunsPageSize;
+      if (!force && !tabCache.runs.loaded) {
+        try {
+          const cached = sessionStorage.getItem(cacheKey);
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (parsed && Array.isArray(parsed.items)) {
+              tabCache.runs.loaded = true;
+              tabCache.runs.page = page;
+              tabCache.runs.pageSize = currentRunsPageSize;
+              tabCache.runs.data = parsed.items;
+              totalRunsCount = parsed.total || 0;
+              totalRunsPages = parsed.totalPages || 1;
+              renderRunsPagination(totalRunsCount, page, currentRunsPageSize, totalRunsPages);
+              renderRunsTable(parsed.items);
+              return;
+            }
+          }
+        } catch (e) {}
       }
       tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:var(--text-muted); padding:30px;"><span class="spinner" style="display:inline-block; vertical-align:middle; margin-right:6px;"></span>正在加载运行记录...</td></tr>';
       try {
+        currentRunsPage = page;
         const resp = await keywordFetch('/api/keyword/runs?page=' + page + '&page_size=' + currentRunsPageSize);
         if (!resp.ok) throw new Error('加载记录失败');
         const res = await resp.json();
@@ -2795,44 +2962,21 @@
         } else if (Array.isArray(res)) {
           runs = res;
           total = res.length;
-          totalPages = 1;
+          totalPages = Math.ceil(total / currentRunsPageSize) || 1;
         }
+        totalRunsCount = total;
+        totalRunsPages = Math.max(1, totalPages);
         tabCache.runs.loaded = true;
         tabCache.runs.page = page;
         tabCache.runs.pageSize = currentRunsPageSize;
         tabCache.runs.data = runs;
+        try {
+          sessionStorage.setItem(cacheKey, JSON.stringify({ items: runs, total: total, totalPages: totalPages, time: Date.now() }));
+        } catch (e) {}
         renderRunsPagination(total, page, currentRunsPageSize, totalPages);
-        if (!runs.length) {
-          tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:var(--text-muted); padding:30px;">暂无运行历史记录。</td></tr>';
-          return;
-        }
-        tbody.innerHTML = runs.map(r => {
-          const statusClass = r.status === 'success' ? 'status-success' : (r.status === 'failed' ? 'status-failed' : 'status-running');
-          const triggerMap = {
-            'direct_create': '直接生成',
-            'scheduled': '定时调度',
-            'manual': '手动运行',
-            'append_words': '追加加词',
-            'task_init': '任务创建'
-          };
-          const triggerText = triggerMap[r.trigger_type] || r.trigger_type;
-          let row = '<tr>';
-          row += '<td>' + r.id + '</td>';
-          row += '<td style="font-weight:600; white-space:nowrap;">' + (r.task_name || '-') + '</td>';
-          row += '<td style="white-space:nowrap;"><span class="badge" style="background:#f2f3f5; color:#4e5969;">' + triggerText + '</span></td>';
-          row += '<td style="font-size:12px; white-space:nowrap;">' + (r.started_at ? r.started_at.substring(0, 19).replace('T', ' ') : '-') + '</td>';
-          row += '<td style="font-size:12px; white-space:nowrap;">' + (r.finished_at ? r.finished_at.substring(0, 19).replace('T', ' ') : '-') + '</td>';
-          row += '<td style="white-space:nowrap;"><span class="status-badge ' + statusClass + '">' + r.status + '</span></td>';
-          row += '<td>' + (r.keywords_count || 0) + '</td>';
-          row += '<td>' + (r.days_count || 0) + '</td>';
-          row += '<td style="white-space:nowrap;">' + (r.spreadsheet_url ? '<a href="' + r.spreadsheet_url + '" target="_blank" style="color:var(--primary); text-decoration:none;">打开表格 ↗</a>' : '-') + '</td>';
-          row += '<td style="font-size:12px; color:var(--text-secondary); max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + (r.message || r.error_detail || '-') + '</td>';
-          row += '</tr>';
-          return row;
-        }).join('');
-        if (window.lucide) window.lucide.createIcons();
+        renderRunsTable(runs);
       } catch (e) {
-        tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:var(--danger); padding:30px;">加载失败: ' + e.message + '</td></tr>';
+        if (tbody) tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:var(--danger); padding:30px;">加载失败: ' + e.message + '</td></tr>';
       }
     }
   </script>

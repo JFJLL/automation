@@ -59,6 +59,11 @@ class KeywordLoginRequest(BaseModel):
     password: str
 
 @router.get("/keyword", response_class=HTMLResponse)
+@router.get("/keyword/", response_class=HTMLResponse)
+@router.get("/keyword/tasks", response_class=HTMLResponse)
+@router.get("/keyword/tasks/", response_class=HTMLResponse)
+@router.get("/keyword/runs", response_class=HTMLResponse)
+@router.get("/keyword/runs/", response_class=HTMLResponse)
 def keyword_page():
     if not HTML_PATH.exists():
         raise HTTPException(status_code=404, detail="Page template not found")
