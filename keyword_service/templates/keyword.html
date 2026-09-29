@@ -1718,6 +1718,16 @@
     }
 
     
+    function escapeHtml(str) {
+      if (str === null || str === undefined) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
     let selectedRemoveChips = new Set();
 
     function openRemoveWordsModal(id, name, keywords, removedKeywords = []) {
@@ -1891,7 +1901,7 @@
     const MAX_SELECTED_KEYWORDS = 20;
     let keywordLibraryGroups = [];
     let allLibraryKeywords = [];
-    let activePrimaryCategory = '母婴';
+    let activePrimaryCategory = '全部词库';
     let activeSecondaryCategory = '全部';
     let selectedKeywords = [];
 
@@ -2001,7 +2011,7 @@
         const result = await response.json();
         keywordLibraryGroups = result.groups || [];
         allLibraryKeywords = result.all_keywords || [];
-        if (keywordLibraryGroups.length && !keywordLibraryGroups.some(group => group.name === activePrimaryCategory)) {
+        if (activePrimaryCategory !== '全部词库' && keywordLibraryGroups.length && !keywordLibraryGroups.some(group => group.name === activePrimaryCategory)) {
           activePrimaryCategory = keywordLibraryGroups[0].name;
         }
         renderKeywordLibrary();
@@ -2237,9 +2247,9 @@
       document.getElementById('tab-btn-tasks').classList.toggle('active', tab === 'tasks');
       document.getElementById('tab-btn-runs').classList.toggle('active', tab === 'runs');
       if (tab === 'tasks') {
-        if (!tabCache.tasks.loaded) loadTasksList(false);
+        loadTasksList(false);
       } else if (tab === 'runs') {
-        if (!tabCache.runs.loaded) loadRunsList(currentRunsPage, false);
+        loadRunsList(currentRunsPage, false);
       }
 
       if (updateUrl) {
@@ -2723,6 +2733,32 @@
       }
     }
 
+    window.__kwTasksById = {};
+
+    function openAddWordsModalById(id) {
+      const t = window.__kwTasksById[id];
+      if (!t) return;
+      openAddWordsModal(t.id, t.name || '');
+    }
+
+    function openRemoveWordsModalById(id) {
+      const t = window.__kwTasksById[id];
+      if (!t) return;
+      openRemoveWordsModal(t.id, t.name || '', t.keywords || [], t.removed_keywords || []);
+    }
+
+    function openKeywordsViewModalById(id) {
+      const t = window.__kwTasksById[id];
+      if (!t) return;
+      openKeywordsViewModal(t.name || '', t.keywords || [], t.removed_keywords || []);
+    }
+
+    function openDeleteModalById(id) {
+      const t = window.__kwTasksById[id];
+      if (!t) return;
+      openDeleteModal(t.id, t.name || '');
+    }
+
     function renderTasksTable(tasks) {
       const tbody = document.getElementById('taskListBody');
       if (!tbody) return;
@@ -2730,33 +2766,33 @@
         tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:30px;">暂无同步任务，可在查询页面点击“创建定时任务”添加。</td></tr>';
         return;
       }
+      window.__kwTasksById = {};
+      tasks.forEach(t => { window.__kwTasksById[t.id] = t; });
+
       tbody.innerHTML = tasks.map(t => {
         const kws = t.keywords || [];
         const removedKws = t.removed_keywords || [];
         let kwHtml = '';
-        const escapedName = (t.name || '').replace(/'/g, "\\'");
-        const escapedKws = JSON.stringify(kws).replace(/"/g, '&quot;');
-        const escapedRemovedKws = JSON.stringify(removedKws).replace(/"/g, '&quot;');
         if (kws.length <= 2) {
-          kwHtml = kws.map(k => '<span class="kw-tag-item">' + k + '</span>').join('');
+          kwHtml = kws.map(k => '<span class="kw-tag-item">' + escapeHtml(k) + '</span>').join('');
         } else {
-          const first2 = kws.slice(0, 2).map(k => '<span class="kw-tag-item">' + k + '</span>').join('');
-          kwHtml = first2 + '<span class="kw-tag-more" onclick="openKeywordsViewModal(\'' + escapedName + '\', ' + escapedKws + ', ' + escapedRemovedKws + ')">+' + (kws.length - 2) + ' 个词...</span>';
+          const first2 = kws.slice(0, 2).map(k => '<span class="kw-tag-item">' + escapeHtml(k) + '</span>').join('');
+          kwHtml = first2 + '<span class="kw-tag-more" onclick="openKeywordsViewModalById(' + t.id + ')">+' + (kws.length - 2) + ' 个词...</span>';
         }
         if (removedKws.length > 0) {
-          kwHtml += '<span class="badge" style="background:#f2f3f5; color:#86909c; font-size:11px; margin-left:4px;" title="已停更关键词：' + removedKws.join(' ') + '">(' + removedKws.length + '个已停更)</span>';
+          kwHtml += '<span class="badge" style="background:#f2f3f5; color:#86909c; font-size:11px; margin-left:4px;" title="已停更关键词：' + escapeHtml(removedKws.join(' ')) + '">(' + removedKws.length + '个已停更)</span>';
         }
         const statusClass = t.status === 'active' ? 'status-success' : 'status-paused';
         const statusText = t.status === 'active' ? '● 运行中' : '❚❚ 已暂停';
         const modeText = t.update_mode === 'overwrite' ? '全量覆盖' : '增量追加';
         return '<tr>' +
           '<td>' + t.id + '</td>' +
-          '<td style="font-weight:600; white-space:nowrap;">' + (t.name || '') + '</td>' +
+          '<td style="font-weight:600; white-space:nowrap;">' + escapeHtml(t.name || '') + '</td>' +
           '<td style="white-space:nowrap;">' + kwHtml + '</td>' +
-          '<td style="white-space:nowrap;"><a href="' + t.spreadsheet_url + '" target="_blank" style="color:var(--primary); text-decoration:none; font-weight:500;">查看表格 ↗</a></td>' +
+          '<td style="white-space:nowrap;"><a href="' + (t.spreadsheet_url || '#') + '" target="_blank" style="color:var(--primary); text-decoration:none; font-weight:500;">查看表格 ↗</a></td>' +
           '<td style="white-space:nowrap;">' + modeText + '</td>' +
           '<td style="white-space:nowrap;">' +
-            '<span class="freq-tag" title="' + (t.rrule || '') + '">' +
+            '<span class="freq-tag" title="' + escapeHtml(t.rrule || '') + '">' +
               '<i data-lucide="clock" class="icon" style="width:12px; height:12px; opacity:0.7;"></i>' +
               '<span>' + formatRruleText(t.rrule) + '</span>' +
             '</span>' +
@@ -2765,11 +2801,11 @@
           '<td style="font-size:12px; color:var(--text-muted); white-space:nowrap;">' + (t.last_run_at ? t.last_run_at.substring(0, 16).replace('T', ' ') : '-') + '</td>' +
           '<td style="white-space:nowrap;">' +
             '<div style="display:inline-flex; gap:6px; align-items:center;">' +
-              '<button class="btn btn-outline btn-sm" style="color:var(--primary); font-weight:600;" onclick="openAddWordsModal(' + t.id + ', \'' + escapedName + '\', ' + escapedKws + ')">加词</button>' +
-              '<button class="btn btn-outline btn-sm" style="color:#d97706; font-weight:600;" onclick="openRemoveWordsModal(' + t.id + ', \'' + escapedName + '\', ' + escapedKws + ', ' + escapedRemovedKws + ')">减词</button>' +
+              '<button class="btn btn-outline btn-sm" style="color:var(--primary); font-weight:600;" onclick="openAddWordsModalById(' + t.id + ')">加词</button>' +
+              '<button class="btn btn-outline btn-sm" style="color:#d97706; font-weight:600;" onclick="openRemoveWordsModalById(' + t.id + ')">减词</button>' +
               '<button class="btn btn-outline btn-sm" onclick="runTaskNow(' + t.id + ')">立即同步</button>' +
               '<button class="btn btn-outline btn-sm" onclick="toggleTask(' + t.id + ')">' + (t.status === 'active' ? '暂停' : '恢复') + '</button>' +
-              '<button class="btn btn-outline btn-sm" style="color:var(--danger);" onclick="openDeleteModal(' + t.id + ', \'' + escapedName + '\')">删除</button>' +
+              '<button class="btn btn-outline btn-sm" style="color:var(--danger);" onclick="openDeleteModalById(' + t.id + ')">删除</button>' +
             '</div>' +
           '</td>' +
         '</tr>';
@@ -2819,11 +2855,14 @@
     // 加载任务列表 (防文字竖排设计 + ➕加词操作)
     async function loadTasksList(force = false) {
       const tbody = document.getElementById('taskListBody');
-      if (!force && tabCache.tasks.loaded && tabCache.tasks.data) {
+      if (!force && tabCache.tasks.data && tbody && tbody.querySelector('tr') && !tbody.innerHTML.includes('正在加载') && !tbody.innerHTML.includes('加载中')) {
+        return;
+      }
+      if (!force && tabCache.tasks.data) {
         renderTasksTable(tabCache.tasks.data);
         return;
       }
-      if (!force && !tabCache.tasks.loaded) {
+      if (!force && !tabCache.tasks.data) {
         try {
           const cached = sessionStorage.getItem('kw_tasks_cache');
           if (cached) {
@@ -2834,7 +2873,6 @@
               const badge = document.getElementById('kwTaskCountBadge');
               if (badge) badge.innerText = parsed.data.length;
               renderTasksTable(parsed.data);
-              updateKeywordTaskBadge();
               return;
             }
           }
@@ -2921,7 +2959,10 @@
     // 加载运行记录
     async function loadRunsList(page = currentRunsPage, force = false) {
       const tbody = document.getElementById('runListBody');
-      if (!force && tabCache.runs.loaded && tabCache.runs.page === page && tabCache.runs.pageSize === currentRunsPageSize && tabCache.runs.data) {
+      if (!force && tabCache.runs.data && tabCache.runs.page === page && tabCache.runs.pageSize === currentRunsPageSize && tbody && tbody.querySelector('tr') && !tbody.innerHTML.includes('正在加载') && !tbody.innerHTML.includes('加载中')) {
+        return;
+      }
+      if (!force && tabCache.runs.data && tabCache.runs.page === page && tabCache.runs.pageSize === currentRunsPageSize) {
         renderRunsPagination(totalRunsCount, page, currentRunsPageSize, totalRunsPages);
         renderRunsTable(tabCache.runs.data);
         return;

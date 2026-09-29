@@ -247,10 +247,23 @@ function switchTab(name, updateUrl = true) {
 
   // 3. 触发异步数据加载（若已在浏览器缓存中，则直接复用已有视图，免除重新请求与 loading 闪烁）
   if (name === 'tasks') {
-    if (!viewCache.tasks.loaded) loadTasks(false);
+    const container = document.getElementById('tasksListContainer');
+    const needsRender = !container || !container.querySelector('table') || container.innerHTML.includes('加载中');
+    if (viewCache.tasks.data && needsRender) {
+      renderTasksList(viewCache.tasks.data);
+    } else if (!viewCache.tasks.data) {
+      loadTasks(false);
+    }
   }
   if (name === 'runs') {
-    if (!viewCache.runs.loaded) loadRuns(currentRunsPage, false);
+    const tbody = document.getElementById('runsTableBody');
+    const needsRender = !tbody || !tbody.querySelector('tr') || tbody.innerHTML.includes('加载中');
+    if (viewCache.runs.items && viewCache.runs.items.length && needsRender) {
+      renderRunsPagination(viewCache.runs.total, currentRunsPage, currentRunsPageSize, Math.ceil(viewCache.runs.total / currentRunsPageSize) || 1);
+      renderRunsTable(viewCache.runs.items);
+    } else if (!viewCache.runs.items || !viewCache.runs.items.length) {
+      loadRuns(currentRunsPage, false);
+    }
   }
   if (name === 'admin') {
     if (!viewCache.admin.loaded) loadSettings(false);
@@ -812,11 +825,14 @@ async function updateTaskCountBadge() {
 
 async function loadTasks(force = false) {
   const container = document.getElementById('tasksListContainer');
-  if (!force && viewCache.tasks.loaded && viewCache.tasks.data) {
-    renderTasksList(viewCache.tasks.data);
-    return; // 已有有效视图缓存，直接展示
+  if (!force && viewCache.tasks.data && container && container.querySelector('table')) {
+    return;
   }
-  if (!force && !viewCache.tasks.loaded) {
+  if (!force && viewCache.tasks.data) {
+    renderTasksList(viewCache.tasks.data);
+    return;
+  }
+  if (!force && !viewCache.tasks.data) {
     try {
       const cached = sessionStorage.getItem('sync_tasks_cache');
       if (cached) {
@@ -827,7 +843,6 @@ async function loadTasks(force = false) {
           const badge = document.getElementById('taskCountBadge');
           if (badge) badge.innerText = parsed.data.length;
           renderTasksList(parsed.data);
-          updateTaskCountBadge();
           return;
         }
       }
@@ -912,9 +927,13 @@ function renderRunsTable(runs) {
 
 async function loadRuns(page = currentRunsPage, force = false) {
   const tbody = document.getElementById('runsTableBody');
-  if (!force && viewCache.runs.loaded && viewCache.runs.page === page && viewCache.runs.pageSize === currentRunsPageSize) {
+  if (!force && viewCache.runs.page === page && viewCache.runs.pageSize === currentRunsPageSize && viewCache.runs.items && viewCache.runs.items.length && tbody && tbody.querySelector('tr') && !tbody.innerHTML.includes('加载中')) {
+    return;
+  }
+  if (!force && viewCache.runs.items && viewCache.runs.items.length && viewCache.runs.page === page && viewCache.runs.pageSize === currentRunsPageSize) {
+    renderRunsPagination(viewCache.runs.total, page, currentRunsPageSize, Math.ceil(viewCache.runs.total / currentRunsPageSize) || 1);
     if (viewCache.runs.items) renderRunsTable(viewCache.runs.items);
-    return; // 当前页已在缓存中，直接展示无需重复请求
+    return;
   }
   const cacheKey = 'sync_runs_cache_p' + page + '_s' + currentRunsPageSize;
   if (!force && !viewCache.runs.loaded) {
