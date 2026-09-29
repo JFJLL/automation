@@ -719,7 +719,11 @@
     .category-btn { height: 30px; padding: 0 12px; border: 1px solid #dce3ed; border-radius: 15px; background: #fff; color: #58677d; font: 500 12px var(--font-family); cursor: pointer; }
     .category-btn:hover, .category-btn.active { border-color: #ed9ca4; background: #fff0f1; color: var(--primary); }
     .primary-category-btn { border-radius: 6px; font-weight: 600; }
-    .library-keywords { display: flex; align-content: flex-start; flex-wrap: wrap; gap: 9px; min-height: 180px; max-height: 220px; overflow-y: auto; padding: 14px; border: 1px solid #eee4e2; border-radius: 9px; background: #fdfaf9; user-select: none; -webkit-user-select: none; position: relative; }
+    .library-keywords { display: flex; align-content: flex-start; flex-wrap: wrap; gap: 9px; min-height: 140px; max-height: 650px; height: 220px; overflow-y: auto; padding: 14px; border: 1px solid #eee4e2; border-radius: 9px 9px 0 0; background: #fdfaf9; user-select: none; -webkit-user-select: none; position: relative; }
+    .library-resize-bar { height: 14px; background: #fdf8f7; border: 1px solid #eee4e2; border-top: 1px dashed #e2d5d4; border-radius: 0 0 9px 9px; cursor: ns-resize; display: flex; align-items: center; justify-content: center; user-select: none; transition: background-color .15s ease, border-color .15s ease; }
+    .library-resize-bar:hover, .library-resize-bar.dragging { background: #fff0f1; border-color: #ed9ca4; }
+    .library-resize-handle-grip { width: 40px; height: 4px; border-radius: 2px; background: #d8c8cb; transition: background-color .15s ease, width .15s ease; }
+    .library-resize-bar:hover .library-resize-handle-grip, .library-resize-bar.dragging .library-resize-handle-grip { background: var(--primary); width: 50px; }
     .library-keyword { height: 30px; padding: 0 11px; border: 1px solid #dce3ed; border-radius: 6px; background: #fff; color: #42526a; font: 500 12px var(--font-family); cursor: pointer; transition: all .15s ease; }
     .library-keyword:hover { border-color: #ed9ca4; color: var(--primary); transform: translateY(-1px); }
     .library-keyword.selected { border-color: #eb8f98; background: #fff0f1; color: var(--primary); }
@@ -1353,6 +1357,9 @@
           <div class="taxonomy-row"><span class="taxonomy-label">细类</span><div class="library-categories" id="keywordSecondaryTabs"></div></div>
         </div>
         <div class="library-keywords" id="keywordLibraryList"><div class="library-empty">正在加载关键词库...</div></div>
+        <div class="library-resize-bar" id="libraryResizeBar" title="上下拖拽可调整词库列表高度">
+          <div class="library-resize-handle-grip"></div>
+        </div>
       </div>
 
       <!-- 搜索后数据概览区域 -->
@@ -2034,6 +2041,7 @@
       loadKeywordLibrary();
       initKeywordRouter();
       initDragSelection();
+      initLibraryHeightResize();
       const appendInput = document.getElementById('appendWordsInput');
       appendInput.addEventListener('keydown', handleAppendWordsKeydown);
       appendInput.addEventListener('blur', commitAppendWordInput);
@@ -2169,6 +2177,58 @@
           window.addEventListener('click', ev => ev.stopPropagation(), { capture: true, once: true });
         } else {
           box.style.display = 'none';
+        }
+      });
+    }
+
+    function initLibraryHeightResize() {
+      const container = document.getElementById('keywordLibraryList');
+      const bar = document.getElementById('libraryResizeBar');
+      if (!container || !bar) return;
+
+      const savedH = localStorage.getItem('kw_lib_height');
+      if (savedH) {
+        const h = parseInt(savedH, 10);
+        if (!isNaN(h) && h >= 140 && h <= 650) {
+          container.style.height = h + 'px';
+        }
+      }
+
+      let isResizing = false;
+      let startY = 0;
+      let startHeight = 0;
+
+      bar.addEventListener('mousedown', e => {
+        if (e.button !== 0) return;
+        isResizing = true;
+        startY = e.clientY;
+        startHeight = container.getBoundingClientRect().height;
+        bar.classList.add('dragging');
+        document.body.style.cursor = 'ns-resize';
+        document.body.style.userSelect = 'none';
+        e.preventDefault();
+      });
+
+      window.addEventListener('mousemove', e => {
+        if (!isResizing) return;
+        const dy = e.clientY - startY;
+        const targetH = Math.min(650, Math.max(140, Math.round(startHeight + dy)));
+        container.style.height = targetH + 'px';
+        if (typeof notifyParentHeight === 'function') {
+          notifyParentHeight();
+        }
+      });
+
+      window.addEventListener('mouseup', () => {
+        if (!isResizing) return;
+        isResizing = false;
+        bar.classList.remove('dragging');
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        const currentH = Math.round(container.getBoundingClientRect().height);
+        localStorage.setItem('kw_lib_height', currentH);
+        if (typeof notifyParentHeight === 'function') {
+          notifyParentHeight();
         }
       });
     }
