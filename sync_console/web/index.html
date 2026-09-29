@@ -1140,8 +1140,27 @@
 
   <!-- 将 JavaScript 逻辑直接内嵌于页面，彻底杜绝浏览器静态文件缓存引起的失效 -->
   <script src="/static/lucide.min.js"></script>
-  <script src="/static/app.js?v=20260928_ui_v2"></script>
+  <script src="/static/app.js?v=20260929_v6"></script>
   <script>
+    (function() {
+      try {
+        var cached = sessionStorage.getItem('sync_tasks_cache');
+        if (cached) {
+          var parsed = JSON.parse(cached);
+          if (parsed && Array.isArray(parsed.data)) {
+            var b = document.getElementById('taskCountBadge');
+            if (b) b.innerText = parsed.data.length;
+          }
+        }
+        fetch('/api/tasks').then(function(r) { return r.json(); }).then(function(tasks) {
+          if (Array.isArray(tasks)) {
+            var b = document.getElementById('taskCountBadge');
+            if (b) b.innerText = tasks.length;
+            try { sessionStorage.setItem('sync_tasks_cache', JSON.stringify({ data: tasks, time: Date.now() })); } catch(e) {}
+          }
+        }).catch(function(){});
+      } catch(e) {}
+    })();
     function openHelpDrawer() { document.getElementById('helpDrawer').classList.add('active'); document.body.style.overflow = 'hidden'; }
     function closeHelpDrawer() { document.getElementById('helpDrawer').classList.remove('active'); document.body.style.overflow = ''; }
     window.addEventListener('keydown', function (event) { if (event.key === 'Escape') closeHelpDrawer(); });
