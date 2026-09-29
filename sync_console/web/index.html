@@ -586,19 +586,31 @@
   </div>
 
   <aside class="sidebar" aria-label="主导航">
-    <nav class="sidebar-nav">
+    <!-- 数据同步中心 导航组 -->
+    <div id="sidebar-group-sync" class="sidebar-nav">
       <button class="nav-tab active" onclick="switchTab('import')"><i data-lucide="plus-circle" class="icon"></i><span class="nav-label">新建同步任务</span></button>
       <button class="nav-tab" onclick="switchTab('tasks')"><i data-lucide="clipboard-list" class="icon"></i><span class="nav-label">同步任务</span><span id="taskCountBadge" class="badge badge-gray">0</span></button>
       <button class="nav-tab" onclick="switchTab('runs')"><i data-lucide="clock-3" class="icon"></i><span class="nav-label">运行记录</span></button>
-    </nav>
-    <div class="sidebar-divider"></div>
-    <a class="sidebar-link" href="/keyword"><i data-lucide="bar-chart-3" class="icon"></i><span class="nav-label">关键词洞察</span></a>
+      <div class="sidebar-divider"></div>
+      <button class="sidebar-link" type="button" onclick="switchToKeywordSection('search')"><i data-lucide="bar-chart-3" class="icon"></i><span class="nav-label">关键词洞察</span><span id="kwNavTaskCountBadge" class="badge badge-gray" style="margin-left:auto;">0</span></button>
+    </div>
+
+    <!-- 关键词洞察 导航组 (SPA秒切，无刷新) -->
+    <div id="sidebar-group-keyword" class="sidebar-nav" style="display: none;">
+      <button class="sidebar-link" type="button" onclick="switchToSyncSection('import')"><i data-lucide="layout-dashboard" class="icon"></i><span class="nav-label">数据同步中心</span></button>
+      <div class="sidebar-divider"></div>
+      <button class="sidebar-link active" id="tab-btn-search" type="button" onclick="switchKeywordTab('search')"><i data-lucide="search" class="icon"></i><span class="nav-label">查询与概览</span></button>
+      <button class="sidebar-link" id="tab-btn-tasks" type="button" onclick="switchKeywordTab('tasks')"><i data-lucide="clipboard-list" class="icon"></i><span class="nav-label">同步任务列表</span><span id="kwTaskCountBadge" class="badge badge-gray" style="margin-left:auto;">0</span></button>
+      <button class="sidebar-link" id="tab-btn-runs" type="button" onclick="switchKeywordTab('runs')"><i data-lucide="clock-3" class="icon"></i><span class="nav-label">运行记录</span></button>
+    </div>
     <div class="sidebar-spacer"></div>
     <button class="sidebar-link muted" type="button" onclick="openHelpDrawer()"><i data-lucide="circle-help" class="icon"></i><span class="nav-label">使用帮助</span></button>
     <button class="sidebar-link muted" onclick="switchTab('admin')"><i data-lucide="settings" class="icon"></i><span class="nav-label">管理员设置</span></button>
   </aside>
 
   <div class="container">
+    <!-- 数据同步中心主体容器 -->
+    <div id="module-sync">
     <div id="tab-import" class="tab-content">
       <div class="page-heading"><h2>新建同步任务</h2><p>按照以下步骤完成设置，将广告投放数据自动同步到飞书</p></div>
       <div class="workflow-steps" aria-label="任务创建进度">
@@ -1080,6 +1092,12 @@
           <div style="font-size: 12px; color: var(--text-muted); margin-top: 6px;">系统自动维护在“数据自动同步表”文件夹内。新建表格自动保存在此文件夹中并开启企业内员工全员可编辑权限。</div>
         </div>
       </div>
+    </div>
+    </div>
+
+    <!-- 模块二：关键词洞察 (纯前端无缝秒切) -->
+    <div id="module-keyword" style="display: none; width: 100%; min-height: calc(100vh - 120px);">
+      <iframe id="keywordFrame" src="/keyword?embed=1" style="width: 100%; min-height: calc(100vh - 120px); border: none; background: transparent;" title="关键词洞察"></iframe>
     </div>
   </div>
 

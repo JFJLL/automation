@@ -6,6 +6,7 @@ from typing import List, Dict, Any, Optional
 from fastapi import FastAPI, UploadFile, File, Form, Header, HTTPException, Depends, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.gzip import GZipMiddleware
 from pathlib import Path
 from pydantic import BaseModel
 
@@ -23,6 +24,7 @@ from core.sync import preview_fetch, execute_task_sync
 from core.scheduler import init_scheduler, reschedule_task, remove_job, parse_next_run
 
 app = FastAPI(title="飞书数据自动同步中心")
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "web")), name="static")
 
 automation_root = str(BASE_DIR.parent)

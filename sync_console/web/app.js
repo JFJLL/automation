@@ -202,7 +202,105 @@ let uploadedAnalysis = null;
 let currentConfirmedSheet = null;
 let previewDataResult = null;
 
+function switchToKeywordSection(tab = 'search', updateUrl = true) {
+  const syncMod = document.getElementById('module-sync');
+  const kwMod = document.getElementById('module-keyword');
+  const syncSide = document.getElementById('sidebar-group-sync');
+  const kwSide = document.getElementById('sidebar-group-keyword');
+  if (syncMod) syncMod.style.display = 'none';
+  if (kwMod) kwMod.style.display = 'block';
+  if (syncSide) syncSide.style.display = 'none';
+  if (kwSide) kwSide.style.display = 'flex';
+
+  switchKeywordTab(tab, updateUrl);
+}
+
+function switchToSyncSection(tab = 'import', updateUrl = true) {
+  const syncMod = document.getElementById('module-sync');
+  const kwMod = document.getElementById('module-keyword');
+  const syncSide = document.getElementById('sidebar-group-sync');
+  const kwSide = document.getElementById('sidebar-group-keyword');
+  if (kwMod) kwMod.style.display = 'none';
+  if (syncMod) syncMod.style.display = 'block';
+  if (kwSide) kwSide.style.display = 'none';
+  if (syncSide) syncSide.style.display = 'flex';
+
+  switchTab(tab, updateUrl);
+}
+
+function switchKeywordTab(tab = 'search', updateUrl = true) {
+  const syncMod = document.getElementById('module-sync');
+  const kwMod = document.getElementById('module-keyword');
+  const syncSide = document.getElementById('sidebar-group-sync');
+  const kwSide = document.getElementById('sidebar-group-keyword');
+  if (syncMod) syncMod.style.display = 'none';
+  if (kwMod) kwMod.style.display = 'block';
+  if (syncSide) syncSide.style.display = 'none';
+  if (kwSide) kwSide.style.display = 'flex';
+
+  document.querySelectorAll('#sidebar-group-keyword .sidebar-link').forEach(btn => {
+    btn.classList.remove('active');
+  });
+  const activeBtn = document.getElementById('tab-btn-' + tab);
+  if (activeBtn) activeBtn.classList.add('active');
+
+  const frame = document.getElementById('keywordFrame');
+  if (frame) {
+    if (frame.contentWindow && typeof frame.contentWindow.switchMainTab === 'function') {
+      frame.contentWindow.switchMainTab(tab, false);
+    } else {
+      frame.addEventListener('load', function() {
+        if (frame.contentWindow && typeof frame.contentWindow.switchMainTab === 'function') {
+          frame.contentWindow.switchMainTab(tab, false);
+        }
+      }, { once: true });
+    }
+  }
+
+  if (updateUrl) {
+    let target = '/keyword';
+    if (tab === 'tasks') target = '/keyword/tasks';
+    else if (tab === 'runs') target = '/keyword/runs';
+    if (window.location.pathname !== target) {
+      window.history.pushState({ tab: 'kw_' + tab }, '', target);
+    }
+  }
+}
+
+window.addEventListener('message', function(e) {
+  if (e.data && e.data.type === 'kw_height' && e.data.height) {
+    const frame = document.getElementById('keywordFrame');
+    if (frame) {
+      frame.style.height = (e.data.height + 40) + 'px';
+      const kwMod = document.getElementById('module-keyword');
+      if (kwMod) kwMod.style.height = (e.data.height + 40) + 'px';
+    }
+  }
+  if (e.data && e.data.type === 'kw_tab_changed' && e.data.tab) {
+    document.querySelectorAll('#sidebar-group-keyword .sidebar-link').forEach(btn => {
+      btn.classList.remove('active');
+    });
+    const activeBtn = document.getElementById('tab-btn-' + e.data.tab);
+    if (activeBtn) activeBtn.classList.add('active');
+    let target = '/keyword';
+    if (e.data.tab === 'tasks') target = '/keyword/tasks';
+    else if (e.data.tab === 'runs') target = '/keyword/runs';
+    if (window.location.pathname !== target) {
+      window.history.pushState({ tab: 'kw_' + e.data.tab }, '', target);
+    }
+  }
+});
+
 function switchTab(name, updateUrl = true) {
+  const syncMod = document.getElementById('module-sync');
+  const kwMod = document.getElementById('module-keyword');
+  const syncSide = document.getElementById('sidebar-group-sync');
+  const kwSide = document.getElementById('sidebar-group-keyword');
+  if (kwMod) kwMod.style.display = 'none';
+  if (syncMod) syncMod.style.display = 'block';
+  if (kwSide) kwSide.style.display = 'none';
+  if (syncSide) syncSide.style.display = 'flex';
+
   // 如果进入 admin 且未认证，弹出管理员密码验证窗口
   if (name === 'admin') {
     const token = sessionStorage.getItem('admin_token');
@@ -280,24 +378,40 @@ function switchTab(name, updateUrl = true) {
 
 function initRouter() {
   updateTaskCountBadge();
-  const path = window.location.pathname.replace(/^\/+/, '').split('/')[0] || 'import';
-  if (path === 'admin') {
-    switchTab('admin', false);
+  const normPath = window.location.pathname.replace(/\/+$/, '') || '/';
+  if (normPath === '/keyword/tasks') {
+    switchToKeywordSection('tasks', false);
+  } else if (normPath === '/keyword/runs') {
+    switchToKeywordSection('runs', false);
+  } else if (normPath === '/keyword') {
+    switchToKeywordSection('search', false);
+  } else if (normPath === '/admin' || normPath === '/settings') {
+    switchToSyncSection('admin', false);
+  } else if (normPath === '/tasks') {
+    switchToSyncSection('tasks', false);
+  } else if (normPath === '/runs') {
+    switchToSyncSection('runs', false);
   } else {
-    const validTabs = ['import', 'tasks', 'runs'];
-    const initialTab = validTabs.includes(path) ? path : 'import';
-    switchTab(initialTab, false);
+    switchToSyncSection('import', false);
   }
 }
 
 window.addEventListener('popstate', function(e) {
-  const path = window.location.pathname.replace(/^\/+/, '').split('/')[0] || 'import';
-  if (path === 'admin') {
-    switchTab('admin', false);
+  const normPath = window.location.pathname.replace(/\/+$/, '') || '/';
+  if (normPath === '/keyword/tasks') {
+    switchToKeywordSection('tasks', false);
+  } else if (normPath === '/keyword/runs') {
+    switchToKeywordSection('runs', false);
+  } else if (normPath === '/keyword') {
+    switchToKeywordSection('search', false);
+  } else if (normPath === '/admin' || normPath === '/settings') {
+    switchToSyncSection('admin', false);
+  } else if (normPath === '/tasks') {
+    switchToSyncSection('tasks', false);
+  } else if (normPath === '/runs') {
+    switchToSyncSection('runs', false);
   } else {
-    const validTabs = ['import', 'tasks', 'runs'];
-    const tab = validTabs.includes(path) ? path : 'import';
-    switchTab(tab, false);
+    switchToSyncSection('import', false);
   }
 });
 

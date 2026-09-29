@@ -1234,6 +1234,11 @@
       flex-wrap: wrap;
       gap: 12px;
     }
+    /* 嵌入模式 (供主控制台0ms秒切使用) */
+    body.embedded header.header,
+    body.embedded aside.sidebar { display: none !important; }
+    body.embedded .container { margin: 0 !important; padding: 24px 28px !important; width: 100% !important; max-width: none !important; }
+    body.embedded { background: #fbf8f7 !important; padding-bottom: 30px !important; }
     #runsPageNumbers button {
       height: 32px;
       min-width: 32px;
@@ -1717,6 +1722,19 @@
 
   <script src="/static/lucide.min.js"></script>
   <script>
+    if (window.self !== window.top || window.location.search.indexOf('embed=1') !== -1) {
+      document.body.classList.add('embedded');
+    }
+    function notifyParentHeight() {
+      try {
+        if (window.parent && window.parent !== window) {
+          const h = Math.max(document.body.scrollHeight, document.documentElement.scrollHeight, 600);
+          window.parent.postMessage({ type: 'kw_height', height: h }, '*');
+        }
+      } catch(e) {}
+    }
+    window.addEventListener('resize', notifyParentHeight);
+    window.addEventListener('load', () => setTimeout(notifyParentHeight, 100));
         function formatRruleText(rrule) {
       if (!rrule) return '-';
       const clean = rrule.replace(/^RRULE:/i, '').trim();
@@ -2386,6 +2404,12 @@
       document.getElementById('tab-btn-search').classList.toggle('active', tab === 'search');
       document.getElementById('tab-btn-tasks').classList.toggle('active', tab === 'tasks');
       document.getElementById('tab-btn-runs').classList.toggle('active', tab === 'runs');
+      if (window.parent && window.parent !== window) {
+        try {
+          window.parent.postMessage({ type: 'kw_tab_changed', tab: tab }, '*');
+        } catch(e) {}
+      }
+      setTimeout(notifyParentHeight, 50);
       if (tab === 'tasks') {
         loadTasksList(false);
       } else if (tab === 'runs') {

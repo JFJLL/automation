@@ -59,6 +59,8 @@ class KeywordLoginRequest(BaseModel):
     password: str
 
 _CACHED_KEYWORD_HTML: Optional[str] = None
+_CACHED_EMBED_HTML: Optional[str] = None
+_CACHED_SHELL_HTML: Optional[str] = None
 _CACHED_LIBRARY_DATA: Optional[dict] = None
 
 @router.get("/keyword", response_class=HTMLResponse)
@@ -67,13 +69,24 @@ _CACHED_LIBRARY_DATA: Optional[dict] = None
 @router.get("/keyword/tasks/", response_class=HTMLResponse)
 @router.get("/keyword/runs", response_class=HTMLResponse)
 @router.get("/keyword/runs/", response_class=HTMLResponse)
-def keyword_page():
-    global _CACHED_KEYWORD_HTML
-    if _CACHED_KEYWORD_HTML is None:
-        if not HTML_PATH.exists():
-            raise HTTPException(status_code=404, detail="Page template not found")
-        _CACHED_KEYWORD_HTML = HTML_PATH.read_text(encoding="utf-8")
-    return HTMLResponse(content=_CACHED_KEYWORD_HTML)
+def keyword_page(request: Request):
+    global _CACHED_EMBED_HTML, _CACHED_SHELL_HTML
+    embed = request.query_params.get("embed")
+    if embed == "1":
+        if _CACHED_EMBED_HTML is None:
+            if not HTML_PATH.exists():
+                raise HTTPException(status_code=404, detail="Page template not found")
+            _CACHED_EMBED_HTML = HTML_PATH.read_text(encoding="utf-8")
+        return HTMLResponse(content=_CACHED_EMBED_HTML)
+    if _CACHED_SHELL_HTML is None:
+        candidates = [
+            Path(__file__).parent.parent / "sync_console" / "web" / "index.html",
+            Path(__file__).parent.parent / "web" / "index.html",
+            HTML_PATH
+        ]
+        target_file = next((p for p in candidates if p.exists()), HTML_PATH)
+        _CACHED_SHELL_HTML = target_file.read_text(encoding="utf-8")
+    return HTMLResponse(content=_CACHED_SHELL_HTML)
 
 @router.get("/api/keyword/library")
 def keyword_library():
