@@ -1085,6 +1085,137 @@
       z-index: 100;
     }
 
+  
+    /* 时间选择器聚焦与点击状态美化 */
+    .date-range-capsule { position: relative; }
+    .date-range-capsule .date-input {
+      outline: none !important;
+      box-shadow: none !important;
+      border: none !important;
+      cursor: pointer;
+    }
+    .date-range-capsule .date-input::-webkit-datetime-edit { padding: 0; }
+    .date-range-capsule .date-input::-webkit-datetime-edit-fields-wrapper { background: transparent !important; }
+    .date-range-capsule .date-input::-webkit-datetime-edit-text { color: var(--text-muted); }
+    .date-range-capsule .date-input::-webkit-datetime-edit-month-field,
+    .date-range-capsule .date-input::-webkit-datetime-edit-day-field,
+    .date-range-capsule .date-input::-webkit-datetime-edit-year-field {
+      color: var(--text);
+      padding: 1px 2px;
+      border-radius: 3px;
+      transition: background-color .15s ease, color .15s ease;
+    }
+    .date-range-capsule .date-input::-webkit-datetime-edit-month-field:focus,
+    .date-range-capsule .date-input::-webkit-datetime-edit-day-field:focus,
+    .date-range-capsule .date-input::-webkit-datetime-edit-year-field:focus {
+      background: #fff0f1 !important;
+      color: #ef2b3a !important;
+      outline: none !important;
+    }
+    .date-range-capsule .date-input::-webkit-calendar-picker-indicator {
+      cursor: pointer;
+      opacity: 0.5;
+      filter: invert(24%) sepia(85%) saturate(3048%) hue-rotate(341deg) brightness(96%) contrast(97%);
+      transition: opacity .15s ease, transform .15s ease;
+    }
+    .date-range-capsule .date-input::-webkit-calendar-picker-indicator:hover {
+      opacity: 1;
+      transform: scale(1.08);
+    }
+    /* 自定义下拉选择框 (复用数据同步中心规范) */
+    .custom-select { position: relative; width: 100%; user-select: none; }
+    .custom-select-trigger {
+      width: 100%;
+      height: 40px;
+      padding: 0 14px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: #ffffff;
+      border: 1px solid var(--border-control);
+      border-radius: var(--radius-md);
+      font-size: 14px;
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
+      box-sizing: border-box;
+    }
+    .custom-select-trigger:hover { border-color: var(--primary); background: #fafbfc; }
+    .custom-select.open .custom-select-trigger {
+      border-color: var(--primary);
+      box-shadow: 0 0 0 3px rgba(239, 43, 58, 0.12);
+      background: #ffffff;
+    }
+    .custom-select-label {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .custom-select-arrow {
+      color: var(--text-muted);
+      font-size: 11px;
+      transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .custom-select.open .custom-select-arrow {
+      transform: rotate(180deg);
+      color: var(--primary);
+    }
+    .custom-select-menu {
+      position: absolute;
+      left: 0;
+      right: 0;
+      background: #ffffff;
+      border: 1px solid var(--border-control);
+      border-radius: var(--radius-md);
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+      z-index: 999;
+      display: none;
+      overflow-y: auto;
+      box-sizing: border-box;
+    }
+    .custom-select.open .custom-select-menu {
+      display: block;
+      animation: uiPop 0.18s cubic-bezier(0.2, 0.8, 0.2, 1);
+    }
+    .custom-select-option {
+      padding: 8px 12px;
+      font-size: 13px;
+      color: var(--text);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-radius: 4px;
+      transition: all 0.15s ease;
+    }
+    .custom-select-option:hover {
+      background: var(--primary-light);
+      color: var(--primary);
+    }
+    .custom-select-option.selected {
+      background: var(--primary-light);
+      color: var(--primary);
+      font-weight: 600;
+    }
+    .pagination-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 16px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    #runsPageNumbers button {
+      height: 32px;
+      min-width: 32px;
+      padding: 0 8px;
+      font-size: 13px;
+      border-radius: 6px;
+    }
+
   </style>
 </head>
 <body>
@@ -1276,32 +1407,36 @@
             </tbody>
           </table>
         </div>
-        <!-- 关键词运行记录分页栏 -->
-        <div class="pagination-bar" id="keywordRunsPaginationBar" style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); flex-wrap: wrap; gap: 12px;">
+        <div class="pagination-bar" id="runsPaginationBar" style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); flex-wrap: wrap; gap: 12px;">
           <div style="display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--text-muted);">
-            <span>共 <strong id="keywordRunsTotalCount" style="color: var(--text);">0</strong> 条记录</span>
+            <span>共 <strong id="runsTotalCount" style="color: var(--text);">0</strong> 条记录</span>
             <span style="color: var(--border);">|</span>
-            <div style="display: flex; align-items: center; gap: 6px;">
-              <span>每页展示</span>
-              <div class="custom-select" id="wrapper-kwRunsPageSize" style="width: 104px;">
-                <div class="custom-select-trigger" onclick="toggleCustomSelect('wrapper-kwRunsPageSize')" style="height: 30px; font-size: 12px; padding: 0 8px;">
-                  <span class="custom-select-label" id="kwRunsPageSizeDisplay">20 条/页</span>
-                  <i data-lucide="chevron-down" class="icon arrow"></i>
-                </div>
-                <div class="custom-select-menu" style="min-width: 104px; padding: 4px;">
-                  <div class="custom-select-option" onclick="selectKwRunsPageSize(10, '10 条/页')">10 条/页</div>
-                  <div class="custom-select-option selected" onclick="selectKwRunsPageSize(20, '20 条/页')">20 条/页</div>
-                  <div class="custom-select-option" onclick="selectKwRunsPageSize(50, '50 条/页')">50 条/页</div>
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <span>每页显示</span>
+              <div style="width: 110px;">
+                <div class="custom-select" id="runsPageSizeSelect">
+                  <div class="custom-select-trigger" style="height: 32px; padding: 0 10px; font-size: 13px;" onclick="toggleCustomSelect('runsPageSizeSelect')">
+                    <span class="custom-select-label" id="runsPageSizeLabel">20 条/页</span>
+                    <span class="custom-select-arrow">▾</span>
+                  </div>
+                  <div class="custom-select-menu" style="bottom: 100%; top: auto; margin-bottom: 4px; padding: 4px; box-shadow: 0 -4px 16px rgba(0,0,0,0.1);">
+                    <div class="custom-select-option selected" data-value="20" onclick="selectRunsPageSize(20, '20 条/页')">20 条/页</div>
+                    <div class="custom-select-option" data-value="50" onclick="selectRunsPageSize(50, '50 条/页')">50 条/页</div>
+                    <div class="custom-select-option" data-value="100" onclick="selectRunsPageSize(100, '100 条/页')">100 条/页</div>
+                  </div>
                 </div>
               </div>
             </div>
           </div>
-          <div style="display: flex; align-items: center; gap: 8px;">
-            <button class="btn btn-outline btn-sm" id="btnKwRunsPrev" onclick="changeKwRunsPage(-1)" disabled style="padding: 4px 10px; font-size: 12px;">上一页</button>
-            <span style="font-size: 13px; color: var(--text-secondary); padding: 0 4px;" id="kwRunsPageIndicator">第 1 / 1 页</span>
-            <button class="btn btn-outline btn-sm" id="btnKwRunsNext" onclick="changeKwRunsPage(1)" disabled style="padding: 4px 10px; font-size: 12px;">下一页</button>
+          <div style="display: flex; align-items: center; gap: 6px;">
+            <button class="btn btn-outline" id="runsPrevBtn" style="padding: 4px 12px; height: 32px; font-size: 13px;" onclick="changeRunsPage(-1)" disabled>上一页</button>
+            <div id="runsPageNumbers" style="display: flex; align-items: center; gap: 4px;"></div>
+            <button class="btn btn-outline" id="runsNextBtn" style="padding: 4px 12px; height: 32px; font-size: 13px;" onclick="changeRunsPage(1)" disabled>下一页</button>
           </div>
         </div>
+
+        <!-- 关键词运行记录分页栏 -->
+        
 
       </div>
     </div>
@@ -1674,12 +1809,12 @@
         document.querySelectorAll('.custom-select.open').forEach(el => el.classList.remove('open'));
       }
     });
-    let currentKwRunsPage = 1;
-    let currentKwRunsPageSize = 20;
+    let currentRunsPage = 1;
+    let currentRunsPageSize = 20;
     let totalKwRunsCount = 0;
     let totalKwRunsPages = 1;
     function selectKwRunsPageSize(size, label) {
-      currentKwRunsPageSize = size;
+      currentRunsPageSize = size;
       const labelEl = document.getElementById('kwRunsPageSizeDisplay');
       if (labelEl) labelEl.textContent = label;
       const wrapper = document.getElementById('wrapper-kwRunsPageSize');
@@ -1689,32 +1824,60 @@
           opt.classList.toggle('selected', opt.textContent.trim() === label);
         });
       }
-      currentKwRunsPage = 1;
+      currentRunsPage = 1;
       loadRunsList(1, true);
     }
     function changeKwRunsPage(delta) {
-      const target = currentKwRunsPage + delta;
+      const target = currentRunsPage + delta;
       if (target >= 1 && target <= totalKwRunsPages) {
         goToKwRunsPage(target);
       }
     }
     function goToKwRunsPage(p) {
       if (p < 1 || p > totalKwRunsPages) return;
-      currentKwRunsPage = p;
+      currentRunsPage = p;
       loadRunsList(p, true);
     }
-    function renderKwRunsPagination(total, page, pageSize, totalPages) {
-      totalKwRunsCount = total;
-      currentKwRunsPage = page;
-      totalKwRunsPages = Math.max(1, totalPages);
-      const totalEl = document.getElementById('keywordRunsTotalCount');
+    function renderRunsPagination(total, page, pageSize, totalPages) {
+      totalRunsCount = total;
+      currentRunsPage = page;
+      totalRunsPages = Math.max(1, totalPages);
+      const totalEl = document.getElementById('runsTotalCount');
       if (totalEl) totalEl.textContent = total;
-      const prevBtn = document.getElementById('btnKwRunsPrev');
-      const nextBtn = document.getElementById('btnKwRunsNext');
+      const prevBtn = document.getElementById('runsPrevBtn');
+      const nextBtn = document.getElementById('runsNextBtn');
       if (prevBtn) prevBtn.disabled = page <= 1;
-      if (nextBtn) nextBtn.disabled = page >= totalKwRunsPages;
-      const pageIndicator = document.getElementById('kwRunsPageIndicator');
-      if (pageIndicator) pageIndicator.textContent = '第 ' + page + ' / ' + totalKwRunsPages + ' 页';
+      if (nextBtn) nextBtn.disabled = page >= totalRunsPages;
+      const pageNumbers = document.getElementById('runsPageNumbers');
+      if (!pageNumbers) return;
+      pageNumbers.innerHTML = '';
+      const createPageBtn = (p) => {
+        const btn = document.createElement('button');
+        btn.className = (p === page) ? 'btn btn-primary' : 'btn btn-outline';
+        btn.style.cssText = 'height: 32px; min-width: 32px; padding: 0 8px; font-size: 13px; border-radius: var(--radius-sm);';
+        btn.textContent = p;
+        btn.onclick = () => goToRunsPage(p);
+        return btn;
+      };
+      const createEllipsis = () => {
+        const span = document.createElement('span');
+        span.style.cssText = 'display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 32px; color: var(--text-muted); font-size: 13px; user-select: none;';
+        span.textContent = '...';
+        return span;
+      };
+      if (totalRunsPages <= 7) {
+        for (let i = 1; i <= totalRunsPages; i++) pageNumbers.appendChild(createPageBtn(i));
+      } else {
+        pageNumbers.appendChild(createPageBtn(1));
+        if (page > 4) pageNumbers.appendChild(createEllipsis());
+        let start = Math.max(2, page - 1);
+        let end = Math.min(totalRunsPages - 1, page + 1);
+        if (page <= 4) { start = 2; end = 5; }
+        else if (page >= totalRunsPages - 3) { start = totalRunsPages - 4; end = totalRunsPages - 1; }
+        for (let i = start; i <= end; i++) pageNumbers.appendChild(createPageBtn(i));
+        if (page < totalRunsPages - 3) pageNumbers.appendChild(createEllipsis());
+        pageNumbers.appendChild(createPageBtn(totalRunsPages));
+      }
     }
 
     const MAX_SELECTED_KEYWORDS = 20;
@@ -2612,14 +2775,14 @@
     }
 
     // 加载运行记录
-    async function loadRunsList(page = currentKwRunsPage, force = false) {
+    async function loadRunsList(page = currentRunsPage, force = false) {
       const tbody = document.getElementById('runListBody');
-      if (!force && tabCache.runs.loaded && tabCache.runs.page === page && tabCache.runs.pageSize === currentKwRunsPageSize) {
+      if (!force && tabCache.runs.loaded && tabCache.runs.page === page && tabCache.runs.pageSize === currentRunsPageSize) {
         return;
       }
       tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:var(--text-muted); padding:30px;"><span class="spinner" style="display:inline-block; vertical-align:middle; margin-right:6px;"></span>正在加载运行记录...</td></tr>';
       try {
-        const resp = await keywordFetch('/api/keyword/runs?page=' + page + '&page_size=' + currentKwRunsPageSize);
+        const resp = await keywordFetch('/api/keyword/runs?page=' + page + '&page_size=' + currentRunsPageSize);
         if (!resp.ok) throw new Error('加载记录失败');
         const res = await resp.json();
         let runs = [];
@@ -2636,9 +2799,9 @@
         }
         tabCache.runs.loaded = true;
         tabCache.runs.page = page;
-        tabCache.runs.pageSize = currentKwRunsPageSize;
+        tabCache.runs.pageSize = currentRunsPageSize;
         tabCache.runs.data = runs;
-        renderKwRunsPagination(total, page, currentKwRunsPageSize, totalPages);
+        renderRunsPagination(total, page, currentRunsPageSize, totalPages);
         if (!runs.length) {
           tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:var(--text-muted); padding:30px;">暂无运行历史记录。</td></tr>';
           return;
