@@ -288,6 +288,7 @@ window.addEventListener('popstate', function(e) {
 });
 
 function selectPlatform(code) {
+  updateWorkflowProgress(1);
   currentPlatform = code;
   document.querySelectorAll('.platform-card').forEach(c => c.classList.remove('selected'));
   const el = document.getElementById('card-' + code);
@@ -1173,4 +1174,47 @@ window.addEventListener('DOMContentLoaded', () => {
 document.addEventListener('DOMContentLoaded', initRouter);
 if (document.readyState === 'complete' || document.readyState === 'interactive') {
   initRouter();
+}
+
+function updateWorkflowProgress(step) {
+  document.querySelectorAll('.workflow-step').forEach((item, index) => {
+    const current = index + 1;
+    item.classList.toggle('active', current === step);
+    item.classList.toggle('completed', current < step);
+  });
+}
+
+function goToValidation() {
+  const input = document.getElementById('excelFileInput');
+  if (!uploadedAnalysis || !input || !input.files || input.files.length === 0) {
+    if (input) input.click();
+    return;
+  }
+  updateWorkflowProgress(3);
+  const mismatchCard = document.getElementById('mismatchAlertCard');
+  const target = mismatchCard && mismatchCard.style.display !== 'none'
+    ? mismatchCard
+    : document.getElementById('sheetAnalysisCard');
+  if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function renderRecentTasks(tasks) {
+  const rail = document.getElementById('recentTasksRail');
+  if (!rail) return;
+  if (!tasks || tasks.length === 0) {
+    rail.className = 'recent-empty';
+    rail.innerHTML = '任务创建后会显示在这里<br>便于快速查看运行状态';
+    return;
+  }
+  const platformNames = { jzt: '京准通', taobao: '淘宝星河', juguang: '小红书聚光' };
+  const statusNames = { active: '运行中', paused: '已暂停' };
+  rail.className = 'recent-task-list';
+  rail.innerHTML = tasks.slice(0, 4).map(t => {
+    const cls = ['jzt', 'taobao', 'juguang'].includes(t.platform) ? t.platform : 'jzt';
+    const nextTime = t.next_run_at ? t.next_run_at.slice(5, 16).replace('T', ' ') : '等待调度';
+    const badgeClass = t.status === 'active' ? 'badge-success' : 'badge-gray';
+    return '<div class="recent-task"><img class="recent-task-mark" src="/static/assets/platform-' + cls + '.png" alt="' + (platformNames[t.platform] || '同步') + '">' +
+      '<div style="min-width:0"><div class="recent-task-name">' + escapeHtml(t.name || ('同步任务 ' + t.id)) + '</div><div class="recent-task-meta">下次执行：' + nextTime + '</div></div>' +
+      '<span class="badge ' + badgeClass + '">' + (statusNames[t.status] || t.status) + '</span></div>';
+  }).join('');
 }
