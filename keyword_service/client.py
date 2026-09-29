@@ -11,6 +11,86 @@ LOCAL_TRENDS_FILE = Path(__file__).parent / "all_keyword_trends.json"
 _LOCAL_TRENDS_CACHE = None
 API_URL = "https://ad.xiaohongshu.com/api/light/ad/keyword/analysis/distribution"
 
+def sync_token_from_oss(force: bool = False) -> Optional[Dict[str, str]]:
+    """自动从 OSS 获取最新的聚光 Token / Cookie 并持久化到本地 token.json"""
+    try:
+        from platforms.registry import fetch_oss_token
+        from app.config import (
+            JUGUANG_OSS_OBJECT_KEY,
+            JUGUANG_OSS_SUBACCOUNT_PREFIX
+        )
+    except Exception as import_err:
+        print(f"[Keyword OSS Sync] Import config error: {import_err}")
+        return None
+
+    candidate_keys = []
+    if JUGUANG_OSS_OBJECT_KEY:
+        candidate_keys.append(JUGUANG_OSS_OBJECT_KEY)
+    prefix = (JUGUANG_OSS_SUBACCOUNT_PREFIX or "token/").rstrip("/")
+    candidate_keys.extend([
+        f"{prefix}/629dd021b276e90001fc3b8c.txt",
+        f"{prefix}/659e1399096eae00013086d6.txt",
+        f"{prefix}/634e1a1bb021a00001cdc5c3.txt",
+        "KOL/token.txt",
+        "KOL/juguang_token.txt"
+    ])
+
+    for key in candidate_keys:
+        try:
+            raw = fetch_oss_token(key).strip()
+            if not raw:
+                continue
+
+            token_obj = None
+            if raw.startswith("{"):
+                try:
+                    data = json.loads(raw)
+                    if isinstance(data, dict):
+                        if "cookie" in data:
+                            token_obj = data
+                        else:
+                            cookie_parts = [f"{k}={v}" for k, v in data.items() if k not in ["vSellerId", "v_seller_id", "user_agent"]]
+                            v_seller_id = data.get("vSellerId") or data.get("v_seller_id") or "628b3a5056228a000189c0e4"
+                            token_obj = {
+                                "cookie": "; ".join(cookie_parts),
+                                "v_seller_id": str(v_seller_id),
+                                "origin": "https://ad.xiaohongshu.com",
+                                "referer": f"https://ad.xiaohongshu.com/aurora/ad/tools/newKeywordTool?vSellerId={v_seller_id}",
+                                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                                "xsecappid": "aurora-shell"
+                            }
+                except json.JSONDecodeError:
+                    pass
+            elif "a1=" in raw:
+                v_seller_id = "628b3a5056228a000189c0e4"
+                if key.endswith(".txt") and "/" in key:
+                    file_stem = key.rsplit("/", 1)[-1].replace(".txt", "")
+                    if len(file_stem) == 24:
+                        v_seller_id = file_stem
+                token_obj = {
+                    "cookie": raw,
+                    "v_seller_id": v_seller_id,
+                    "origin": "https://ad.xiaohongshu.com",
+                    "referer": f"https://ad.xiaohongshu.com/aurora/ad/tools/newKeywordTool?vSellerId={v_seller_id}",
+                    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "xsecappid": "aurora-shell"
+                }
+
+            if token_obj and token_obj.get("cookie"):
+                try:
+                    DEFAULT_TOKEN_FILE.write_text(json.dumps(token_obj, ensure_ascii=False, indent=2), encoding="utf-8")
+                    session_file = Path(__file__).parent.parent / "sync_console" / "tokens" / "session_headers.json"
+                    if session_file.parent.exists():
+                        session_file.write_text(json.dumps(token_obj, ensure_ascii=False, indent=2), encoding="utf-8")
+                    print(f"[Keyword OSS Sync] Successfully auto-synced token from OSS key: {key}")
+                except Exception as save_err:
+                    print(f"[Keyword OSS Sync] Warning: Failed to save synced token locally: {save_err}")
+                return token_obj
+        except Exception:
+            continue
+
+    return None
+
 def _get_local_keyword_trends(keyword: str) -> Dict[str, Any]:
     global _LOCAL_TRENDS_CACHE
     if _LOCAL_TRENDS_CACHE is None:
@@ -40,6 +120,9 @@ def _get_local_keyword_trends(keyword: str) -> Dict[str, Any]:
 def load_token(token_path: Optional[Path] = None) -> Dict[str, str]:
     path = token_path or DEFAULT_TOKEN_FILE
     if not path.exists():
+        synced = sync_token_from_oss()
+        if synced:
+            return synced
         fallback = Path(__file__).parent.parent / "sync_console" / "tokens" / "session_headers.json"
         if fallback.exists():
             path = fallback
@@ -182,6 +265,28 @@ def fetch_keywords_insight(
                 raw_results[kw] = {}
 
     has_valid_data = any(bool(v) for v in raw_results.values())
+    if not has_valid_data and auth_errors:
+        print("[Keyword] Auth expired, attempting auto-sync from OSS...")
+        new_token = sync_token_from_oss(force=True)
+        if new_token:
+            raw_results = {}
+            auth_errors = []
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                retry_map = {
+                    executor.submit(_fetch_single_word, kw, start_date, end_date, new_token): kw
+                    for kw in clean_kws
+                }
+                for future in as_completed(retry_map):
+                    kw = retry_map[future]
+                    try:
+                        raw_results[kw] = future.result()
+                    except PermissionError as e:
+                        auth_errors.append(str(e))
+                        raw_results[kw] = {}
+                    except Exception:
+                        raw_results[kw] = {}
+            has_valid_data = any(bool(v) for v in raw_results.values())
+
     if not has_valid_data and auth_errors:
         raise PermissionError(auth_errors[0])
     if not has_valid_data and other_errors:

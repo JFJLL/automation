@@ -32,6 +32,11 @@ def parse_next_run(rrule_str: str, after_dt: datetime = None) -> datetime:
 def run_keyword_job(task_id: int):
     from keyword_service.sync_engine import run_keyword_task
     try:
+        from keyword_service.client import sync_token_from_oss
+        sync_token_from_oss()
+    except Exception as e:
+        print(f"[Scheduler] Auto-sync token from OSS warning: {e}")
+    try:
         run_keyword_task(task_id, trigger_type="scheduled")
     except Exception as e:
         print(f"[Scheduler] Run keyword task #{task_id} failed: {e}")
