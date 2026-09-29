@@ -2029,7 +2029,7 @@
 
     async function keywordFetch(url, options) {
       let response = await fetch(url, options);
-      if (response.status === 401) {
+      if (response.status === 401 && !url.includes('/search')) {
         await requestKeywordLogin();
         response = await fetch(url, options);
       }
