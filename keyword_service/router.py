@@ -58,6 +58,10 @@ class RemoveKeywordsRequest(BaseModel):
 class KeywordLoginRequest(BaseModel):
     password: str
 
+class CookieUpdateRequest(BaseModel):
+    cookie: str
+    v_seller_id: Optional[str] = "628b3a5056228a000189c0e4"
+
 _CACHED_KEYWORD_HTML: Optional[str] = None
 _CACHED_EMBED_HTML: Optional[str] = None
 _CACHED_SHELL_HTML: Optional[str] = None
@@ -248,8 +252,41 @@ def search_keywords(req: KeywordSearchRequest):
             end_date=req.end_date
         )
         return data
+    except PermissionError as e:
+        raise HTTPException(status_code=401, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+@private_router.get("/cookie")
+def get_current_cookie():
+    token = load_token()
+    c = token.get("cookie", "")
+    return {
+        "v_seller_id": token.get("v_seller_id", "628b3a5056228a000189c0e4"),
+        "cookie_preview": (c[:60] + "...") if len(c) > 60 else c,
+        "cookie_length": len(c)
+    }
+
+@private_router.post("/cookie")
+def update_keyword_cookie(req: CookieUpdateRequest):
+    clean_cookie = req.cookie.strip()
+    if not clean_cookie:
+        raise HTTPException(status_code=400, detail="Cookie 不能为空")
+    v_id = (req.v_seller_id or "").strip() or "628b3a5056228a000189c0e4"
+    token_data = {
+        "cookie": clean_cookie,
+        "v_seller_id": v_id,
+        "origin": "https://ad.xiaohongshu.com",
+        "referer": f"https://ad.xiaohongshu.com/aurora/ad/tools/newKeywordTool?vSellerId={v_id}",
+        "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
+        "xsecappid": "aurora-shell"
+    }
+    from keyword_service.client import DEFAULT_TOKEN_FILE
+    DEFAULT_TOKEN_FILE.write_text(json.dumps(token_data, ensure_ascii=False, indent=2), encoding="utf-8")
+    session_file = Path(__file__).parent.parent / "sync_console" / "tokens" / "session_headers.json"
+    if session_file.parent.exists():
+        session_file.write_text(json.dumps(token_data, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"success": True, "message": "小红书聚光 Cookie 更新成功！已自动生效。"}
 
 @private_router.post("/feishu/direct_create")
 def create_feishu_sheet_directly(req: DirectSheetRequest):
