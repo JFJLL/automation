@@ -1276,10 +1276,7 @@
 
     <div class="page-heading">
       <div><h2>关键词洞察</h2><p>查询小红书关键词热度与投放数据，辅助选词和预算决策</p></div>
-      <div style="display:flex; align-items:center; gap:8px;">
-        <span class="platform-badge"><i data-lucide="sparkles" class="icon"></i>小红书聚光</span>
-        <button type="button" class="btn btn-outline btn-sm" onclick="openCookieModal()" style="height:30px; padding:0 12px; font-size:12px; border-radius:15px; display:inline-flex; align-items:center; gap:5px; border-color:#e6c2c5; color:var(--primary); background:#fff;"><i data-lucide="key" class="icon" style="width:13px; height:13px;"></i><span>更新聚光Cookie</span></button>
-      </div>
+      <span class="platform-badge"><i data-lucide="sparkles" class="icon"></i>小红书聚光</span>
     </div>
 
     <!-- 提示消息横幅 -->
@@ -1512,45 +1509,6 @@
   <!-- 添加关键词至已有任务 Modal -->
   
   <!-- 减词 Modal -->
-  <!-- 更新聚光Cookie Modal -->
-  <div class="modal-backdrop-custom" id="cookieModal" role="dialog" aria-modal="true" aria-labelledby="cookieModalTitle">
-    <div class="modal-box" style="width: 520px; max-width: 92vw;">
-      <div class="modal-header">
-        <span style="font-weight: 600; display: flex; align-items: center; gap: 6px;" id="cookieModalTitle">
-          <i data-lucide="key" class="icon" style="color: var(--primary);"></i> 更新小红书聚光 Cookie / 凭据
-        </span>
-        <span style="cursor: pointer; font-size: 18px; color: var(--text-muted);" onclick="closeCookieModal()">✕</span>
-      </div>
-
-      <form id="cookieForm" onsubmit="event.preventDefault(); submitUpdateCookie();">
-        <div style="margin-bottom: 14px;">
-          <label style="display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px;">商户 Virtual Seller ID</label>
-          <input type="text" id="cookieSellerId" class="form-control-custom" style="width: 100%; height: 38px;" value="628b3a5056228a000189c0e4" placeholder="例如: 628b3a5056228a000189c0e4">
-        </div>
-
-        <div style="margin-bottom: 14px;">
-          <label style="display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px;">
-            聚光 Cookie 内容
-            <span style="font-size: 12px; color: var(--text-muted); font-weight: normal; margin-left: 6px;">（需包含 access-token-ad.xiaohongshu.com 与 a1 等）</span>
-          </label>
-          <textarea id="cookieInput" class="form-control-custom" style="width: 100%; height: 110px; padding: 8px 10px; font-family: monospace; font-size: 12px; resize: vertical;" placeholder="在此粘贴小红书聚光后台的完整 Cookie 字符串..." required></textarea>
-        </div>
-
-        <div style="background: #faf6f6; border: 1px solid #f0dede; border-radius: 6px; padding: 10px 12px; font-size: 12px; color: #84686b; margin-bottom: 16px; line-height: 1.6;">
-          💡 获取方式：在已登录聚光的浏览器按 F12 打开开发者工具，在“网络 (Network)”选项卡中点选任意请求，复制请求标头中的 <code>Cookie: ...</code> 粘贴至上方即可。
-        </div>
-
-        <div class="modal-footer">
-          <button type="button" class="btn btn-outline" onclick="closeCookieModal()">取消</button>
-          <button type="submit" class="btn btn-primary" id="btnSubmitCookie">
-            <span id="btnSubmitCookieSpinner" class="spinner" style="display: none;"></span>
-            <span>保存并生效</span>
-          </button>
-        </div>
-      </form>
-    </div>
-  </div>
-
   <!-- 减词 Modal -->
   <div class="modal-backdrop-custom" id="removeWordsModal" role="dialog" aria-modal="true" aria-labelledby="removeWordsModalTitle">
     <div class="modal-box">
@@ -2307,53 +2265,6 @@
       showKeywordLibrary(true);
     }
 
-    function openCookieModal() {
-      document.getElementById('cookieModal').classList.add('active');
-      fetch('/api/keyword/cookie').then(r => r.json()).then(d => {
-        if (d && d.v_seller_id) {
-          document.getElementById('cookieSellerId').value = d.v_seller_id;
-        }
-      }).catch(function(){});
-    }
-
-    function closeCookieModal() {
-      document.getElementById('cookieModal').classList.remove('active');
-    }
-
-    async function submitUpdateCookie() {
-      const cookie = document.getElementById('cookieInput').value.trim();
-      const vSellerId = document.getElementById('cookieSellerId').value.trim();
-      if (!cookie) {
-        alert('请输入 Cookie 内容');
-        return;
-      }
-      const btn = document.getElementById('btnSubmitCookie');
-      const spinner = document.getElementById('btnSubmitCookieSpinner');
-      btn.disabled = true;
-      spinner.style.display = 'inline-block';
-      try {
-        const resp = await keywordFetch('/api/keyword/cookie', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cookie: cookie, v_seller_id: vSellerId })
-        });
-        const res = await resp.json();
-        if (!resp.ok || !res.success) {
-          throw new Error(res.detail || 'Cookie 保存失败');
-        }
-        closeCookieModal();
-        showAlert('🎉 小红书聚光 Cookie 更新成功！已自动重新生效。', 'success');
-        if (selectedKeywords.length) {
-          doSearch();
-        }
-      } catch(e) {
-        alert('保存失败: ' + e.message);
-      } finally {
-        btn.disabled = false;
-        spinner.style.display = 'none';
-      }
-    }
-
     function clearSelectedKeywords() {
       selectedKeywords = [];
       latestSearchResult = null;
@@ -2679,13 +2590,7 @@
         latestSearchResult = res;
         renderGrid(res);
       } catch (err) {
-        let msg = err.message || '查询失败';
-        if (msg.includes('401') || msg.includes('Cookie') || msg.includes('过期') || msg.includes('未授权')) {
-          showAlert('⚠️ 小红书聚光登录凭据（Cookie）已过期。请点击按钮重新配置。<button class="btn btn-primary btn-sm" onclick="openCookieModal()" style="margin-left:12px; height:26px; padding:0 10px; font-size:12px;">立即更新 Cookie</button>', 'danger');
-          openCookieModal();
-        } else {
-          showAlert('查询失败: ' + msg, 'danger');
-        }
+        showAlert('查询失败: ' + err.message, 'danger');
       } finally {
         btn.disabled = false;
         spinner.style.display = 'none';
