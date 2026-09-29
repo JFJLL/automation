@@ -565,6 +565,19 @@
       *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
     }
 
+  
+    #wrapper-kwRunsPageSize .custom-select-menu,
+    #wrapper-runsPageSize .custom-select-menu {
+      top: auto;
+      bottom: 100%;
+      margin-bottom: 4px;
+      background: #ffffff;
+      border: 1px solid var(--border-control);
+      border-radius: 6px;
+      box-shadow: 0 -4px 16px rgba(0,0,0,0.08);
+      z-index: 100;
+    }
+
   </style>
 </head>
 <body>
@@ -619,7 +632,10 @@
                 </div>
                 <div class="custom-select-menu" id="juguangSubAccountMenu" style="max-height: 280px; padding: 8px;">
                   <div style="padding: 0 0 8px 0;">
-                    <input type="text" id="subAccountSearchInput" class="form-control-custom" placeholder="🔍 输入子账号名称或 ID 搜索..." style="height: 34px; font-size: 13px;" oninput="filterSubAccounts(this.value)">
+                    <div class="subaccount-search-wrapper" style="position: relative; display: flex; align-items: center; width: 100%;">
+                    <i data-lucide="search" class="icon" style="position: absolute; left: 10px; width: 14px; height: 14px; color: var(--text-muted); pointer-events: none;"></i>
+                    <input type="text" id="subAccountSearchInput" class="form-control-custom" placeholder="输入子账号名称或 ID 搜索..." style="height: 36px; font-size: 13px; padding-left: 32px; padding-right: 10px; border-radius: 6px; border: 1px solid var(--border-control); background: #faf8f8; width: 100%; box-sizing: border-box; transition: all .16s ease;" oninput="filterSubAccounts(this.value)" onfocus="this.style.background='#fff'; this.style.borderColor='var(--primary)';" onblur="this.style.background='#faf8f8'; this.style.borderColor='var(--border-control)';">
+                  </div>
                   </div>
                   <div id="subAccountOptionsContainer">
                     <!-- 动态注入子账号 -->
@@ -639,7 +655,7 @@
               <div class="upload-desc" id="uploadDesc">支持 .xlsx、.xls 格式，建议使用近 30 行样本数据，文件不超过 50MB</div><div id="uploadBoxText" style="display:none;">点击或拖拽上传 Excel 文件</div>
             </div>
             <div class="upload-note"><i data-lucide="info" class="icon"></i><span>上传后系统将自动解析表头字段、数据类型，并进行格式校验</span></div>
-            <div class="workflow-footer"><button class="btn btn-primary" id="validationNextBtn" type="button" onclick="goToValidation()">下一步：核验数据 <i data-lucide="arrow-right" class="icon"></i></button></div>
+            
           </section>
         </div>
         <aside class="insight-rail">

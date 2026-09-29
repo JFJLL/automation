@@ -335,15 +335,33 @@ def delete_task(task_id: int):
     return {"success": True, "message": f"任务 #{task_id} 已成功删除"}
 
 @private_router.get("/runs")
-def list_keyword_runs(task_id: Optional[int] = None):
+def list_keyword_runs(task_id: Optional[int] = None, page: int = 1, page_size: int = 20):
+    if page < 1:
+        page = 1
+    if page_size < 1:
+        page_size = 20
+    offset = (page - 1) * page_size
+
     with get_db() as conn:
         cursor = conn.cursor()
         if task_id:
-            cursor.execute("SELECT * FROM keyword_runs WHERE task_id = ? ORDER BY id DESC LIMIT 50", (task_id,))
+            cursor.execute("SELECT COUNT(*) FROM keyword_runs WHERE task_id = ?", (task_id,))
+            total = cursor.fetchone()[0]
+            cursor.execute("SELECT * FROM keyword_runs WHERE task_id = ? ORDER BY id DESC LIMIT ? OFFSET ?", (task_id, page_size, offset))
         else:
-            cursor.execute("SELECT * FROM keyword_runs ORDER BY id DESC LIMIT 100")
+            cursor.execute("SELECT COUNT(*) FROM keyword_runs")
+            total = cursor.fetchone()[0]
+            cursor.execute("SELECT * FROM keyword_runs ORDER BY id DESC LIMIT ? OFFSET ?", (page_size, offset))
         runs = [dict(r) for r in cursor.fetchall()]
-    return runs
+
+    total_pages = max(1, (total + page_size - 1) // page_size)
+    return {
+        "items": runs,
+        "total": total,
+        "total_pages": total_pages,
+        "page": page,
+        "page_size": page_size
+    }
 
 router.include_router(private_router)
 

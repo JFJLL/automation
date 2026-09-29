@@ -1026,6 +1026,65 @@
       gap: 4px;
     }
 
+  
+    /* 时间选择器聚焦与点击状态美化 */
+    .date-range-capsule {
+      position: relative;
+    }
+    .date-range-capsule .date-input {
+      outline: none !important;
+      box-shadow: none !important;
+      border: none !important;
+      cursor: pointer;
+    }
+    .date-range-capsule .date-input::-webkit-datetime-edit {
+      padding: 0;
+    }
+    .date-range-capsule .date-input::-webkit-datetime-edit-fields-wrapper {
+      background: transparent !important;
+    }
+    .date-range-capsule .date-input::-webkit-datetime-edit-text {
+      color: var(--text-muted);
+    }
+    .date-range-capsule .date-input::-webkit-datetime-edit-month-field,
+    .date-range-capsule .date-input::-webkit-datetime-edit-day-field,
+    .date-range-capsule .date-input::-webkit-datetime-edit-year-field {
+      color: var(--text);
+      padding: 1px 2px;
+      border-radius: 3px;
+      transition: background-color .15s ease, color .15s ease;
+    }
+    .date-range-capsule .date-input::-webkit-datetime-edit-month-field:focus,
+    .date-range-capsule .date-input::-webkit-datetime-edit-day-field:focus,
+    .date-range-capsule .date-input::-webkit-datetime-edit-year-field:focus {
+      background: #fff0f1 !important;
+      color: #ef2b3a !important;
+      outline: none !important;
+    }
+    .date-range-capsule .date-input::-webkit-calendar-picker-indicator {
+      cursor: pointer;
+      opacity: 0.5;
+      filter: invert(24%) sepia(85%) saturate(3048%) hue-rotate(341deg) brightness(96%) contrast(97%);
+      transition: opacity .15s ease, transform .15s ease;
+    }
+    .date-range-capsule .date-input::-webkit-calendar-picker-indicator:hover {
+      opacity: 1;
+      transform: scale(1.08);
+    }
+
+  
+    #wrapper-kwRunsPageSize .custom-select-menu,
+    #wrapper-runsPageSize .custom-select-menu {
+      top: auto;
+      bottom: 100%;
+      margin-bottom: 4px;
+      background: #ffffff;
+      border: 1px solid var(--border-control);
+      border-radius: 6px;
+      box-shadow: 0 -4px 16px rgba(0,0,0,0.08);
+      z-index: 100;
+    }
+
   </style>
 </head>
 <body>
@@ -1217,6 +1276,33 @@
             </tbody>
           </table>
         </div>
+        <!-- 关键词运行记录分页栏 -->
+        <div class="pagination-bar" id="keywordRunsPaginationBar" style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); flex-wrap: wrap; gap: 12px;">
+          <div style="display: flex; align-items: center; gap: 12px; font-size: 13px; color: var(--text-muted);">
+            <span>共 <strong id="keywordRunsTotalCount" style="color: var(--text);">0</strong> 条记录</span>
+            <span style="color: var(--border);">|</span>
+            <div style="display: flex; align-items: center; gap: 6px;">
+              <span>每页展示</span>
+              <div class="custom-select" id="wrapper-kwRunsPageSize" style="width: 104px;">
+                <div class="custom-select-trigger" onclick="toggleCustomSelect('wrapper-kwRunsPageSize')" style="height: 30px; font-size: 12px; padding: 0 8px;">
+                  <span class="custom-select-label" id="kwRunsPageSizeDisplay">20 条/页</span>
+                  <i data-lucide="chevron-down" class="icon arrow"></i>
+                </div>
+                <div class="custom-select-menu" style="min-width: 104px; padding: 4px;">
+                  <div class="custom-select-option" onclick="selectKwRunsPageSize(10, '10 条/页')">10 条/页</div>
+                  <div class="custom-select-option selected" onclick="selectKwRunsPageSize(20, '20 条/页')">20 条/页</div>
+                  <div class="custom-select-option" onclick="selectKwRunsPageSize(50, '50 条/页')">50 条/页</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 8px;">
+            <button class="btn btn-outline btn-sm" id="btnKwRunsPrev" onclick="changeKwRunsPage(-1)" disabled style="padding: 4px 10px; font-size: 12px;">上一页</button>
+            <span style="font-size: 13px; color: var(--text-secondary); padding: 0 4px;" id="kwRunsPageIndicator">第 1 / 1 页</span>
+            <button class="btn btn-outline btn-sm" id="btnKwRunsNext" onclick="changeKwRunsPage(1)" disabled style="padding: 4px 10px; font-size: 12px;">下一页</button>
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -1575,6 +1661,62 @@
     let rejectKeywordLogin = null;
     let alertHideTimer = null;
     let alertSequence = 0;
+
+    function toggleCustomSelect(wrapperId) {
+      const wrapper = document.getElementById(wrapperId);
+      if (!wrapper) return;
+      const isOpen = wrapper.classList.contains('open');
+      document.querySelectorAll('.custom-select.open').forEach(el => el.classList.remove('open'));
+      if (!isOpen) wrapper.classList.add('open');
+    }
+    document.addEventListener('click', e => {
+      if (!e.target.closest('.custom-select')) {
+        document.querySelectorAll('.custom-select.open').forEach(el => el.classList.remove('open'));
+      }
+    });
+    let currentKwRunsPage = 1;
+    let currentKwRunsPageSize = 20;
+    let totalKwRunsCount = 0;
+    let totalKwRunsPages = 1;
+    function selectKwRunsPageSize(size, label) {
+      currentKwRunsPageSize = size;
+      const labelEl = document.getElementById('kwRunsPageSizeDisplay');
+      if (labelEl) labelEl.textContent = label;
+      const wrapper = document.getElementById('wrapper-kwRunsPageSize');
+      if (wrapper) {
+        wrapper.classList.remove('open');
+        wrapper.querySelectorAll('.custom-select-option').forEach(opt => {
+          opt.classList.toggle('selected', opt.textContent.trim() === label);
+        });
+      }
+      currentKwRunsPage = 1;
+      loadRunsList(1, true);
+    }
+    function changeKwRunsPage(delta) {
+      const target = currentKwRunsPage + delta;
+      if (target >= 1 && target <= totalKwRunsPages) {
+        goToKwRunsPage(target);
+      }
+    }
+    function goToKwRunsPage(p) {
+      if (p < 1 || p > totalKwRunsPages) return;
+      currentKwRunsPage = p;
+      loadRunsList(p, true);
+    }
+    function renderKwRunsPagination(total, page, pageSize, totalPages) {
+      totalKwRunsCount = total;
+      currentKwRunsPage = page;
+      totalKwRunsPages = Math.max(1, totalPages);
+      const totalEl = document.getElementById('keywordRunsTotalCount');
+      if (totalEl) totalEl.textContent = total;
+      const prevBtn = document.getElementById('btnKwRunsPrev');
+      const nextBtn = document.getElementById('btnKwRunsNext');
+      if (prevBtn) prevBtn.disabled = page <= 1;
+      if (nextBtn) nextBtn.disabled = page >= totalKwRunsPages;
+      const pageIndicator = document.getElementById('kwRunsPageIndicator');
+      if (pageIndicator) pageIndicator.textContent = '第 ' + page + ' / ' + totalKwRunsPages + ' 页';
+    }
+
     const MAX_SELECTED_KEYWORDS = 20;
     let keywordLibraryGroups = [];
     let allLibraryKeywords = [];
@@ -2458,28 +2600,49 @@
 
     async function toggleTask(id) {
       try {
-        const resp = await keywordFetch(`/api/keyword/tasks/${id}/toggle`, { method: 'POST' });
-        if (!resp.ok) throw new Error('操作失败');
-        loadTasksList();
+        const resp = await keywordFetch('/api/keyword/tasks/' + id + '/toggle', { method: 'POST' });
+        const res = await resp.json();
+        if (!resp.ok) throw new Error(res.detail || '操作失败');
+        tabCache.tasks.loaded = false;
+        await loadTasksList(true);
+        showAlert('任务 #' + id + ' 状态已更新', 'success');
       } catch (e) {
         alert('操作失败: ' + e.message);
       }
     }
 
     // 加载运行记录
-    async function loadRunsList() {
+    async function loadRunsList(page = currentKwRunsPage, force = false) {
       const tbody = document.getElementById('runListBody');
-      tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:var(--text-muted); padding:30px;">正在加载...</td></tr>';
-
+      if (!force && tabCache.runs.loaded && tabCache.runs.page === page && tabCache.runs.pageSize === currentKwRunsPageSize) {
+        return;
+      }
+      tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:var(--text-muted); padding:30px;"><span class="spinner" style="display:inline-block; vertical-align:middle; margin-right:6px;"></span>正在加载运行记录...</td></tr>';
       try {
-        const resp = await keywordFetch('/api/keyword/runs');
+        const resp = await keywordFetch('/api/keyword/runs?page=' + page + '&page_size=' + currentKwRunsPageSize);
         if (!resp.ok) throw new Error('加载记录失败');
-        const runs = await resp.json();
+        const res = await resp.json();
+        let runs = [];
+        let total = 0;
+        let totalPages = 1;
+        if (res && res.items) {
+          runs = res.items;
+          total = res.total;
+          totalPages = res.total_pages;
+        } else if (Array.isArray(res)) {
+          runs = res;
+          total = res.length;
+          totalPages = 1;
+        }
+        tabCache.runs.loaded = true;
+        tabCache.runs.page = page;
+        tabCache.runs.pageSize = currentKwRunsPageSize;
+        tabCache.runs.data = runs;
+        renderKwRunsPagination(total, page, currentKwRunsPageSize, totalPages);
         if (!runs.length) {
           tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:var(--text-muted); padding:30px;">暂无运行历史记录。</td></tr>';
           return;
         }
-
         tbody.innerHTML = runs.map(r => {
           const statusClass = r.status === 'success' ? 'status-success' : (r.status === 'failed' ? 'status-failed' : 'status-running');
           const triggerMap = {
@@ -2490,23 +2653,23 @@
             'task_init': '任务创建'
           };
           const triggerText = triggerMap[r.trigger_type] || r.trigger_type;
-          return `
-            <tr>
-              <td>${r.id}</td>
-              <td style="font-weight:600; white-space:nowrap;">${r.task_name || '-'}</td>
-              <td style="white-space:nowrap;"><span class="badge" style="background:#f2f3f5; color:#4e5969;">${triggerText}</span></td>
-              <td style="font-size:12px; white-space:nowrap;">${r.started_at ? r.started_at.substring(0, 19).replace('T', ' ') : '-'}</td>
-              <td style="font-size:12px; white-space:nowrap;">${r.finished_at ? r.finished_at.substring(0, 19).replace('T', ' ') : '-'}</td>
-              <td style="white-space:nowrap;"><span class="status-badge ${statusClass}">${r.status}</span></td>
-              <td>${r.keywords_count || 0}</td>
-              <td>${r.days_count || 0}</td>
-              <td style="white-space:nowrap;">${r.spreadsheet_url ? `<a href="${r.spreadsheet_url}" target="_blank" style="color:var(--primary); text-decoration:none;">打开表格 ↗</a>` : '-'}</td>
-              <td style="font-size:12px; color:var(--text-secondary); max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${r.message || r.error_detail || '-'}</td>
-            </tr>
-          `;
+          let row = '<tr>';
+          row += '<td>' + r.id + '</td>';
+          row += '<td style="font-weight:600; white-space:nowrap;">' + (r.task_name || '-') + '</td>';
+          row += '<td style="white-space:nowrap;"><span class="badge" style="background:#f2f3f5; color:#4e5969;">' + triggerText + '</span></td>';
+          row += '<td style="font-size:12px; white-space:nowrap;">' + (r.started_at ? r.started_at.substring(0, 19).replace('T', ' ') : '-') + '</td>';
+          row += '<td style="font-size:12px; white-space:nowrap;">' + (r.finished_at ? r.finished_at.substring(0, 19).replace('T', ' ') : '-') + '</td>';
+          row += '<td style="white-space:nowrap;"><span class="status-badge ' + statusClass + '">' + r.status + '</span></td>';
+          row += '<td>' + (r.keywords_count || 0) + '</td>';
+          row += '<td>' + (r.days_count || 0) + '</td>';
+          row += '<td style="white-space:nowrap;">' + (r.spreadsheet_url ? '<a href="' + r.spreadsheet_url + '" target="_blank" style="color:var(--primary); text-decoration:none;">打开表格 ↗</a>' : '-') + '</td>';
+          row += '<td style="font-size:12px; color:var(--text-secondary); max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + (r.message || r.error_detail || '-') + '</td>';
+          row += '</tr>';
+          return row;
         }).join('');
+        if (window.lucide) window.lucide.createIcons();
       } catch (e) {
-        tbody.innerHTML = `<tr><td colspan="10" style="text-align:center; color:var(--danger); padding:30px;">加载失败: ${e.message}</td></tr>`;
+        tbody.innerHTML = '<tr><td colspan="10" style="text-align:center; color:var(--danger); padding:30px;">加载失败: ' + e.message + '</td></tr>';
       }
     }
   </script>
