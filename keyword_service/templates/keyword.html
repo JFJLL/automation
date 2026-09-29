@@ -392,32 +392,51 @@
       background: #fff7f7;
     }
 
-    /* 任务列表与运行记录宽屏表格 (彻底解决文字竖排问题) */
-    .table-responsive-wide {
+    /* 表格卡片样式（与数据同步中心统一，边框网格清晰规范） */
+    .table-container {
+      max-height: 520px;
       overflow-x: auto;
-      border-radius: var(--radius-md);
+      overflow-y: auto;
       border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      background: #ffffff;
+      box-shadow: var(--shadow-sm);
     }
-    .simple-table {
-      width: 100%;
-      min-width: 1150px;
-      border-collapse: collapse;
+    .table-container table {
+      width: max-content;
+      min-width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
       font-size: 13.5px;
     }
-    .simple-table th, .simple-table td {
-      padding: 14px 16px;
+    .table-container th, .table-container td {
+      border-right: 1px solid var(--border);
       border-bottom: 1px solid var(--border);
+      padding: 12px 18px;
       text-align: left;
       white-space: nowrap;
       vertical-align: middle;
     }
-    .simple-table th {
-      background: #fafbfc;
+    .table-container th {
+      background: #f4f6f9;
       font-weight: 600;
-      color: #333842;
-      border-bottom: 2px solid var(--border);
+      color: #2a2f3d;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      border-top: 1px solid var(--border);
     }
-    .simple-table tbody tr:hover { background: #fafbfc; }
+    .table-container th:first-child, .table-container td:first-child {
+      border-left: 1px solid var(--border);
+    }
+    .table-container tbody tr:hover {
+      background-color: #f7f9fc;
+    }
+
+    .ok-pill { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; background: #e8ffea; color: #00b42a; }
+    .unmapped-pill { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 500; background: #fff0f1; color: var(--primary); }
+    .badge-success { background: #e8ffea; color: var(--success); }
+    .badge-danger { background: #ffece8; color: var(--danger); }
 
     /* 关键词折叠标签胶囊 */
     .kw-tag-item {
@@ -700,10 +719,12 @@
     .category-btn { height: 30px; padding: 0 12px; border: 1px solid #dce3ed; border-radius: 15px; background: #fff; color: #58677d; font: 500 12px var(--font-family); cursor: pointer; }
     .category-btn:hover, .category-btn.active { border-color: #ed9ca4; background: #fff0f1; color: var(--primary); }
     .primary-category-btn { border-radius: 6px; font-weight: 600; }
-    .library-keywords { display: flex; align-content: flex-start; flex-wrap: wrap; gap: 9px; max-height: 250px; overflow-y: auto; padding: 14px; border: 1px solid #eee4e2; border-radius: 9px; background: #fdfaf9; }
+    .library-keywords { display: flex; align-content: flex-start; flex-wrap: wrap; gap: 9px; min-height: 420px; max-height: calc(100vh - 380px); overflow-y: auto; padding: 16px; border: 1px solid #eee4e2; border-radius: 9px; background: #fdfaf9; user-select: none; -webkit-user-select: none; position: relative; }
     .library-keyword { height: 30px; padding: 0 11px; border: 1px solid #dce3ed; border-radius: 6px; background: #fff; color: #42526a; font: 500 12px var(--font-family); cursor: pointer; transition: all .15s ease; }
     .library-keyword:hover { border-color: #ed9ca4; color: var(--primary); transform: translateY(-1px); }
     .library-keyword.selected { border-color: #eb8f98; background: #fff0f1; color: var(--primary); }
+    .library-keyword.drag-hover { border-color: var(--primary) !important; background: #fff0f1 !important; color: var(--primary) !important; transform: scale(1.05); box-shadow: 0 2px 8px rgba(239, 43, 58, 0.2); }
+    #dragSelectionBox { position: fixed; border: 1.5px dashed var(--primary); background: rgba(239, 43, 58, 0.12); pointer-events: none; z-index: 9999; display: none; border-radius: 4px; }
     .library-empty { width: 100%; padding: 34px 12px; text-align: center; color: #98a2b3; font-size: 13px; }
     .overview-actions-bar { flex-wrap: wrap; gap: 12px; }
     @media (max-width: 1080px) {
@@ -1282,13 +1303,12 @@
             <div class="filter-field kw-input-box">
               <div class="keyword-label-row">
                 <span class="filter-label">关键词</span>
-                <span class="search-selected-count" id="searchSelectedKeywordCount">0 / 20</span>
+                <span class="search-selected-count" id="searchSelectedKeywordCount" style="color:var(--primary); font-weight:600; font-size:12px;">已选 0 个</span>
               </div>
               <div class="keyword-search-editor" id="keywordSearchEditor" onclick="document.getElementById('keywordInput').focus()">
                 <span class="search-icon"><i data-lucide="search" class="icon"></i></span>
-                <div class="search-selected-list" id="searchSelectedKeywordList"></div>
                 <input type="text" id="keywordInput" class="form-control-custom" placeholder="输入关键词，按空格或回车添加" autocomplete="off" onkeydown="handleKeywordInputKeydown(event)" onpaste="handleKeywordPaste(event)">
-                <button type="button" class="keyword-clear-btn" id="btnClearKeywords" onclick="event.stopPropagation(); clearSelectedKeywords()" aria-label="清空已选关键词"><i data-lucide="x" class="icon"></i><span>清空</span></button>
+                <button type="button" class="keyword-clear-btn" id="btnClearKeywords" onclick="event.stopPropagation(); clearSelectedKeywords()" aria-label="清空已选关键词" style="display:none;"><i data-lucide="x" class="icon"></i><span>清空</span></button>
               </div>
             </div>
 
@@ -1297,6 +1317,18 @@
               <span id="btnSearchSpinner" class="spinner" style="display:none;"></span>
               <span id="btnSearchText">查询数据</span>
             </button>
+          </div>
+
+          <!-- 已选关键词展示区域 (自动换行，带滚动条与清空，不破坏上方38px控件对齐) -->
+          <div id="selectedKeywordsBar" style="display: none; margin-top: 12px; padding: 10px 14px; background: #fff7f7; border: 1px solid #ffd6de; border-radius: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <span style="font-size: 13px; font-weight: 600; color: #4e5969; display: flex; align-items: center; gap: 6px;">
+                <i data-lucide="tags" class="icon" style="width: 14px; height: 14px; color: var(--primary);"></i>
+                <span>已选关键词 (<strong id="selectedKeywordsCountBadge" style="color: var(--primary);">0</strong>)</span>
+              </span>
+              <button type="button" class="keyword-clear-btn" onclick="clearSelectedKeywords()" aria-label="清空已选关键词" style="display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border-radius: 4px; border: 1px solid var(--border); background: #fff; font-size: 12px; color: var(--text-muted); cursor: pointer;"><i data-lucide="x" class="icon"></i><span>清空全部</span></button>
+            </div>
+            <div class="search-selected-list" id="searchSelectedKeywordList" style="display: flex; flex-wrap: wrap; gap: 6px; max-height: 120px; overflow-y: auto; padding-right: 4px;"></div>
           </div>
 
           <div class="input-hint-text" style="margin-top: 10px;">
@@ -1360,8 +1392,8 @@
           <button class="btn btn-outline btn-sm" onclick="loadTasksList(true)">🔄 刷新列表</button>
         </div>
 
-        <div class="table-responsive-wide">
-          <table class="simple-table">
+        <div class="table-container">
+          <table>
             <thead>
               <tr>
                 <th style="width: 50px;">ID</th>
@@ -1370,13 +1402,12 @@
                 <th style="min-width: 110px;">关联飞书表格</th>
                 <th style="min-width: 90px;">更新模式</th>
                 <th style="min-width: 130px;">频率周期</th>
-                <th style="min-width: 80px;">状态</th>
                 <th style="min-width: 130px;">上次运行</th>
-                <th style="min-width: 250px;">操作</th>
+                <th style="min-width: 250px; text-align:center;">快捷操作</th>
               </tr>
             </thead>
             <tbody id="taskListBody">
-              <tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:30px;">加载中...</td></tr>
+              <tr><td colspan="8" style="text-align:center; color:var(--text-muted); padding:30px;"><div class="spinner"></div> 正在加载同步任务...</td></tr>
             </tbody>
           </table>
         </div>
@@ -1391,8 +1422,8 @@
           <button class="btn btn-outline btn-sm" onclick="loadRunsList(currentRunsPage, true)">🔄 刷新记录</button>
         </div>
 
-        <div class="table-responsive-wide">
-          <table class="simple-table">
+        <div class="table-container">
+          <table>
             <thead>
               <tr>
                 <th style="width: 60px;">ID</th>
@@ -1408,7 +1439,7 @@
               </tr>
             </thead>
             <tbody id="runListBody">
-              <tr><td colspan="10" style="text-align:center; color:var(--text-muted); padding:30px;">加载中...</td></tr>
+              <tr><td colspan="10" style="text-align:center; color:var(--text-muted); padding:30px;"><div class="spinner"></div> 正在加载运行记录...</td></tr>
             </tbody>
           </table>
         </div>
@@ -1984,6 +2015,7 @@
       initDates();
       loadKeywordLibrary();
       initKeywordRouter();
+      initDragSelection();
       const appendInput = document.getElementById('appendWordsInput');
       appendInput.addEventListener('keydown', handleAppendWordsKeydown);
       appendInput.addEventListener('blur', commitAppendWordInput);
@@ -2006,18 +2038,121 @@
     async function loadKeywordLibrary() {
       const list = document.getElementById('keywordLibraryList');
       try {
+        const cached = sessionStorage.getItem('kw_library_cache');
+        if (cached) {
+          const result = JSON.parse(cached);
+          if (result && Array.isArray(result.groups)) {
+            keywordLibraryGroups = result.groups || [];
+            allLibraryKeywords = result.all_keywords || [];
+            if (activePrimaryCategory !== '全部词库' && keywordLibraryGroups.length && !keywordLibraryGroups.some(group => group.name === activePrimaryCategory)) {
+              activePrimaryCategory = keywordLibraryGroups[0].name;
+            }
+            renderKeywordLibrary();
+          }
+        }
+      } catch (e) {}
+
+      try {
         const response = await fetch('/api/keyword/library');
         if (!response.ok) throw new Error('加载失败');
         const result = await response.json();
         keywordLibraryGroups = result.groups || [];
         allLibraryKeywords = result.all_keywords || [];
+        try {
+          sessionStorage.setItem('kw_library_cache', JSON.stringify(result));
+        } catch (e) {}
         if (activePrimaryCategory !== '全部词库' && keywordLibraryGroups.length && !keywordLibraryGroups.some(group => group.name === activePrimaryCategory)) {
           activePrimaryCategory = keywordLibraryGroups[0].name;
         }
         renderKeywordLibrary();
       } catch (error) {
-        list.innerHTML = '<div class="library-empty">关键词库暂时无法加载，仍可在上方手动输入关键词。</div>';
+        if (!allLibraryKeywords.length) {
+          list.innerHTML = '<div class="library-empty">关键词库暂时无法加载，仍可在上方手动输入关键词。</div>';
+        }
       }
+    }
+
+    function initDragSelection() {
+      const container = document.getElementById('keywordLibraryList');
+      if (!container) return;
+
+      let isDown = false;
+      let isDragging = false;
+      let startX = 0;
+      let startY = 0;
+      let box = document.getElementById('dragSelectionBox');
+      if (!box) {
+        box = document.createElement('div');
+        box.id = 'dragSelectionBox';
+        document.body.appendChild(box);
+      }
+
+      container.addEventListener('mousedown', e => {
+        if (e.button !== 0) return;
+        const rect = container.getBoundingClientRect();
+        if (e.clientX > rect.right - 14) return;
+        isDown = true;
+        isDragging = false;
+        startX = e.clientX;
+        startY = e.clientY;
+      });
+
+      window.addEventListener('mousemove', e => {
+        if (!isDown) return;
+        const dx = Math.abs(e.clientX - startX);
+        const dy = Math.abs(e.clientY - startY);
+        if (!isDragging && (dx > 4 || dy > 4)) {
+          isDragging = true;
+        }
+        if (isDragging) {
+          e.preventDefault();
+          const left = Math.min(e.clientX, startX);
+          const top = Math.min(e.clientY, startY);
+          const width = Math.abs(e.clientX - startX);
+          const height = Math.abs(e.clientY - startY);
+          box.style.left = left + 'px';
+          box.style.top = top + 'px';
+          box.style.width = width + 'px';
+          box.style.height = height + 'px';
+          box.style.display = 'block';
+
+          const keywords = container.querySelectorAll('.library-keyword');
+          keywords.forEach(kw => {
+            const r = kw.getBoundingClientRect();
+            const intersects = !(r.right < left || r.left > left + width || r.bottom < top || r.top > top + height);
+            kw.classList.toggle('drag-hover', intersects);
+          });
+        }
+      });
+
+      window.addEventListener('mouseup', e => {
+        if (!isDown) return;
+        isDown = false;
+        if (isDragging) {
+          isDragging = false;
+          box.style.display = 'none';
+
+          let addedAny = false;
+          const keywords = container.querySelectorAll('.library-keyword');
+          keywords.forEach(kw => {
+            if (kw.classList.contains('drag-hover')) {
+              kw.classList.remove('drag-hover');
+              const word = kw.dataset.keyword || kw.textContent.trim();
+              if (word && !selectedKeywords.includes(word)) {
+                selectedKeywords.push(word);
+                addedAny = true;
+              }
+            }
+          });
+          if (addedAny) {
+            renderSelectedKeywords();
+            renderKeywordLibrary();
+          }
+          window.addEventListener('click', ev => ev.stopPropagation(), { capture: true, once: true });
+        } else {
+          box.style.display = 'none';
+        }
+      });
     }
 
     function getAllLibraryKeywords() {
@@ -2032,14 +2167,6 @@
     function addKeyword(keyword) {
       const clean = keyword.trim();
       if (!clean || selectedKeywords.includes(clean)) return;
-      if (selectedKeywords.length >= MAX_SELECTED_KEYWORDS) {
-        const count = document.getElementById('searchSelectedKeywordCount');
-        count.style.display = 'inline';
-        count.textContent = `最多选择 ${MAX_SELECTED_KEYWORDS} 个`;
-        count.style.color = 'var(--danger)';
-        setTimeout(renderSelectedKeywords, 1600);
-        return;
-      }
       selectedKeywords.push(clean);
       document.getElementById('searchEmptyState').style.display = 'flex';
       document.getElementById('resultCard').style.display = 'none';
@@ -2124,11 +2251,22 @@
       const searchList = document.getElementById('searchSelectedKeywordList');
       const searchCount = document.getElementById('searchSelectedKeywordCount');
       const clearButton = document.getElementById('btnClearKeywords');
-      searchCount.textContent = `${selectedKeywords.length} / ${MAX_SELECTED_KEYWORDS}`;
-      searchCount.style.color = '';
-      searchList.innerHTML = '';
-      searchCount.style.display = selectedKeywords.length ? 'inline' : 'none';
-      clearButton.style.display = selectedKeywords.length ? 'inline-flex' : 'none';
+      const bar = document.getElementById('selectedKeywordsBar');
+      const badgeCount = document.getElementById('selectedKeywordsCountBadge');
+
+      if (badgeCount) badgeCount.textContent = selectedKeywords.length;
+      if (searchCount) {
+        searchCount.textContent = `已选 ${selectedKeywords.length} 个`;
+        searchCount.style.display = selectedKeywords.length ? 'inline' : 'none';
+      }
+      if (bar) {
+        bar.style.display = selectedKeywords.length ? 'block' : 'none';
+      }
+      if (clearButton) {
+        clearButton.style.display = selectedKeywords.length ? 'inline-flex' : 'none';
+      }
+      if (searchList) {
+        searchList.innerHTML = '';
       if (selectedKeywords.length) {
         selectedKeywords.forEach(keyword => {
           const chip = document.createElement('button');
@@ -2147,8 +2285,9 @@
           searchList.appendChild(chip);
         });
       }
+      }
       document.getElementById('keywordInput').placeholder = selectedKeywords.length
-        ? '继续输入关键词'
+        ? '继续输入关键词，按空格或回车添加'
         : '输入关键词，按空格或回车添加';
     }
 
@@ -2206,6 +2345,7 @@
         button.type = 'button';
         button.className = `library-keyword${selectedKeywords.includes(keyword) ? ' selected' : ''}`;
         button.textContent = keyword;
+        button.dataset.keyword = keyword;
         button.addEventListener('click', () => toggleLibraryKeyword(keyword));
         list.appendChild(button);
       });
@@ -2782,14 +2922,13 @@
         if (removedKws.length > 0) {
           kwHtml += '<span class="badge" style="background:#f2f3f5; color:#86909c; font-size:11px; margin-left:4px;" title="已停更关键词：' + escapeHtml(removedKws.join(' ')) + '">(' + removedKws.length + '个已停更)</span>';
         }
-        const statusClass = t.status === 'active' ? 'status-success' : 'status-paused';
-        const statusText = t.status === 'active' ? '● 运行中' : '❚❚ 已暂停';
-        const modeText = t.update_mode === 'overwrite' ? '全量覆盖' : '增量追加';
+        const statusBadge = t.status === 'active' ? '<span class="badge badge-success">运行中</span>' : '<span class="badge badge-gray">已暂停</span>';
+        const modeText = t.update_mode === 'append' ? '<span class="ok-pill">增量追加</span>' : '<span class="unmapped-pill">全量覆写</span>';
         return '<tr>' +
           '<td>' + t.id + '</td>' +
-          '<td style="font-weight:600; white-space:nowrap;">' + escapeHtml(t.name || '') + '</td>' +
+          '<td><div style="font-weight:600; font-size:14px; margin-bottom:4px;">' + escapeHtml(t.name || '') + '</div>' + statusBadge + '</td>' +
           '<td style="white-space:nowrap;">' + kwHtml + '</td>' +
-          '<td style="white-space:nowrap;"><a href="' + (t.spreadsheet_url || '#') + '" target="_blank" style="color:var(--primary); text-decoration:none; font-weight:500;">查看表格 ↗</a></td>' +
+          '<td style="white-space:nowrap;"><a href="' + (t.spreadsheet_url || '#') + '" target="_blank" style="color:var(--primary); font-weight:500; text-decoration:none; display:inline-flex; align-items:center; gap:4px;">查看飞书表格 <span style="font-size:11px;">↗</span></a></td>' +
           '<td style="white-space:nowrap;">' + modeText + '</td>' +
           '<td style="white-space:nowrap;">' +
             '<span class="freq-tag" title="' + escapeHtml(t.rrule || '') + '">' +
@@ -2797,13 +2936,12 @@
               '<span>' + formatRruleText(t.rrule) + '</span>' +
             '</span>' +
           '</td>' +
-          '<td style="white-space:nowrap;"><span class="status-badge ' + statusClass + '">' + statusText + '</span></td>' +
           '<td style="font-size:12px; color:var(--text-muted); white-space:nowrap;">' + (t.last_run_at ? t.last_run_at.substring(0, 16).replace('T', ' ') : '-') + '</td>' +
-          '<td style="white-space:nowrap;">' +
+          '<td style="text-align:center; white-space:nowrap;">' +
             '<div style="display:inline-flex; gap:6px; align-items:center;">' +
+              '<button class="btn btn-outline btn-sm" onclick="runTaskNow(' + t.id + ')">⚡ 立即同步</button>' +
               '<button class="btn btn-outline btn-sm" style="color:var(--primary); font-weight:600;" onclick="openAddWordsModalById(' + t.id + ')">加词</button>' +
               '<button class="btn btn-outline btn-sm" style="color:#d97706; font-weight:600;" onclick="openRemoveWordsModalById(' + t.id + ')">减词</button>' +
-              '<button class="btn btn-outline btn-sm" onclick="runTaskNow(' + t.id + ')">立即同步</button>' +
               '<button class="btn btn-outline btn-sm" onclick="toggleTask(' + t.id + ')">' + (t.status === 'active' ? '暂停' : '恢复') + '</button>' +
               '<button class="btn btn-outline btn-sm" style="color:var(--danger);" onclick="openDeleteModalById(' + t.id + ')">删除</button>' +
             '</div>' +

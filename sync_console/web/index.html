@@ -1140,7 +1140,7 @@
 
   <!-- 将 JavaScript 逻辑直接内嵌于页面，彻底杜绝浏览器静态文件缓存引起的失效 -->
   <script src="/static/lucide.min.js"></script>
-  <script src="/static/app.js?v=20260929_v7"></script>
+  <script src="/static/app.js?v=20260929_v8"></script>
   <script>
     (function() {
       try {
@@ -1159,6 +1159,18 @@
             try { sessionStorage.setItem('sync_tasks_cache', JSON.stringify({ data: tasks, time: Date.now() })); } catch(e) {}
           }
         }).catch(function(){});
+
+        var kwLink = document.querySelector('a[href="/keyword"]');
+        if (kwLink) {
+          kwLink.addEventListener('mouseenter', function() {
+            if (!sessionStorage.getItem('kw_library_cache')) {
+              fetch('/api/keyword/library').then(function(r) { return r.json(); }).then(function(d) {
+                try { sessionStorage.setItem('kw_library_cache', JSON.stringify(d)); } catch(e) {}
+              }).catch(function(){});
+            }
+            fetch('/keyword').catch(function(){});
+          }, { once: true });
+        }
       } catch(e) {}
     })();
     function openHelpDrawer() { document.getElementById('helpDrawer').classList.add('active'); document.body.style.overflow = 'hidden'; }

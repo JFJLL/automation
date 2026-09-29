@@ -58,6 +58,9 @@ class RemoveKeywordsRequest(BaseModel):
 class KeywordLoginRequest(BaseModel):
     password: str
 
+_CACHED_KEYWORD_HTML: Optional[str] = None
+_CACHED_LIBRARY_DATA: Optional[dict] = None
+
 @router.get("/keyword", response_class=HTMLResponse)
 @router.get("/keyword/", response_class=HTMLResponse)
 @router.get("/keyword/tasks", response_class=HTMLResponse)
@@ -65,13 +68,20 @@ class KeywordLoginRequest(BaseModel):
 @router.get("/keyword/runs", response_class=HTMLResponse)
 @router.get("/keyword/runs/", response_class=HTMLResponse)
 def keyword_page():
-    if not HTML_PATH.exists():
-        raise HTTPException(status_code=404, detail="Page template not found")
-    return HTMLResponse(content=HTML_PATH.read_text(encoding="utf-8"))
+    global _CACHED_KEYWORD_HTML
+    if _CACHED_KEYWORD_HTML is None:
+        if not HTML_PATH.exists():
+            raise HTTPException(status_code=404, detail="Page template not found")
+        _CACHED_KEYWORD_HTML = HTML_PATH.read_text(encoding="utf-8")
+    return HTMLResponse(content=_CACHED_KEYWORD_HTML)
 
 @router.get("/api/keyword/library")
 def keyword_library():
     """Return the keyword library as a two-level taxonomy for UI filtering."""
+    global _CACHED_LIBRARY_DATA
+    if _CACHED_LIBRARY_DATA is not None:
+        return _CACHED_LIBRARY_DATA
+
     if not KEYWORD_LIBRARY_PATH.exists():
         return {"groups": [], "total": 0}
 
@@ -183,7 +193,8 @@ def keyword_library():
         })
 
     all_keywords = unique(all_keywords)
-    return {"groups": result_groups, "all_keywords": all_keywords, "total": len(all_keywords)}
+    _CACHED_LIBRARY_DATA = {"groups": result_groups, "all_keywords": all_keywords, "total": len(all_keywords)}
+    return _CACHED_LIBRARY_DATA
 
 @router.get("/favicon.svg")
 def keyword_favicon_svg():
