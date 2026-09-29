@@ -289,6 +289,10 @@ window.addEventListener('message', function(e) {
       window.history.pushState({ tab: 'kw_' + e.data.tab }, '', target);
     }
   }
+  if (e.data && e.data.type === 'kw_tasks_count') {
+    const b = document.getElementById('kwTaskCountBadge');
+    if (b) b.innerText = e.data.count;
+  }
 });
 
 function switchTab(name, updateUrl = true) {
@@ -376,8 +380,31 @@ function switchTab(name, updateUrl = true) {
   }
 }
 
+function updateKeywordTaskBadge() {
+  try {
+    const cached = sessionStorage.getItem('kw_tasks_cache');
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (parsed && Array.isArray(parsed.data)) {
+        const b = document.getElementById('kwTaskCountBadge');
+        if (b) b.innerText = parsed.data.length;
+      }
+    }
+  } catch(e) {}
+  fetch('/api/keyword/tasks').then(r => r.json()).then(tasks => {
+    if (Array.isArray(tasks)) {
+      const b = document.getElementById('kwTaskCountBadge');
+      if (b) b.innerText = tasks.length;
+      try {
+        sessionStorage.setItem('kw_tasks_cache', JSON.stringify({ data: tasks, time: Date.now() }));
+      } catch(e) {}
+    }
+  }).catch(function(){});
+}
+
 function initRouter() {
   updateTaskCountBadge();
+  updateKeywordTaskBadge();
   const normPath = window.location.pathname.replace(/\/+$/, '') || '/';
   if (normPath === '/keyword/tasks') {
     switchToKeywordSection('tasks', false);

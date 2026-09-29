@@ -1158,7 +1158,7 @@
 
   <!-- 将 JavaScript 逻辑直接内嵌于页面，彻底杜绝浏览器静态文件缓存引起的失效 -->
   <script src="/static/lucide.min.js"></script>
-  <script src="/static/app.js?v=20260929_v8"></script>
+  <script src="/static/app.js?v=20260929_v10"></script>
   <script>
     (function() {
       try {
@@ -1175,6 +1175,22 @@
             var b = document.getElementById('taskCountBadge');
             if (b) b.innerText = tasks.length;
             try { sessionStorage.setItem('sync_tasks_cache', JSON.stringify({ data: tasks, time: Date.now() })); } catch(e) {}
+          }
+        }).catch(function(){});
+
+        var kwCached = sessionStorage.getItem('kw_tasks_cache');
+        if (kwCached) {
+          var kwParsed = JSON.parse(kwCached);
+          if (kwParsed && Array.isArray(kwParsed.data)) {
+            var kb = document.getElementById('kwTaskCountBadge');
+            if (kb) kb.innerText = kwParsed.data.length;
+          }
+        }
+        fetch('/api/keyword/tasks').then(function(r) { return r.json(); }).then(function(kwTasks) {
+          if (Array.isArray(kwTasks)) {
+            var kb = document.getElementById('kwTaskCountBadge');
+            if (kb) kb.innerText = kwTasks.length;
+            try { sessionStorage.setItem('kw_tasks_cache', JSON.stringify({ data: kwTasks, time: Date.now() })); } catch(e) {}
           }
         }).catch(function(){});
 
