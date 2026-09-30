@@ -2,8 +2,9 @@ import React, { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Sparkles, Search, X, Tags } from 'lucide-react';
 import { fetchJson } from '@/shared/api/client';
-import { Dialog } from '@/shared/components/Dialog';
 import { useToast } from '@/shared/components/Toast';
+import { DirectSheetDialog } from '@/features/keywords/components/DirectSheetDialog';
+import { CreateKeywordTaskDialog } from '@/features/keywords/components/CreateKeywordTaskDialog';
 
 export const LingxiInsightPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -342,10 +343,10 @@ export const LingxiInsightPage: React.FC = () => {
             <table className="custom-grid">
               <thead>
                 <tr>
-                  <th style={{ minWidth: '220px' }}>关键词</th>
-                  <th style={{ minWidth: '120px' }}>状态</th>
-                  <th style={{ minWidth: '200px', textAlign: 'right' }}>覆盖人群数量 (即时)</th>
-                  <th style={{ minWidth: '200px' }}>说明</th>
+                  <th style={{ minWidth: '220px', textAlign: 'center' }}>关键词</th>
+                  <th style={{ minWidth: '120px', textAlign: 'center' }}>状态</th>
+                  <th style={{ minWidth: '200px', textAlign: 'center' }}>覆盖人群数量 (即时)</th>
+                  <th style={{ minWidth: '200px', textAlign: 'center' }}>说明</th>
                 </tr>
               </thead>
               <tbody>
@@ -356,16 +357,16 @@ export const LingxiInsightPage: React.FC = () => {
 
                   return (
                     <tr key={kw}>
-                      <td style={{ fontWeight: 600 }}>{kw}</td>
-                      <td>
+                      <td style={{ fontWeight: 600, textAlign: 'center' }}>{kw}</td>
+                      <td style={{ textAlign: 'center' }}>
                         <span className={`badge ${isOk ? 'badge-success' : 'badge-danger'}`}>
                           {isOk ? '成功' : '失败'}
                         </span>
                       </td>
-                      <td style={{ textAlign: 'right', fontWeight: 600, color: 'var(--primary)' }}>
+                      <td style={{ textAlign: 'center', fontWeight: 600, color: 'var(--primary)' }}>
                         {typeof cnt === 'number' ? `${cnt.toLocaleString()} 人` : '-'}
                       </td>
-                      <td style={{ color: 'var(--text-secondary)', fontSize: '12px' }}>
+                      <td style={{ textAlign: 'center', color: 'var(--text-secondary)', fontSize: '12px' }}>
                         {isOk ? '灵犀并集池即时覆盖' : (item?.message || '获取失败')}
                       </td>
                     </tr>
@@ -377,156 +378,36 @@ export const LingxiInsightPage: React.FC = () => {
         </div>
       )}
 
-      {/* 直接生成飞书表 Dialog */}
-      <Dialog
+      {/* 复用统一的直接生成飞书表 Dialog */}
+      <DirectSheetDialog
         isOpen={directSheetOpen}
         onClose={() => setDirectSheetOpen(false)}
-        title="直接生成飞书表格"
-        width="460px"
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div>
-            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
-              表格标题
-            </label>
-            <input
-              type="text"
-              className="form-control"
-              value={directSheetTitle}
-              onChange={(e) => setDirectSheetTitle(e.target.value)}
-            />
-          </div>
-          <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-            写入 <strong>{selectedWords.length}</strong> 个灵犀关键词即时覆盖人数统计。
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-            <button className="btn btn-outline" type="button" onClick={() => setDirectSheetOpen(false)}>
-              取消
-            </button>
-            <button
-              className="btn btn-primary"
-              type="button"
-              disabled={directCreateMutation.isPending || !directSheetTitle.trim()}
-              onClick={() => directCreateMutation.mutate()}
-            >
-              {directCreateMutation.isPending ? '生成中…' : '立即生成'}
-            </button>
-          </div>
+        title={directSheetTitle}
+        setTitle={setDirectSheetTitle}
+        keywordsCount={selectedWords.length}
+        startDate="当前即时"
+        endDate="人群池覆盖"
+        hasFailedKeywords={hasFailedKeywords}
+        onSubmit={() => directCreateMutation.mutate()}
+        isSubmitting={directCreateMutation.isPending}
+        spreadsheetUrl={directCreateMutation.data?.data?.spreadsheet_url}
+      />
 
-          {directCreateMutation.data?.data?.spreadsheet_url && (
-            <div
-              style={{
-                marginTop: '10px',
-                padding: '12px',
-                background: '#e8ffea',
-                border: '1px solid #b7eb8f',
-                borderRadius: '8px',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-              }}
-            >
-              <span style={{ fontSize: '13px', color: '#00b42a', fontWeight: 500 }}>飞书在线表格已生成！</span>
-              <a
-                href={directCreateMutation.data.data.spreadsheet_url}
-                target="_blank"
-                rel="noreferrer"
-                style={{
-                  color: 'var(--primary)',
-                  fontWeight: 600,
-                  fontSize: '13px',
-                  textDecoration: 'none',
-                }}
-              >
-                打开表格 ↗
-              </a>
-            </div>
-          )}
-        </div>
-      </Dialog>
-
-      {/* 创建定时任务 Dialog */}
-      <Dialog
+      {/* 复用统一的创建定时任务 Dialog */}
+      <CreateKeywordTaskDialog
         isOpen={taskModalOpen}
         onClose={() => setTaskModalOpen(false)}
-        title="创建灵犀关键词监控任务"
-        width="460px"
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <div>
-            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
-              任务名称
-            </label>
-            <input
-              type="text"
-              className="form-control"
-              value={taskName}
-              onChange={(e) => setTaskName(e.target.value)}
-            />
-          </div>
-
-          <div>
-            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
-              更新模式
-            </label>
-            <div style={{ display: 'flex', gap: '20px', marginTop: '6px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
-                <input
-                  type="radio"
-                  name="updateMode"
-                  value="overwrite"
-                  checked={taskUpdateMode === 'overwrite'}
-                  onChange={(e) => setTaskUpdateMode(e.target.value)}
-                />
-                <span>全量覆写 (刷新最新覆盖人数)</span>
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
-                <input
-                  type="radio"
-                  name="updateMode"
-                  value="append"
-                  checked={taskUpdateMode === 'append'}
-                  onChange={(e) => setTaskUpdateMode(e.target.value)}
-                />
-                <span>增量追加 (按天留存历史)</span>
-              </label>
-            </div>
-          </div>
-
-          <div>
-            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
-              调度频率 (RRULE 规则)
-            </label>
-            <input
-              type="text"
-              className="form-control"
-              value={taskRrule}
-              onChange={(e) => setTaskRrule(e.target.value)}
-            />
-            <div style={{ fontSize: '11px', color: 'var(--text-muted)', marginTop: '4px' }}>
-              默认每天 09:30 定时抓取并同步至飞书表格
-            </div>
-          </div>
-
-          <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
-            将为当前 <strong>{selectedWords.length}</strong> 个关键词自动创建并绑定专属飞书表格。
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-            <button className="btn btn-outline" type="button" onClick={() => setTaskModalOpen(false)}>
-              取消
-            </button>
-            <button
-              className="btn btn-primary"
-              type="button"
-              disabled={createTaskMutation.isPending || !taskName.trim()}
-              onClick={() => createTaskMutation.mutate()}
-            >
-              {createTaskMutation.isPending ? '创建中…' : '确认创建任务'}
-            </button>
-          </div>
-        </div>
-      </Dialog>
+        taskName={taskName}
+        setTaskName={setTaskName}
+        updateMode={taskUpdateMode}
+        setUpdateMode={setTaskUpdateMode}
+        rrule={taskRrule}
+        setRrule={setTaskRrule}
+        keywordsCount={selectedWords.length}
+        hasFailedKeywords={hasFailedKeywords}
+        onSubmit={() => createTaskMutation.mutate()}
+        isSubmitting={createTaskMutation.isPending}
+      />
     </>
   );
 };

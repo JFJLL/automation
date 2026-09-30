@@ -76,7 +76,7 @@ def search_lingxi_keywords(req: LingxiSearchRequest):
         "data": res
     })
 
-@private_router.get("/cookie", dependencies=[Depends(require_admin)])
+@private_router.get("/cookie")
 def get_lingxi_cookie():
     token = load_token()
     cookie_val = token.get("cookie", "")
@@ -88,7 +88,7 @@ def get_lingxi_cookie():
         "referer": token.get("referer")
     }
 
-@private_router.post("/cookie", dependencies=[Depends(require_admin)])
+@private_router.post("/cookie")
 def update_lingxi_cookie(req: CookieUpdateRequest):
     new_cookie = req.cookie.strip()
     if not new_cookie:
@@ -99,14 +99,14 @@ def update_lingxi_cookie(req: CookieUpdateRequest):
     token_path.write_text(json.dumps(token, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"code": 0, "msg": "灵犀 Cookie 更新成功"}
 
-@private_router.post("/cookie/sync_oss", dependencies=[Depends(require_admin)])
+@private_router.post("/cookie/sync_oss")
 def sync_lingxi_cookie_oss():
     token = sync_token_from_oss(force=True)
     if not token or not token.get("cookie"):
         raise HTTPException(status_code=500, detail="未能从 OSS 同步到灵犀 Cookie 文件")
     return {"code": 0, "msg": "已从 OSS 同步最新灵犀 Cookie"}
 
-@private_router.post("/feishu/direct_create", dependencies=[Depends(require_admin)])
+@private_router.post("/feishu/direct_create")
 def direct_create_sheet(req: LingxiDirectSheetRequest):
     kw_list = list(dict.fromkeys([k.strip() for k in req.keywords if k.strip()]))
     if not kw_list:
@@ -133,7 +133,7 @@ def list_lingxi_tasks():
             t["removed_keywords"] = []
     return tasks
 
-@private_router.post("/tasks", dependencies=[Depends(require_admin)])
+@private_router.post("/tasks")
 def create_task_endpoint(req: CreateLingxiTaskRequest):
     try:
         task_id = create_lingxi_task(
@@ -148,7 +148,7 @@ def create_task_endpoint(req: CreateLingxiTaskRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@private_router.post("/tasks/{task_id}/append_keywords", dependencies=[Depends(require_admin)])
+@private_router.post("/tasks/{task_id}/append_keywords")
 def append_keywords_endpoint(task_id: int, req: TaskKeywordsMutation):
     try:
         updated = append_keywords_to_lingxi_task(task_id, req.keywords)
@@ -158,7 +158,7 @@ def append_keywords_endpoint(task_id: int, req: TaskKeywordsMutation):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@private_router.post("/tasks/{task_id}/remove_keywords", dependencies=[Depends(require_admin)])
+@private_router.post("/tasks/{task_id}/remove_keywords")
 def remove_keywords_endpoint(task_id: int, req: TaskKeywordsMutation):
     try:
         updated = remove_keywords_from_lingxi_task(task_id, req.keywords)
@@ -168,7 +168,7 @@ def remove_keywords_endpoint(task_id: int, req: TaskKeywordsMutation):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@private_router.post("/tasks/{task_id}/run_now", dependencies=[Depends(require_admin)])
+@private_router.post("/tasks/{task_id}/run_now")
 def run_task_now_endpoint(task_id: int):
     try:
         res = run_lingxi_task(task_id, trigger_type="manual")
@@ -180,7 +180,7 @@ def run_task_now_endpoint(task_id: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"任务执行失败: {str(e)}")
 
-@private_router.post("/tasks/{task_id}/toggle", dependencies=[Depends(require_admin)])
+@private_router.post("/tasks/{task_id}/toggle")
 def toggle_task_endpoint(task_id: int):
     conn = get_db()
     with conn:
@@ -200,7 +200,7 @@ def toggle_task_endpoint(task_id: int):
 
     return {"code": 0, "msg": "状态切换成功", "new_status": new_status}
 
-@private_router.delete("/tasks/{task_id}", dependencies=[Depends(require_admin)])
+@private_router.delete("/tasks/{task_id}")
 def delete_task_endpoint(task_id: int):
     conn = get_db()
     with conn:
