@@ -20,7 +20,7 @@ from keyword_service.sync_engine import (
     remove_keywords_from_task
 )
 from core.scheduler_manager import SchedulerManager
-from core.security import require_admin, require_auth, create_admin_session, is_admin_authenticated
+from core.security import create_admin_session, is_admin_authenticated
 from core.errors import (
     AppError,
     TaskNotFoundError,
@@ -156,7 +156,7 @@ def keyword_library():
     return _CACHED_LIBRARY_DATA
 
 @private_router.post("/search")
-def search_keywords(req: KeywordSearchRequest, _=Depends(require_auth)):
+def search_keywords(req: KeywordSearchRequest):
     if isinstance(req.keywords, str):
         kws = [k.strip() for k in req.keywords.replace(",", " ").split() if k.strip()]
     else:
@@ -178,7 +178,7 @@ def search_keywords(req: KeywordSearchRequest, _=Depends(require_auth)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"查询失败: {e}")
 
-@private_router.get("/cookie", dependencies=[Depends(require_admin)])
+@private_router.get("/cookie")
 def get_current_cookie():
     try:
         token = load_token()
@@ -195,7 +195,7 @@ def get_current_cookie():
             "cookie_length": 0
         }
 
-@private_router.post("/cookie", dependencies=[Depends(require_admin)])
+@private_router.post("/cookie")
 def update_keyword_cookie(req: CookieUpdateRequest):
     clean_cookie = req.cookie.strip()
     if not clean_cookie:
@@ -216,7 +216,7 @@ def update_keyword_cookie(req: CookieUpdateRequest):
         session_file.write_text(json.dumps(token_data, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"success": True, "message": "小红书聚光 Cookie 更新成功！已自动生效。"}
 
-@private_router.post("/feishu/direct_create", dependencies=[Depends(require_admin)])
+@private_router.post("/feishu/direct_create")
 def create_feishu_sheet_directly(req: DirectSheetRequest):
     if not req.keywords:
         raise HTTPException(status_code=400, detail="关键词列表不能为空")
@@ -247,7 +247,7 @@ def list_keyword_tasks():
             tasks.append(d)
         return tasks
 
-@private_router.post("/tasks", dependencies=[Depends(require_admin)])
+@private_router.post("/tasks")
 def add_keyword_task(req: CreateKeywordTaskRequest):
     if not req.keywords:
         raise HTTPException(status_code=400, detail="关键词列表不能为空")
@@ -270,7 +270,7 @@ def add_keyword_task(req: CreateKeywordTaskRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@private_router.post("/tasks/{task_id}/append_keywords", dependencies=[Depends(require_admin)])
+@private_router.post("/tasks/{task_id}/append_keywords")
 def append_words_endpoint(task_id: int, req: AppendKeywordsRequest):
     if isinstance(req.keywords, str):
         kws = [k.strip() for k in req.keywords.replace(",", " ").split() if k.strip()]
@@ -280,7 +280,7 @@ def append_words_endpoint(task_id: int, req: AppendKeywordsRequest):
         raise HTTPException(status_code=400, detail="追加的关键词不能为空")
     return append_keywords_to_task(task_id, kws, sync_now=req.sync_now)
 
-@private_router.post("/tasks/{task_id}/remove_keywords", dependencies=[Depends(require_admin)])
+@private_router.post("/tasks/{task_id}/remove_keywords")
 def remove_words_endpoint(task_id: int, req: RemoveKeywordsRequest):
     if isinstance(req.keywords, str):
         kws = [k.strip() for k in req.keywords.replace(",", " ").split() if k.strip()]
@@ -290,7 +290,7 @@ def remove_words_endpoint(task_id: int, req: RemoveKeywordsRequest):
         raise HTTPException(status_code=400, detail="要移除的关键词不能为空")
     return remove_keywords_from_task(task_id, kws)
 
-@private_router.post("/tasks/{task_id}/run_now", dependencies=[Depends(require_admin)])
+@private_router.post("/tasks/{task_id}/run_now")
 def run_task_immediately(task_id: int):
     try:
         return run_keyword_task(task_id, trigger_type="manual")
@@ -299,7 +299,7 @@ def run_task_immediately(task_id: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@private_router.post("/tasks/{task_id}/toggle", dependencies=[Depends(require_admin)])
+@private_router.post("/tasks/{task_id}/toggle")
 def toggle_task(task_id: int):
     with get_db() as conn:
         cursor = conn.cursor()
@@ -317,7 +317,7 @@ def toggle_task(task_id: int):
         SchedulerManager.get_instance().remove_keyword_task(task_id)
     return {"status": next_s}
 
-@private_router.delete("/tasks/{task_id}", dependencies=[Depends(require_admin)])
+@private_router.delete("/tasks/{task_id}")
 def delete_task(task_id: int):
     with get_db() as conn:
         conn.execute("UPDATE keyword_tasks SET status = 'archived', updated_at = ? WHERE id = ?", (datetime.now().isoformat(), task_id))

@@ -18,6 +18,17 @@ from app.config import (
     ACCESS_TOKEN, BASE_DIR, SHARED_FOLDER_TOKEN, SHARED_FOLDER_NAME,
     FEISHU_CHAT_ID, NOTIFICATION_WEBHOOK, NOTIFICATION_POLICY
 )
+# 确保项目根目录在 sys.path 中，以便导入 keyword_service 和 lingxi_service
+PROJECT_ROOT = BASE_DIR.parent
+FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
+if not FRONTEND_DIST.exists():
+    FRONTEND_DIST = BASE_DIR / "frontend" / "dist"
+
+for root_dir in [PROJECT_ROOT, BASE_DIR]:
+    r_str = str(root_dir)
+    if r_str not in sys.path:
+        sys.path.insert(0, r_str)
+
 from app.db import get_db, init_db
 from keyword_service.db import init_db as init_kw_db
 from lingxi_service.db import init_db as init_lingxi_db
@@ -49,16 +60,6 @@ from core.errors import (
 )
 
 # 确保根目录在 sys.path
-PROJECT_ROOT = BASE_DIR.parent
-FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
-if not FRONTEND_DIST.exists():
-    FRONTEND_DIST = BASE_DIR / "frontend" / "dist"
-
-for root_dir in [PROJECT_ROOT, BASE_DIR]:
-    r_str = str(root_dir)
-    if r_str not in sys.path:
-        sys.path.insert(0, r_str)
-
 from keyword_service.router import router as keyword_router, private_router as keyword_private_router
 from lingxi_service.router import router as lingxi_router, private_router as lingxi_private_router
 
