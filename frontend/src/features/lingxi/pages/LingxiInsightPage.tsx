@@ -1,10 +1,10 @@
 import React, { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Sparkles, Search, X, Tags } from 'lucide-react';
+import { Sparkles, Search, X, Tags, Copy, Check } from 'lucide-react';
 import { fetchJson } from '@/shared/api/client';
 import { useToast } from '@/shared/components/Toast';
 import { DirectSheetDialog } from '@/features/keywords/components/DirectSheetDialog';
-import { CreateKeywordTaskDialog } from '@/features/keywords/components/CreateKeywordTaskDialog';
+import { CreateLingxiTaskDialog } from '@/features/lingxi/components/CreateLingxiTaskDialog';
 
 export const LingxiInsightPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -19,8 +19,8 @@ export const LingxiInsightPage: React.FC = () => {
   const [directSheetTitle, setDirectSheetTitle] = useState('');
   const [taskModalOpen, setTaskModalOpen] = useState(false);
   const [taskName, setTaskName] = useState('');
-  const [taskUpdateMode, setTaskUpdateMode] = useState('overwrite');
-  const [taskRrule, setTaskRrule] = useState('FREQ=DAILY;BYHOUR=09;BYMINUTE=30');
+  const [taskRrule, setTaskRrule] = useState('FREQ=DAILY;BYHOUR=9;BYMINUTE=30');
+  const [copied, setCopied] = useState(false);
 
   // 搜索 Mutation
   const searchMutation = useMutation({
@@ -80,7 +80,7 @@ export const LingxiInsightPage: React.FC = () => {
           keywords: selectedWords,
           spreadsheet_token: sheetRes.data.spreadsheet_token,
           spreadsheet_url: sheetRes.data.spreadsheet_url,
-          update_mode: taskUpdateMode,
+          update_mode: 'append',
           rrule: taskRrule,
         }),
       });
@@ -110,6 +110,27 @@ export const LingxiInsightPage: React.FC = () => {
 
   const queryResult = searchMutation.data?.data;
   const hasFailedKeywords = Boolean(queryResult && queryResult.failed_keywords?.length > 0);
+
+  // 复制表格内容到剪贴板 (TSV 格式，兼容 Excel 直接粘贴)
+  const handleCopyTable = () => {
+    if (!queryResult || selectedWords.length === 0) return;
+    const header = ['关键词', '状态', '覆盖人群数量 (即时)', '说明'].join('\t');
+    const rows = selectedWords.map((kw) => {
+      const item = queryResult.results?.[kw];
+      const isOk = item?.status === 'success';
+      const cnt = typeof item?.user_cnt === 'number' ? item.user_cnt : '-';
+      const desc = isOk ? '灵犀并集池即时覆盖' : (item?.message || '获取失败');
+      return [kw, isOk ? '成功' : '失败', cnt, desc].join('\t');
+    });
+    const text = [header, ...rows].join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      showSuccess('表格内容已复制，可直接在 Excel 中按 Ctrl+V 粘贴！');
+      setTimeout(() => setCopied(false), 2000);
+    }).catch(() => {
+      showError('复制失败，请重试');
+    });
+  };
 
   // 提取智能推荐词列表
   const recommendedKeywords = React.useMemo(() => {
@@ -313,7 +334,17 @@ export const LingxiInsightPage: React.FC = () => {
                 查询结果 <span style={{ fontSize: '13px', fontWeight: 'normal', color: 'var(--text-muted)' }}>({selectedWords.length} 个关键词，灵犀即时人群池数据)</span>
               </h3>
             </div>
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={handleCopyTable}
+                style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                title="复制为表格格式，可直接在 Excel 中粘贴"
+              >
+                {copied ? <Check size={14} style={{ color: '#16a34a' }} /> : <Copy size={14} />}
+                <span>{copied ? '已复制' : '复制表格数据'}</span>
+              </button>
               <button
                 type="button"
                 className="btn btn-outline btn-sm"
@@ -393,14 +424,12 @@ export const LingxiInsightPage: React.FC = () => {
         spreadsheetUrl={directCreateMutation.data?.data?.spreadsheet_url}
       />
 
-      {/* 复用统一的创建定时任务 Dialog */}
-      <CreateKeywordTaskDialog
+      {/* 灵犀专用的创建定时任务 Dialog (去除覆写模式选择，说明实时增量按天留存) */}
+      <CreateLingxiTaskDialog
         isOpen={taskModalOpen}
         onClose={() => setTaskModalOpen(false)}
         taskName={taskName}
         setTaskName={setTaskName}
-        updateMode={taskUpdateMode}
-        setUpdateMode={setTaskUpdateMode}
         rrule={taskRrule}
         setRrule={setTaskRrule}
         keywordsCount={selectedWords.length}

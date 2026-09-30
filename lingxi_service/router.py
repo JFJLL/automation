@@ -43,7 +43,7 @@ class CreateLingxiTaskRequest(BaseModel):
     keywords: List[str] = Field(..., min_items=1)
     spreadsheet_token: str = Field(..., min_length=1)
     spreadsheet_url: str = Field(..., min_length=1)
-    update_mode: str = Field("overwrite", pattern="^(overwrite|append)$")
+    update_mode: str = Field("append")
     rrule: str = Field("FREQ=DAILY;BYHOUR=9;BYMINUTE=30")
 
 class TaskKeywordsMutation(BaseModel):

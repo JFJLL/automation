@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from sync_console.app.main import app
 from lingxi_service.db import init_db, get_db
 from lingxi_service.sync_engine import (
-    build_lingxi_matrix,
+    build_lingxi_date_matrix,
     create_lingxi_task,
     append_keywords_to_lingxi_task,
     remove_keywords_from_lingxi_task
@@ -18,12 +18,12 @@ def test_lingxi_matrix_builder():
         "奶粉": {"user_cnt": 12000},
         "纸尿裤": {"user_cnt": 8500}
     }
-    time_str = "2026-09-30 12:00:00"
-    matrix = build_lingxi_matrix(keywords, data, time_str)
+    time_str = "2026-09-30"
+    matrix = build_lingxi_date_matrix(keywords, [time_str], time_str, data, {})
     assert len(matrix) == 3
-    assert matrix[0] == ["关键词", "覆盖人群数量", "统计时间"]
-    assert matrix[1] == ["奶粉", 12000, time_str]
-    assert matrix[2] == ["纸尿裤", 8500, time_str]
+    assert matrix[0] == ["关键词", time_str]
+    assert matrix[1] == ["奶粉", 12000]
+    assert matrix[2] == ["纸尿裤", 8500]
 
 def test_lingxi_task_crud():
     init_db()

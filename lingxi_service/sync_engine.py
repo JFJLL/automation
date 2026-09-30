@@ -17,18 +17,73 @@ from core.errors import (
     FeishuError
 )
 
-def build_lingxi_matrix(keywords: List[str], data: Dict[str, Dict[str, Any]], fetch_time_str: str) -> List[List[Any]]:
+def parse_existing_lingxi_sheet(existing_rows: List[List[Any]]) -> Tuple[List[str], Dict[str, Dict[str, Any]]]:
     """
-    构建灵犀关键词数据矩阵：
-    第一行：表头 [关键词, 覆盖人群数量, 统计时间]
-    后续行：每个关键词的数据
+    解析灵犀现有表格结构：
+    第一行：表头 ['关键词', '2026-09-29', '2026-09-30', ...]
+    后续行：[关键词, 数量1, 数量2, ...]
+    返回：
+      existing_dates: [date_str1, date_str2, ...]
+      keyword_history: { kw: { date_str: user_cnt } }
     """
-    header = ["关键词", "覆盖人群数量", "统计时间"]
+    if not existing_rows or len(existing_rows) < 1:
+        return [], {}
+
+    row0 = existing_rows[0]
+    existing_dates = []
+    date_col_map = {} # date_str -> col_index
+    for idx in range(1, len(row0)):
+        val = str(row0[idx]).strip() if row0[idx] is not None else ""
+        if val:
+            existing_dates.append(val)
+            date_col_map[val] = idx
+
+    keyword_history = {}
+    for r in existing_rows[1:]:
+        if not r or not str(r[0]).strip():
+            continue
+        kw = str(r[0]).strip()
+        kw_dict = {}
+        for d_str, col_idx in date_col_map.items():
+            if col_idx < len(r) and r[col_idx] not in (None, ""):
+                try:
+                    kw_dict[d_str] = int(r[col_idx])
+                except Exception:
+                    kw_dict[d_str] = r[col_idx]
+            else:
+                kw_dict[d_str] = 0
+        keyword_history[kw] = kw_dict
+
+    return existing_dates, keyword_history
+
+def build_lingxi_date_matrix(
+    keywords: List[str],
+    target_dates: List[str],
+    new_date: str,
+    new_data: Dict[str, Dict[str, Any]],
+    old_history: Dict[str, Dict[str, Any]]
+) -> List[List[Any]]:
+    """
+    构建日期横向增长的灵犀表格矩阵：
+    表头：['关键词', '2026-09-29', '2026-09-30', ...]
+    每一行：[kw, cnt1, cnt2, ...]
+    """
+    header = ["关键词"] + target_dates
     matrix = [header]
+
     for kw in keywords:
-        item = data.get(kw) or {}
-        cnt = item.get("user_cnt", 0)
-        matrix.append([kw, cnt, fetch_time_str])
+        row = [kw]
+        kw_hist = old_history.get(kw, {})
+        new_kw_item = new_data.get(kw, {})
+        for d in target_dates:
+            if d == new_date and kw in new_data:
+                cnt = new_kw_item.get("user_cnt", 0)
+                row.append(cnt)
+            elif d in kw_hist:
+                row.append(kw_hist[d])
+            else:
+                row.append(0)
+        matrix.append(row)
     return matrix
 
 def write_matrix_to_sheet(feishu: FeishuClient, ss_token: str, sheet_id: str, matrix: List[List[Any]], col_chunk_size: int = 50):
@@ -66,15 +121,21 @@ def write_matrix_to_sheet(feishu: FeishuClient, ss_token: str, sheet_id: str, ma
         feishu.write_cells(ss_token, chunk_range, sub_matrix)
 
 def direct_create_feishu_sheet(keywords: List[str], title: Optional[str] = None) -> Dict[str, Any]:
-    """直接生成灵犀关键词飞书在线表格"""
+    """直接生成灵犀关键词飞书在线表格，列即为当前日期"""
     from app.config import SHARED_FOLDER_TOKEN
     feishu = FeishuClient()
 
-    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    sheet_title = title or f"小红书灵犀关键词覆盖人数分析_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    sheet_title = title or f"小红书灵犀关键词覆盖人数_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
 
     fetch_res = fetch_lingxi_keywords(keywords)
-    matrix = build_lingxi_matrix(keywords, fetch_res["results"], now_str)
+    matrix = build_lingxi_date_matrix(
+        keywords=keywords,
+        target_dates=[today_str],
+        new_date=today_str,
+        new_data=fetch_res["results"],
+        old_history={}
+    )
 
     meta = feishu.create_spreadsheet(title=sheet_title, folder_token=SHARED_FOLDER_TOKEN or None)
     ss_token = meta.get("spreadsheet_token") or meta.get("token")
@@ -105,11 +166,11 @@ def create_lingxi_task(
     keywords: List[str],
     spreadsheet_token: str,
     spreadsheet_url: str,
-    update_mode: str = "overwrite",
+    update_mode: str = "append",
     rrule: str = "FREQ=DAILY;BYHOUR=9;BYMINUTE=30",
     folder_token: Optional[str] = None
 ) -> int:
-    """创建灵犀关键词定时监控任务"""
+    """创建灵犀关键词定时监控任务（固定为按日期增量更新）"""
     from core.scheduler_manager import SchedulerManager
     now_iso = datetime.now().isoformat()
     kw_json = json.dumps(list(dict.fromkeys(keywords)), ensure_ascii=False)
@@ -122,14 +183,13 @@ def create_lingxi_task(
                 name, keywords_json, removed_keywords_json, folder_token,
                 spreadsheet_token, spreadsheet_url, update_mode,
                 rrule, status, created_at, updated_at
-            ) VALUES (?, ?, '[]', ?, ?, ?, ?, ?, 'active', ?, ?)
+            ) VALUES (?, ?, '[]', ?, ?, ?, 'append', ?, 'active', ?, ?)
         """, (
             name, kw_json, folder_token, spreadsheet_token,
-            spreadsheet_url, update_mode, rrule, now_iso, now_iso
+            spreadsheet_url, rrule, now_iso, now_iso
         ))
         task_id = cur.lastrowid
 
-    # 调度任务
     try:
         mgr = SchedulerManager.get_instance()
         mgr.schedule_lingxi_task(task_id)
@@ -137,7 +197,6 @@ def create_lingxi_task(
         print(f"[Scheduler] Schedule lingxi task {task_id} warning: {e}")
 
     return task_id
-
 def run_lingxi_task(task_id: int, trigger_type: str = "manual") -> Dict[str, Any]:
     """执行灵犀关键词定时任务或手动运行"""
     conn = get_db()
@@ -174,25 +233,35 @@ def run_lingxi_task(task_id: int, trigger_type: str = "manual") -> Dict[str, Any
     feishu = FeishuClient()
     try:
         fetch_res = fetch_lingxi_keywords(keywords)
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        matrix = build_lingxi_matrix(keywords, fetch_res["results"], now_str)
+        today_str = datetime.now().strftime("%Y-%m-%d")
 
         sheets = feishu.get_sheets(ss_token)
         sheet_id = sheets[0]["sheet_id"]
 
-        if update_mode == "append":
-            # 追加模式：找到现有行数，跳过表头，向后追加
-            grid_props = sheets[0].get("grid_properties", {})
-            curr_rows = grid_props.get("row_count", 0)
-            # 直接写入追加数据 (去掉表头)
-            append_matrix = matrix[1:]
-            if append_matrix:
-                # 先检查飞书表格已填写的范围
-                start_row = curr_rows + 1
-                write_matrix_to_sheet(feishu, ss_token, sheet_id, append_matrix)
+        # 读取现有历史内容以按日期增量向右对齐
+        last_row = feishu.find_last_row_index(ss_token, sheet_id)
+        existing_rows = []
+        if last_row >= 1:
+            existing_rows = feishu.read_values(ss_token, sheet_id, f"A1:ZZ{max(2, last_row)}") or []
+
+        existing_dates, old_history = parse_existing_lingxi_sheet(existing_rows)
+        if today_str not in existing_dates:
+            target_dates = existing_dates + [today_str]
         else:
-            # 覆盖模式：从 A1 开始重写完整数据
-            write_matrix_to_sheet(feishu, ss_token, sheet_id, matrix)
+            target_dates = existing_dates
+
+        # 保留历史表格中已有的全部关键词并与当前配置的关键词并集合并
+        all_target_keywords = list(dict.fromkeys(list(old_history.keys()) + keywords))
+
+        matrix = build_lingxi_date_matrix(
+            keywords=all_target_keywords,
+            target_dates=target_dates,
+            new_date=today_str,
+            new_data=fetch_res["results"],
+            old_history=old_history
+        )
+
+        write_matrix_to_sheet(feishu, ss_token, sheet_id, matrix)
 
         finish_time = datetime.now()
         duration_ms = int((finish_time - start_time).total_seconds() * 1000)
