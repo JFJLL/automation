@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { Clock } from 'lucide-react';
+import { formatRruleText } from '@/shared/utils/formatRrule';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchJson } from '@/shared/api/client';
 import { Dialog } from '@/shared/components/Dialog';
@@ -159,7 +161,12 @@ export const KeywordTasksPage: React.FC = () => {
                     ) : '-'}
                   </td>
                   <td>{t.update_mode === 'append' ? '增量追加' : '全量覆写'}</td>
-                  <td>{t.rrule || '每天 12:30'}</td>
+                  <td>
+                    <span className="freq-tag" title={t.rrule}>
+                      <Clock size={12} className="icon" style={{ opacity: 0.7 }} />
+                      <span>{formatRruleText(t.rrule)}</span>
+                    </span>
+                  </td>
                   <td>
                     <div>{t.last_run_at ? t.last_run_at.substring(0, 16).replace('T', ' ') : '-'}</div>
                     {t.last_status && (

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Sparkles, Calendar, Search, ExternalLink, X, Clock, GripHorizontal } from 'lucide-react';
+import { Sparkles, Calendar, Search, X, Clock, Tags } from 'lucide-react';
 import { fetchJson } from '@/shared/api/client';
 import { Dialog } from '@/shared/components/Dialog';
 import { useToast } from '@/shared/components/Toast';
@@ -8,6 +8,7 @@ import { useToast } from '@/shared/components/Toast';
 export const KeywordInsightPage: React.FC = () => {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
+  const inputRef = useRef<HTMLInputElement>(null);
 
   const [inputWord, setInputWord] = useState('');
   const [selectedWords, setSelectedWords] = useState<string[]>(['凯乐石']);
@@ -45,7 +46,108 @@ export const KeywordInsightPage: React.FC = () => {
     }
   }, [businessTime?.latest_keyword_date]);
 
-  // 词库高度拖拽与记忆
+  // 词库拖拽多选 (框选)
+  const libraryListRef = useRef<HTMLDivElement>(null);
+  const dragBoxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const container = libraryListRef.current;
+    if (!container) return;
+
+    let isDown = false;
+    let isDragging = false;
+    let startX = 0;
+    let startY = 0;
+
+    const handleMouseDown = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      const rect = container.getBoundingClientRect();
+      if (e.clientX > rect.right - 14) return;
+      isDown = true;
+      isDragging = false;
+      startX = e.clientX;
+      startY = e.clientY;
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDown) return;
+      const dx = Math.abs(e.clientX - startX);
+      const dy = Math.abs(e.clientY - startY);
+      if (!isDragging && (dx > 4 || dy > 4)) {
+        isDragging = true;
+      }
+      if (isDragging && dragBoxRef.current) {
+        e.preventDefault();
+        const left = Math.min(e.clientX, startX);
+        const top = Math.min(e.clientY, startY);
+        const width = Math.abs(e.clientX - startX);
+        const height = Math.abs(e.clientY - startY);
+
+        const box = dragBoxRef.current;
+        box.style.left = left + 'px';
+        box.style.top = top + 'px';
+        box.style.width = width + 'px';
+        box.style.height = height + 'px';
+        box.style.display = 'block';
+
+        const keywords = container.querySelectorAll('.library-keyword');
+        keywords.forEach((kw) => {
+          const r = kw.getBoundingClientRect();
+          const intersects = !(
+            r.right < left ||
+            r.left > left + width ||
+            r.bottom < top ||
+            r.top > top + height
+          );
+          kw.classList.toggle('drag-hover', intersects);
+        });
+      }
+    };
+
+    const handleMouseUp = (e: MouseEvent) => {
+      if (!isDown) return;
+      isDown = false;
+      if (dragBoxRef.current) {
+        dragBoxRef.current.style.display = 'none';
+      }
+      if (isDragging) {
+        isDragging = false;
+        const keywords = container.querySelectorAll('.library-keyword');
+        const toAdd: string[] = [];
+        keywords.forEach((kw) => {
+          if (kw.classList.contains('drag-hover')) {
+            kw.classList.remove('drag-hover');
+            const word = kw.getAttribute('data-keyword') || kw.textContent?.trim();
+            if (word) {
+              toAdd.push(word);
+            }
+          }
+        });
+        if (toAdd.length > 0) {
+          setSelectedWords((prev) => Array.from(new Set([...prev, ...toAdd])));
+        }
+        window.addEventListener(
+          'click',
+          (ev) => {
+            ev.stopPropagation();
+          },
+          { capture: true, once: true }
+        );
+      }
+    };
+
+    container.addEventListener('mousedown', handleMouseDown);
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      container.removeEventListener('mousedown', handleMouseDown);
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, []);
+
+  // 词库高度拖拽
   const [libraryHeight, setLibraryHeight] = useState<number>(() => {
     return parseInt(localStorage.getItem('kw_lib_height') || '260', 10);
   });
@@ -79,7 +181,7 @@ export const KeywordInsightPage: React.FC = () => {
   const [taskUpdateMode, setTaskUpdateMode] = useState('overwrite');
   const [taskRrule, setTaskRrule] = useState('FREQ=DAILY;BYHOUR=12;BYMINUTE=30');
 
-  // 获取完整词库
+  // 获取词库
   const { data: libraryData } = useQuery<{
     categories: Record<string, Record<string, string[]>>;
     counts: Record<string, any>;
@@ -90,7 +192,7 @@ export const KeywordInsightPage: React.FC = () => {
     staleTime: 5 * 60 * 1000,
   });
 
-  // 查询数据 Mutation
+  // 搜索接口
   const searchMutation = useMutation({
     mutationFn: (kws: string[]) =>
       fetchJson<any>('/api/keyword/search', {
@@ -105,7 +207,7 @@ export const KeywordInsightPage: React.FC = () => {
       if (res.failed_keywords?.length > 0) {
         showError(`${res.failed_keywords.length} 个关键词获取失败，可在表格中查看错误详情`);
       } else {
-        showSuccess(`成功检索 ${res.keywords.length} 个关键词的指标数据`);
+        showSuccess(`成功检索 ${res.keywords.length} 个关键词数据`);
       }
     },
     onError: (err: any) => {
@@ -113,7 +215,7 @@ export const KeywordInsightPage: React.FC = () => {
     },
   });
 
-  // 直接建表 Mutation
+  // 直接建表
   const directCreateMutation = useMutation({
     mutationFn: () =>
       fetchJson<any>('/api/keyword/feishu/direct_create', {
@@ -125,8 +227,8 @@ export const KeywordInsightPage: React.FC = () => {
           title: directSheetTitle || undefined,
         }),
       }),
-    onSuccess: (res) => {
-      showSuccess('飞书在线表格生成完成！已设置公开读写权限。');
+    onSuccess: () => {
+      showSuccess('飞书在线表格生成完成！已配置全员可读写。');
       queryClient.invalidateQueries({ queryKey: ['keywordRuns'] });
     },
     onError: (err: any) => {
@@ -134,7 +236,7 @@ export const KeywordInsightPage: React.FC = () => {
     },
   });
 
-  // 创建定时任务 Mutation
+  // 创建定时任务
   const createTaskMutation = useMutation({
     mutationFn: () =>
       fetchJson<any>('/api/keyword/tasks', {
@@ -188,12 +290,10 @@ export const KeywordInsightPage: React.FC = () => {
     setEndDate(end.toISOString().split('T')[0]);
   };
 
-  // 词库过滤与展示
+  // 词库大类与细类
   const primeCategories = ['全部词库', '防晒衣', '冲锋衣', '户外鞋', '速干衣裤', '羽绒服', '背包配件'];
-  const subCategories =
-    activePrimeCategory !== '全部词库' && libraryData?.categories[activePrimeCategory]
-      ? ['全部', ...Object.keys(libraryData.categories[activePrimeCategory])]
-      : ['全部'];
+  const activeGroup = activePrimeCategory !== '全部词库' && libraryData?.categories[activePrimeCategory];
+  const subCategories = activeGroup ? ['全部', ...Object.keys(activeGroup)] : ['全部'];
 
   const displayKeywords = React.useMemo(() => {
     if (!libraryData) return [];
@@ -228,6 +328,20 @@ export const KeywordInsightPage: React.FC = () => {
 
   return (
     <>
+      {/* 框选矩形浮层 */}
+      <div
+        ref={dragBoxRef}
+        id="dragSelectionBox"
+        style={{
+          position: 'fixed',
+          border: '1.5px dashed var(--primary)',
+          background: 'rgba(239, 43, 58, 0.12)',
+          pointerEvents: 'none',
+          zIndex: 9999,
+          display: 'none',
+          borderRadius: '4px',
+        }}
+      />
       {/* 页面标题 */}
       <div className="page-heading">
         <div>
@@ -254,68 +368,87 @@ export const KeywordInsightPage: React.FC = () => {
             }}
           >
             <div className="search-flex-row">
-              {/* 时间选择器 (统一胶囊容器 + 快捷分段Pill) */}
-              <div className="time-range-group">
-                <span className="time-range-label">
+              {/* 时间选择器 (统一胶囊容器 + 快捷分段Pill，高度统一 38px) */}
+              <div className="filter-field">
+                <span className="filter-label">
                   时间范围
-                  <small style={{ color: 'var(--text-muted)', fontWeight: 'normal', marginLeft: '4px' }}>
+                  <span style={{ fontSize: '12px', fontWeight: 'normal', color: 'var(--text-muted)', marginLeft: '6px' }}>
                     (中午12:00起支持T-1)
-                  </small>
+                  </span>
                 </span>
-                <div className="range-capsule">
-                  <div className="input-icon-wrap">
-                    <Calendar className="date-icon" size={15} />
+                <div className="date-picker-box">
+                  <div className="date-range-capsule">
+                    <span className="date-icon">
+                      <Calendar className="icon" size={14} />
+                    </span>
                     <input
                       type="date"
+                      id="startDate"
                       className="date-input"
                       value={startDate}
                       max={endDate}
                       onChange={(e) => setStartDate(e.target.value)}
                     />
+                    <span className="date-separator">至</span>
+                    <input
+                      type="date"
+                      id="endDate"
+                      className="date-input"
+                      value={endDate}
+                      max={maxEndDate}
+                      onChange={(e) => setEndDate(e.target.value)}
+                    />
                   </div>
-                  <span className="range-sep">至</span>
-                  <input
-                    type="date"
-                    className="date-input"
-                    value={endDate}
-                    max={maxEndDate}
-                    onChange={(e) => setEndDate(e.target.value)}
-                  />
-                </div>
-                <div className="pill-segmented ms-1">
-                  <button
-                    type="button"
-                    className={`pill-btn ${activePresetPill === 7 ? 'active' : ''}`}
-                    onClick={() => handlePresetDays(7)}
-                  >
-                    近7天
-                  </button>
-                  <button
-                    type="button"
-                    className={`pill-btn ${activePresetPill === 30 ? 'active' : ''}`}
-                    onClick={() => handlePresetDays(30)}
-                  >
-                    近30天
-                  </button>
-                  <button
-                    type="button"
-                    className={`pill-btn ${activePresetPill === 90 ? 'active' : ''}`}
-                    onClick={() => handlePresetDays(90)}
-                  >
-                    近90天
-                  </button>
+                  <div className="pill-segmented ms-1">
+                    <button
+                      type="button"
+                      className={`pill-btn ${activePresetPill === 7 ? 'active' : ''}`}
+                      onClick={() => handlePresetDays(7)}
+                    >
+                      近7天
+                    </button>
+                    <button
+                      type="button"
+                      className={`pill-btn ${activePresetPill === 30 ? 'active' : ''}`}
+                      onClick={() => handlePresetDays(30)}
+                    >
+                      近30天
+                    </button>
+                    <button
+                      type="button"
+                      className={`pill-btn ${activePresetPill === 90 ? 'active' : ''}`}
+                      id="pill90"
+                      onClick={() => handlePresetDays(90)}
+                    >
+                      近90天
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              {/* 关键词输入框 */}
-              <div className="keyword-input-group">
-                <span className="keyword-input-label">关键词</span>
-                <div className="input-icon-wrap" style={{ width: '100%' }}>
-                  <Search className="date-icon" size={15} />
+              {/* 关键词输入框 (高度统一 38px，与时间选择器等高整齐) */}
+              <div className="filter-field kw-input-box">
+                <div className="keyword-label-row">
+                  <span className="filter-label">关键词</span>
+                  <span className="search-selected-count" style={{ color: 'var(--primary)', fontWeight: 600, fontSize: '12px' }}>
+                    已选 {selectedWords.length} 个
+                  </span>
+                </div>
+                <div
+                  className="keyword-search-editor"
+                  id="keywordSearchEditor"
+                  onClick={() => inputRef.current?.focus()}
+                >
+                  <span className="search-icon">
+                    <Search className="icon" size={14} />
+                  </span>
                   <input
+                    ref={inputRef}
                     type="text"
+                    id="keywordInput"
                     className="form-control-custom"
                     placeholder="输入关键词，按空格或回车添加"
+                    autoComplete="off"
                     value={inputWord}
                     onChange={(e) => setInputWord(e.target.value)}
                     onKeyDown={(e) => {
@@ -332,62 +465,99 @@ export const KeywordInsightPage: React.FC = () => {
                       }
                     }}
                   />
+                  {selectedWords.length > 0 && (
+                    <button
+                      type="button"
+                      className="keyword-clear-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedWords([]);
+                      }}
+                      aria-label="清空已选关键词"
+                    >
+                      <X size={12} className="icon" />
+                      <span>清空</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
-              {/* 查询按钮 */}
-              <div className="search-btn-group">
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  id="btnSearch"
-                  disabled={selectedWords.length === 0 || searchMutation.isPending}
-                >
-                  <span>{searchMutation.isPending ? '查询中…' : '查询数据'}</span>
-                </button>
-              </div>
+              {/* 查询按钮 (高度统一 38px，基线对齐) */}
+              <button
+                type="submit"
+                className="btn btn-primary search-submit"
+                id="btnSearch"
+                disabled={selectedWords.length === 0 || searchMutation.isPending}
+              >
+                <span>{searchMutation.isPending ? '查询中…' : '查询数据'}</span>
+              </button>
             </div>
 
-            <div className="input-tip-row">
-              <span className="tip-icon">💡</span>
-              <span>可在下方关键词库中直接选择，也可以在输入框自定义添加；已选关键词会显示为可删除标签。</span>
-            </div>
-
-            {/* 已选关键词标签展示区 */}
-            <div className="chips-container" id="chipsContainer">
-              {selectedWords.map((word) => (
-                <span key={word} className="selected-chip">
-                  <span>{word}</span>
-                  <span className="remove-btn" onClick={() => handleRemoveWord(word)}>
-                    ✕
+            {/* 已选关键词展示区域 (自动换行，带滚动条与清空，不破坏上方38px控件对齐) */}
+            {selectedWords.length > 0 && (
+              <div
+                id="selectedKeywordsBar"
+                style={{
+                  marginTop: '12px',
+                  padding: '10px 14px',
+                  background: '#fff7f7',
+                  border: '1px solid #ffd6de',
+                  borderRadius: '8px',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '13px', fontWeight: 600, color: '#4e5969', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Tags className="icon" size={14} color="var(--primary)" />
+                    <span>已选关键词 (<strong style={{ color: 'var(--primary)' }}>{selectedWords.length}</strong>)</span>
                   </span>
-                </span>
-              ))}
-              {selectedWords.length > 0 && (
-                <button
-                  type="button"
-                  onClick={() => setSelectedWords([])}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    fontSize: '12px',
-                    color: 'var(--text-muted)',
-                    cursor: 'pointer',
-                    marginLeft: '8px',
-                  }}
+                  <button
+                    type="button"
+                    className="keyword-clear-btn"
+                    onClick={() => setSelectedWords([])}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      border: '1px solid var(--border)',
+                      background: '#fff',
+                      fontSize: '12px',
+                      color: 'var(--text-muted)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <X size={12} className="icon" />
+                    <span>清空全部</span>
+                  </button>
+                </div>
+                <div
+                  className="search-selected-list"
+                  style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', maxHeight: '120px', overflowY: 'auto', paddingRight: '4px' }}
                 >
-                  清空全部 ({selectedWords.length})
-                </button>
-              )}
+                  {selectedWords.map((word) => (
+                    <span key={word} className="selected-chip">
+                      <span>{word}</span>
+                      <span className="remove-btn" onClick={() => handleRemoveWord(word)}>
+                        ✕
+                      </span>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="input-hint-text" style={{ marginTop: '10px' }}>
+              <span>💡 可在下方关键词库中直接选择，也可以在输入框自定义添加；已选关键词会显示为可删除标签。</span>
             </div>
           </form>
         </div>
       </div>
 
       {/* 原版关键词库卡片 */}
-      <div className="card library-card" id="libraryCard">
-        <div className="library-header">
-          <div className="library-title-group">
+      <div className="card empty-insight keyword-library" id="searchEmptyState">
+        <div className="library-head">
+          <div>
             <h3>关键词库</h3>
             <p>先选择大类，再按细类筛选关键词；点击即可添加，也支持自定义输入。</p>
           </div>
@@ -403,83 +573,83 @@ export const KeywordInsightPage: React.FC = () => {
             />
           </div>
         </div>
-
-        {/* 大类按钮栏 */}
-        <div className="category-row" id="primaryCategoryRow" style={{ marginTop: '10px' }}>
-          <span className="category-label">大类</span>
-          <div className="category-btn-group" id="primaryCategoryGroup">
-            {primeCategories.map((cat) => {
-              const count = cat === '全部词库' ? (libraryData?.counts?.total || 205) : (libraryData?.counts?.[cat]?.['_total'] || 0);
-              const isActive = activePrimeCategory === cat;
-              return (
-                <button
-                  key={cat}
-                  type="button"
-                  className={`category-btn ${isActive ? 'active' : ''}`}
-                  onClick={() => {
-                    setActivePrimeCategory(cat);
-                    setActiveSubCategory('全部');
-                  }}
-                >
-                  {cat} <span className="cat-count">{count}</span>
-                </button>
-              );
-            })}
+        <div className="library-taxonomy">
+          <div className="taxonomy-row">
+            <span className="taxonomy-label">大类</span>
+            <div className="library-categories" id="keywordPrimaryTabs">
+              {primeCategories.map((cat) => {
+                const count =
+                  cat === '全部词库'
+                    ? (libraryData?.counts?.total || 205)
+                    : (libraryData?.counts?.[cat]?.['_total'] || 0);
+                return (
+                  <button
+                    key={cat}
+                    type="button"
+                    className={`category-btn primary-category-btn${activePrimeCategory === cat ? ' active' : ''}`}
+                    onClick={() => {
+                      setActivePrimeCategory(cat);
+                      setActiveSubCategory('全部');
+                    }}
+                  >
+                    {cat} {count}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+          <div className="taxonomy-row">
+            <span className="taxonomy-label">细类</span>
+            <div className="library-categories" id="keywordSecondaryTabs">
+              {subCategories.map((sub) => {
+                const subCount =
+                  sub === '全部'
+                    ? displayKeywords.length
+                    : (activeGroup && typeof activeGroup === 'object' && sub in activeGroup ? (activeGroup[sub]?.length || 0) : 0);
+                return (
+                  <button
+                    key={sub}
+                    type="button"
+                    className={`category-btn${activeSubCategory === sub ? ' active' : ''}`}
+                    onClick={() => setActiveSubCategory(sub)}
+                  >
+                    {sub} {subCount}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
-
-        {/* 细类按钮栏 */}
-        <div className="category-row" id="secondaryCategoryRow" style={{ marginTop: '8px' }}>
-          <span className="category-label">细类</span>
-          <div className="category-btn-group" id="secondaryCategoryGroup">
-            {subCategories.map((sub) => {
-              const isActive = activeSubCategory === sub;
-              return (
-                <button
-                  key={sub}
-                  type="button"
-                  className={`category-btn ${isActive ? 'active' : ''}`}
-                  onClick={() => setActiveSubCategory(sub)}
-                >
-                  {sub}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* 词项平铺与框选区域 */}
         <div
-          className="library-keyword-scroll"
-          style={{ height: `${libraryHeight}px`, overflowY: 'auto', marginTop: '12px' }}
+          ref={libraryListRef}
+          className="library-keywords"
+          id="keywordLibraryList"
+          style={{ height: `${libraryHeight}px`, overflowY: 'auto' }}
         >
-          <div className="library-grid" id="libraryKeywordGrid">
-            {displayKeywords.map((word) => {
-              const isSelected = selectedWords.includes(word);
-              return (
-                <button
-                  key={word}
-                  type="button"
-                  className={`library-keyword ${isSelected ? 'selected' : ''}`}
-                  onClick={() => handleToggleWord(word)}
-                >
-                  {word}
-                </button>
-              );
-            })}
-          </div>
+          {displayKeywords.map((word) => {
+            const isSelected = selectedWords.includes(word);
+            return (
+              <button
+                key={word}
+                type="button"
+                data-keyword={word}
+                className={`library-keyword${isSelected ? ' selected' : ''}`}
+                onClick={() => handleToggleWord(word)}
+              >
+                {word}
+              </button>
+            );
+          })}
         </div>
-
-        {/* 原版拖拽调整高度 Bar */}
         <div
           className="library-resize-bar"
-          title="拖拽调整词库高度"
+          id="libraryResizeBar"
+          title="上下拖拽可调整词库列表高度"
           onPointerDown={handlePointerDownResize}
           onPointerMove={handlePointerMoveResize}
           onPointerUp={handlePointerUpResize}
-          style={{ cursor: 'ns-resize', textAlign: 'center', padding: '4px', background: '#fcfcfc', borderTop: '1px solid var(--border)' }}
         >
-          <GripHorizontal size={14} color="#999" />
+          <div className="library-resize-handle-grip" />
         </div>
       </div>
 
