@@ -29,6 +29,8 @@ def sync_token_from_oss(force: bool = False) -> Optional[Dict[str, str]]:
         candidate_keys.append(JUGUANG_OSS_OBJECT_KEY)
     prefix = (JUGUANG_OSS_SUBACCOUNT_PREFIX or "token/").rstrip("/")
     candidate_keys.extend([
+        f"{prefix}/keyword_token.json",
+        f"{prefix}/628b3a5056228a000189c0e4.txt",
         f"{prefix}/629dd021b276e90001fc3b8c.txt",
         f"{prefix}/659e1399096eae00013086d6.txt",
         f"{prefix}/634e1a1bb021a00001cdc5c3.txt",
@@ -118,42 +120,6 @@ def _get_local_keyword_trends(keyword: str) -> Dict[str, Any]:
         }
     return res
 
-def _generate_keyword_fallback(keyword: str, dates: List[str]) -> Dict[str, Dict[str, Any]]:
-    """当官方聚光接口凭据失效或离线时，基于词库历史趋势或基准模型输出非零合理指标，保障看板可用"""
-    local_data = _get_local_keyword_trends(keyword)
-    if local_data:
-        res = {}
-        for d in dates:
-            if d in local_data:
-                res[d] = local_data[d]
-            else:
-                vals = [v["search_num"] for v in local_data.values() if v.get("search_num")]
-                avg_num = int(sum(vals) / len(vals)) if vals else 3200
-                res[d] = {
-                    "search_num": avg_num,
-                    "imp_num": int(avg_num * 1.45),
-                    "note_num": max(5, int(avg_num / 55)),
-                    "bid": 2.80
-                }
-        return res
-
-    kw_clean = keyword.strip()
-    h = int(hashlib.md5(kw_clean.encode("utf-8")).hexdigest()[:8], 16)
-    base_search = 1800 + (h % 5500)
-    base_bid = round(1.60 + (h % 260) / 100.0, 2)
-    res = {}
-    for d in dates:
-        dh = int(hashlib.md5(f"{kw_clean}_{d}".encode("utf-8")).hexdigest()[:6], 16)
-        day_factor = 0.88 + (dh % 24) / 100.0
-        s_num = int(base_search * day_factor)
-        res[d] = {
-            "search_num": s_num,
-            "imp_num": int(s_num * (1.35 + (dh % 15) / 100.0)),
-            "note_num": max(3, int(s_num / (45 + (dh % 20)))),
-            "bid": base_bid
-        }
-    return res
-
 def load_token(token_path: Optional[Path] = None) -> Dict[str, str]:
     path = token_path or DEFAULT_TOKEN_FILE
     if not path.exists():
@@ -239,7 +205,7 @@ def _fetch_single_word(
             }
         return daily_data
     except Exception as e:
-        return _generate_keyword_fallback(keyword, dates or [start_date, end_date])
+        raise e
 
 def fetch_keywords_insight(
     keywords: List[str],
@@ -322,9 +288,10 @@ def fetch_keywords_insight(
                         raw_results[kw] = {}
             has_valid_data = any(bool(v) for v in raw_results.values())
 
-    for kw in clean_kws:
-        if not raw_results.get(kw):
-            raw_results[kw] = _generate_keyword_fallback(kw, sorted_dates)
+    if not has_valid_data and auth_errors:
+        raise PermissionError(auth_errors[0])
+    if not has_valid_data and other_errors:
+        raise RuntimeError(f"关键词数据获取失败: {other_errors[0]}")
                 
     # 补齐所有日期的空值 (无数据的日期明确填充为0，避免展示为空或破折号引起误解)
     all_data = {}
