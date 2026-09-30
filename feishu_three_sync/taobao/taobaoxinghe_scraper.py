@@ -29,7 +29,6 @@ warnings.filterwarnings("ignore", message="Pandas requires version .*")
 import pandas as pd
 import requests
 
-
 BASE_URL = "https://adstar.alimama.com"
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -311,6 +310,8 @@ class TaobaoXingheScraperV5:
 
         if response.status_code >= 400:
             raise ApiError(f"HTTP {response.status_code} {path}: {json.dumps(data, ensure_ascii=False)[:1200]}")
+        if isinstance(data, dict) and not data.get("success", True):
+            raise ApiError(f"API Error {path}: {json.dumps(data, ensure_ascii=False)[:1200]}")
         return data
 
     def get_order_detail(self, order_id: str) -> Dict[str, Any]:
@@ -548,7 +549,9 @@ class TaobaoXingheScraperV5:
         creators: List[Dict[str, Any]] = []
         raw_pages: List[Dict[str, Any]] = []
         page_no = 1
-        while True:
+        seen_fingerprints = set()
+        MAX_PAGES = 100
+        while page_no <= MAX_PAGES:
             data = self.get_json(
                 "/api/cpa/media/seed/event/sponsor/list",
                 {
@@ -563,6 +566,15 @@ class TaobaoXingheScraperV5:
             )
             raw_pages.append(data)
             page_records, _model = list_from_model(data.get("model"))
+
+            # 重复页判定
+            import hashlib
+            fp = hashlib.sha256(json.dumps(page_records, sort_keys=True).encode("utf-8")).hexdigest()
+            if fp in seen_fingerprints and page_records:
+                self.log(f"   [Warning] page {page_no}: duplicate page detected, terminating pagination")
+                break
+            seen_fingerprints.add(fp)
+
             creators.extend(page_records)
             self.log(f"   page {page_no}: {len(page_records)} 人")
             if len(page_records) < page_size:

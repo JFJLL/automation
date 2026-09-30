@@ -285,3 +285,59 @@ esolve_auto_range, parse_args, main。
   All checks passed!
 
 ---
+
+## 7. 阶段 6：旧脚本修复与迁移准备 (分支: fix/legacy)
+
+### 7.1 format_date 改动对历史去重键的影响评估与迁移方案
+- **影响评估**：
+  - 历史 `format_date` 采用 `f"{d.year}/{d.month}/{d.day}"`，产生诸如 `2026/9/5` 的无补零字符串；
+  - 现改为标准 `%Y/%m/%d`（如 `2026/09/05`）。
+  - 若既有飞书表格中已存在未补零历史行，直接使用新格式比对可能导致复合主键失配；
+  - **一次性历史数据对齐脚本**：位于 `scripts/migrate_jg_history_dates.py`，默认 `--dry-run` 模式，仅读取并打印需更正的行与 diff，确认无误后加 `--apply` 写入更正。
+
+### 7.2 cutoff_time_range 半开区间语义确认
+- 淘宝星河原先的 `cutoff_time_range` 中 `startTime` 与 `endTime` 均设为 `00:00:00`，造成抓取时间跨度为 0；
+- 现调整为 `startTime: {target_date} 00:00:00`，`endTime: {target_date} 23:59:59`，完整覆盖目标日期全天 24 小时，符合业务报表对全天效果汇总的真实诉求。
+
+### 7.3 改动文件清单与对应问题
+- `feishu_three_sync/jzt_sync/daily.py`:
+  - 修复 `--dry-run` 分支：即使在 dry-run 模式下也检查配置并将 cat 加入 ready，确保 `sync_all(dry_run=True)` 真实执行预检 (B-1)；
+  - 移除 Windows 专用的 `msvcrt.locking`，改用跨平台 `filelock.FileLock`；
+- `feishu_three_sync/jg_sync/daily.py`:
+  - `format_date` 调整为零填充的 `%Y/%m/%d` (A-2)；
+  - `repair_misaligned_rows` 改为按表头名称合并，严密保留未管理列的原值；无法匹配行导出至 `logs/unmatched_repair_rows.json` 供人工审计 (A-3)；
+  - 锁替换为 `filelock.FileLock`；
+- `feishu_three_sync/taobao/taobaoxinghe_feishu_order_effect.py`:
+  - `row_match_key` 纳入订单 ID，`merge_sheet_rows` 改为 upsert 模式，防止删除未返回的订单 (C-11)；
+  - `cutoff_time_range` 调整为覆盖全天 (C-12)；
+- `feishu_three_sync/taobao/taobaoxinghe_scraper.py`:
+  - `get_json` 强制检查响应中 `success: false` 状态，抛出 ApiError (C-5)；
+  - 达人列表分页增加最大 100 页上限及 SHA-256 页面指纹去重循环防御 (C-4/C-14)；
+- `tests/test_legacy_fixes.py`:
+  - 新增测试覆盖上述修复项。
+
+### 7.4 完整迁移至 sync_console 的中长期方案
+1. **需迁移并合并入 sync_console 的逻辑**：
+   - 统一飞书底层通讯 (统一连接池、多进程 Token 缓存、429 与 90217 指数退避)；
+   - 京准通写入事务安全（全量读后合并、自然键防重）；
+   - 聚光 METRICS 与 IDENTITY 指标映射模型；
+   - 淘宝星河全自动化导出任务解析。
+2. **计划下线内容**：
+   - 淘宝星河本地 Chrome 模拟点击导出脚本 (待平台官方 API 稳定)；
+   - 聚光旧版 `login_browser.py` (全面由 CredentialStore / 自动化更新替代)；
+   - 京准通明文账号登录脚本 `local_login.py`；
+   - 未使用的冗余旧 json 配置文件。
+3. **迁移实施步骤**：
+   - 第一阶段：双轨并行运行并对账（同一日期比对数据行数、指标和自然键一致性）；
+   - 第二阶段：关闭 Windows 任务计划程序中的旧脚本，仅保留 sync_console 统一调度；
+   - 回滚方案：若 sync_console 发生故障，保留 feishu_three_sync 的静态快照与任务计划 XML，可随时单键重新启用。
+
+### 7.5 验证结果
+- pytest 测试摘要:
+  92 passed, 3 warnings in 8.46s
+- 前端构建与测试摘要:
+  1969 modules transformed, built in 2.48s; Tests 2 passed (2)
+- ruff 代码检查:
+  All checks passed!
+
+---

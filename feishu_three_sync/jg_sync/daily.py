@@ -1,7 +1,6 @@
 """Juguang daily Feishu sync, with validated web report fields and row-level writes."""
 import argparse
 import json
-import msvcrt
 import sys
 import time
 from datetime import date, datetime, timedelta
@@ -33,7 +32,7 @@ def date_value(value):
 
 def format_date(value):
     d = date_value(value)
-    return f'{d.year}/{d.month}/{d.day}'
+    return d.strftime('%Y/%m/%d')
 
 
 def scalar(value):
@@ -219,7 +218,13 @@ def repair_misaligned_rows(old, source_rows, headers, split):
             managed = matches[scores.index(best)]
         # Repaired values occupy the managed region exactly; malformed rows may
         # carry one extra shifted cell, which must not be sent to Feishu.
-        repairs[i] = list(managed[:width])
+        merged_row = list(row[:width])
+        while len(merged_row) < width:
+            merged_row.append('')
+        for m_idx, h in enumerate(headers[:width]):
+            if m_idx < len(managed) and h in repair_headers:
+                merged_row[m_idx] = managed[m_idx]
+        repairs[i] = merged_row
         fixed += 1
     return repairs, fixed, unresolved
 
@@ -227,9 +232,12 @@ def repair_misaligned_rows(old, source_rows, headers, split):
 def main():
     parser=argparse.ArgumentParser();parser.add_argument('--dry-run',action='store_true');parser.add_argument('--start-date');parser.add_argument('--full-refresh',action='store_true');args=parser.parse_args()
     (ROOT/'logs').mkdir(exist_ok=True)
-    lock=(ROOT/'daily.lock').open('a+b');lock.seek(0)
-    try:msvcrt.locking(lock.fileno(),msvcrt.LK_NBLCK,1)
-    except OSError:raise RuntimeError('Another Juguang daily sync is running')
+    from filelock import FileLock, Timeout
+    lock = FileLock(str(ROOT / 'logs' / 'daily.lock'), timeout=0.1)
+    try:
+        lock.acquire(timeout=0.1)
+    except Timeout:
+        raise RuntimeError('Another Juguang daily sync is running')
     report={'started':datetime.now().isoformat(),'dry_run':args.dry_run,'results':[]}
     try:
         fs.WIKI=WIKI
@@ -284,7 +292,8 @@ def main():
     finally:
         report['finished']=datetime.now().isoformat()
         (ROOT/'logs'/('dry_run.json' if args.dry_run else 'last_run.json')).write_text(json.dumps(report,ensure_ascii=False,indent=2),encoding='utf-8')
-        lock.seek(0);msvcrt.locking(lock.fileno(),msvcrt.LK_UNLCK,1);lock.close()
+        try: lock.release()
+        except Exception: pass
     return 1 if report.get('error') or any(x['status']=='failed' for x in report['results']) else 0
 
 

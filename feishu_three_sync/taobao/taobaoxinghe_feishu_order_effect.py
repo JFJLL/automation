@@ -29,7 +29,6 @@ warnings.filterwarnings("ignore", message="Pandas requires version .*")
 
 import pandas as pd
 import requests
-
 from taobaoxinghe_scraper import (
     ApiError,
     TaobaoXingheScraperV5,
@@ -39,7 +38,6 @@ from taobaoxinghe_scraper import (
     to_number,
     value_if_present,
 )
-
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_KEYWORD = "启萃"
@@ -94,7 +92,7 @@ def cutoff_time_range(date_text: str = "") -> Dict[str, str]:
     return {
         "cutoffDate": target_date,
         "startTime": f"{target_date} 00:00:00",
-        "endTime": f"{target_date} 00:00:00",
+        "endTime": f"{target_date} 23:59:59",
     }
 
 
@@ -195,6 +193,7 @@ def row_match_key(row: Dict[str, Any]) -> tuple:
         str(row.get("日期", "")).strip(),
         str(row.get("流量类型", "")).strip(),
         str(row.get("归因周期", "")).strip(),
+        str(row.get("订单ID", "")).strip(),
     )
 
 
@@ -240,9 +239,8 @@ def row_date_summary(rows: List[Dict[str, Any]]) -> Dict[str, Any]:
 def merge_sheet_rows(existing_rows: List[Dict[str, Any]], new_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     merged: Dict[tuple, Dict[str, Any]] = {}
     ordered_rows: List[Dict[str, Any]] = []
-    new_match_keys = {row_match_key(row) for row in new_rows if row_match_key(row)[0] and row_match_key(row)[1]}
-    source_rows = [row for row in existing_rows if row_match_key(row) not in new_match_keys] + new_rows
-    for source_row in source_rows:
+
+    for source_row in existing_rows:
         row = {column: normalize_row_value(source_row.get(column, "")) for column in OUTPUT_COLUMNS}
         if row_is_blank(row):
             continue
@@ -252,6 +250,18 @@ def merge_sheet_rows(existing_rows: List[Dict[str, Any]], new_rows: List[Dict[st
         if identity not in merged:
             ordered_rows.append(row)
         merged[identity] = row
+
+    for source_row in new_rows:
+        row = {column: normalize_row_value(source_row.get(column, "")) for column in OUTPUT_COLUMNS}
+        if row_is_blank(row):
+            continue
+        identity = row_identity(row)
+        if not identity[0] or not identity[1] or not identity[2]:
+            continue
+        if identity not in merged:
+            ordered_rows.append(row)
+        merged[identity] = row
+
     return sort_rows_for_sheet([merged[row_identity(row)] for row in ordered_rows if row_identity(row) in merged])
 
 
