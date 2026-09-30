@@ -1626,6 +1626,41 @@
     </div>
   </div>
 
+  <!-- 直接生成飞书表格成功弹窗 Modal (常驻弹窗，不自动关闭，有直达链接和运行记录入口) -->
+  <div class="modal-backdrop-custom" id="directSuccessModal" onclick="if(event.target===this) closeDirectSuccessModal()">
+    <div class="modal-box" style="width: 500px;">
+      <div class="modal-header">
+        <span style="display:flex; align-items:center; gap:8px; color:var(--success); font-size:16px;">
+          <span>🎉</span> 飞书表格生成成功！
+        </span>
+        <span style="cursor:pointer; font-size:18px; color:var(--text-muted);" onclick="closeDirectSuccessModal()">✕</span>
+      </div>
+
+      <div style="margin-bottom: 12px;">
+        <div style="font-size:12px; color:var(--text-muted); margin-bottom:4px;">表格名称</div>
+        <div id="directSuccessTitleDisplay" style="font-weight:600; font-size:14px; color:var(--text); word-break:break-all;"></div>
+      </div>
+
+      <div style="font-size:13px; color:#166534; line-height:1.7; background:#f0fdf4; padding:12px 14px; border-radius:8px; border:1px solid #bbf7d0; margin-bottom:18px;">
+        <div>✨ <strong>数据写入成功：</strong></div>
+        <div id="directSuccessMetaDisplay">已自动在共享文件夹创建电子表格并写入数据，且已合并第一行同期表头。</div>
+        <div style="font-size:12px; color:#15803d; margin-top:4px;">💡 该记录已同步写入“运行记录”，随时可在列表中查找并打开。</div>
+      </div>
+
+      <div style="margin-bottom: 18px;">
+        <a id="directSuccessOpenBtn" href="#" target="_blank" class="btn btn-success" style="display:flex; width:100%; height:40px; font-size:14px; font-weight:600; justify-content:center; align-items:center; gap:8px; box-shadow:0 3px 8px rgba(0, 180, 42, 0.25); text-decoration:none;">
+          <span>📄 立即打开飞书在线表格</span>
+          <span style="font-size:13px;">↗</span>
+        </a>
+      </div>
+
+      <div class="modal-footer" style="margin-top:0; justify-content:space-between;">
+        <button type="button" class="btn btn-outline" onclick="goToRunsTabFromSuccess()">📋 前往运行记录查看</button>
+        <button type="button" class="btn btn-primary" onclick="closeDirectSuccessModal()">完成</button>
+      </div>
+    </div>
+  </div>
+
   <!-- 创建定时任务 Modal (轻量无遮罩浮窗，支持选时间与频率) -->
   <div class="modal-backdrop-custom" id="taskModal" onclick="if(event.target===this) closeTaskModal()">
     <div class="modal-box">
@@ -1938,6 +1973,7 @@
     window.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
         closeDirectSheetModal();
+        closeDirectSuccessModal();
         closeTaskModal();
         closeKeywordsViewModal();
         closeAppendWordsModal();
@@ -2677,13 +2713,41 @@
           throw new Error(res.detail || '生成飞书表格失败');
         }
         closeDirectSheetModal();
-        showAlert('🎉 飞书表格创建并填充成功！已合并第一行日期表头单元格。<a href="' + res.spreadsheet_url + '" target="_blank" style="color:var(--primary); font-weight:600; text-decoration:underline; margin-left:8px;">点击立即打开飞书表格 ↗</a>', 'success');
+        tabCache.runs.loaded = false;
+        tabCache.runs.data = null;
+        try {
+          for (let i = sessionStorage.length - 1; i >= 0; i--) {
+            const k = sessionStorage.key(i);
+            if (k && k.startsWith('kw_runs_cache_')) sessionStorage.removeItem(k);
+          }
+        } catch(e) {}
+        openDirectSuccessModal(res);
       } catch (err) {
         alert('飞书表格创建失败: ' + err.message);
       } finally {
         btn.disabled = false;
         spinner.style.display = 'none';
       }
+    }
+
+    function openDirectSuccessModal(res) {
+      document.getElementById("directSuccessTitleDisplay").textContent = res.spreadsheet_title || "关键词洞察在线表格";
+      document.getElementById("directSuccessMetaDisplay").textContent = "已成功写入 " + (res.keywords_count || 0) + " 个关键词、" + (res.days_count || 0) + " 天官方真实数据，共 " + (res.rows_count || 0) + " 行。第一行日期表头已自动合并。";
+      const openBtn = document.getElementById("directSuccessOpenBtn");
+      openBtn.href = res.spreadsheet_url || "#";
+      alignModalToVisibleArea("directSuccessModal");
+      document.getElementById("directSuccessModal").classList.add("active");
+    }
+
+    function closeDirectSuccessModal() {
+      const m = document.getElementById("directSuccessModal");
+      if (m) m.classList.remove("active");
+    }
+
+    function goToRunsTabFromSuccess() {
+      closeDirectSuccessModal();
+      switchMainTab("runs");
+      loadRunsList(1, true);
     }
 
     // 定时任务 Modal 操作 (可配置执行时间、频率、更新模式)
@@ -2731,6 +2795,14 @@
         if (!resp.ok || !res.success) throw new Error(res.detail || '创建任务失败');
 
         closeTaskModal();
+        tabCache.runs.loaded = false;
+        tabCache.runs.data = null;
+        try {
+          for (let i = sessionStorage.length - 1; i >= 0; i--) {
+            const k = sessionStorage.key(i);
+            if (k && k.startsWith('kw_runs_cache_')) sessionStorage.removeItem(k);
+          }
+        } catch(e) {}
         showAlert('✅ 定时同步任务创建成功！已建立飞书表格并录入调度。<a href="' + res.spreadsheet_url + '" target="_blank" style="color:var(--primary); font-weight:600; text-decoration:underline; margin-left:8px;">打开飞书表格 ↗</a>', 'success');
         switchMainTab('tasks');
       } catch (e) {
@@ -3130,7 +3202,7 @@
         row += '<td style="white-space:nowrap;"><span class="status-badge ' + statusClass + '">' + r.status + '</span></td>';
         row += '<td>' + (r.keywords_count || 0) + '</td>';
         row += '<td>' + (r.days_count || 0) + '</td>';
-        row += '<td style="white-space:nowrap;">' + (r.spreadsheet_url ? '<a href="' + r.spreadsheet_url + '" target="_blank" style="color:var(--primary); text-decoration:none;">打开表格 ↗</a>' : '-') + '</td>';
+        row += '<td style="white-space:nowrap;">' + (r.spreadsheet_url ? '<a href="' + r.spreadsheet_url + '" target="_blank" style="color:var(--primary); font-weight:600; text-decoration:none; background:#fff0f1; border:1px solid #ffd6de; border-radius:6px; padding:3px 9px; font-size:12px; display:inline-flex; align-items:center; gap:4px;"><span>打开表格</span><span style="font-size:11px;">↗</span></a>' : '<span style="color:var(--text-muted);">-</span>') + '</td>';
         row += '<td style="font-size:12px; color:var(--text-secondary); max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">' + (r.message || r.error_detail || '-') + '</td>';
         row += '</tr>';
         return row;
