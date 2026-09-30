@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from app.config import DATA_DIR, DB_PATH
 
 KEYWORD_DB_PATH = Path(os.getenv("KEYWORD_DB_PATH", str(DATA_DIR / "keyword_data.db")))
+LINGXI_DB_PATH = Path(os.getenv("LINGXI_DB_PATH", str(DATA_DIR / "lingxi_data.db")))
 
 def get_db_connection(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -37,6 +38,11 @@ def get_keyword_db(db_path: Optional[Path] = None) -> sqlite3.Connection:
             except Exception:
                 return get_db_connection(legacy)
     return get_db_connection(KEYWORD_DB_PATH)
+
+def get_lingxi_db(db_path: Optional[Path] = None) -> sqlite3.Connection:
+    if db_path:
+        return get_db_connection(db_path)
+    return get_db_connection(LINGXI_DB_PATH)
 
 def run_migrations(conn: sqlite3.Connection, module: str = "sync"):
     with conn:
@@ -220,6 +226,58 @@ def run_migrations(conn: sqlite3.Connection, module: str = "sync"):
                 )
                 """)
                 conn.execute("INSERT INTO schema_migrations (version, module, applied_at) VALUES (3, 'keyword', ?)", (datetime.now().isoformat(),))
+
+        elif module == "lingxi":
+            # Migration 1: Base tables for lingxi keyword tasks
+            if 1 not in applied:
+                conn.execute("""
+                CREATE TABLE IF NOT EXISTS lingxi_tasks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    keywords_json TEXT NOT NULL,
+                    removed_keywords_json TEXT NOT NULL DEFAULT '[]',
+                    folder_token TEXT,
+                    spreadsheet_token TEXT NOT NULL,
+                    spreadsheet_url TEXT NOT NULL,
+                    update_mode TEXT NOT NULL DEFAULT 'overwrite',
+                    rrule TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    next_run_at TEXT,
+                    last_run_at TEXT,
+                    last_status TEXT,
+                    last_error TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """)
+                conn.execute("""
+                CREATE TABLE IF NOT EXISTS lingxi_runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id INTEGER,
+                    task_name TEXT NOT NULL,
+                    trigger_type TEXT NOT NULL,
+                    started_at TEXT NOT NULL,
+                    finished_at TEXT,
+                    status TEXT NOT NULL,
+                    keywords_count INTEGER DEFAULT 0,
+                    duration_ms INTEGER DEFAULT 0,
+                    successful_keywords TEXT,
+                    empty_keywords TEXT,
+                    failed_keywords TEXT,
+                    spreadsheet_url TEXT,
+                    message TEXT,
+                    error_detail TEXT
+                )
+                """)
+                conn.execute("""
+                CREATE TABLE IF NOT EXISTS task_leases (
+                    task_key TEXT PRIMARY KEY,
+                    owner TEXT NOT NULL,
+                    acquired_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL
+                )
+                """)
+                conn.execute("INSERT INTO schema_migrations (version, module, applied_at) VALUES (1, 'lingxi', ?)", (datetime.now().isoformat(),))
 
 def acquire_task_lease(conn: sqlite3.Connection, task_key: str, owner: str = "worker", lease_seconds: int = 600) -> bool:
     """

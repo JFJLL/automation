@@ -20,6 +20,7 @@ from app.config import (
 )
 from app.db import get_db, init_db
 from keyword_service.db import init_db as init_kw_db
+from lingxi_service.db import init_db as init_lingxi_db
 from feishu.client import FeishuClient
 from feishu.notify import Notifier
 from platforms.registry import PLATFORMS
@@ -54,13 +55,15 @@ automation_root = str(PROJECT_ROOT)
 if automation_root not in sys.path:
     sys.path.insert(0, automation_root)
 
-from keyword_service.router import router as keyword_router
+from keyword_service.router import router as keyword_router, private_router as keyword_private_router
+from lingxi_service.router import router as lingxi_router, private_router as lingxi_private_router
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # 启动时执行数据库迁移与任务恢复
     init_db()
     init_kw_db()
+    init_lingxi_db()
     SchedulerManager.get_instance().start()
     yield
     # 优雅停机
@@ -94,6 +97,7 @@ if (BASE_DIR / "web").exists():
 
 # 注册关键词路由
 app.include_router(keyword_router)
+app.include_router(lingxi_router)
 
 # ---------------- 健康检查与就绪检查 (Section 六十一) ----------------
 @app.get("/api/business-time")
@@ -151,6 +155,12 @@ def render_spa_index():
 @app.get("/keyword/tasks/", response_class=HTMLResponse)
 @app.get("/keyword/runs", response_class=HTMLResponse)
 @app.get("/keyword/runs/", response_class=HTMLResponse)
+@app.get("/lingxi", response_class=HTMLResponse)
+@app.get("/lingxi/", response_class=HTMLResponse)
+@app.get("/lingxi/tasks", response_class=HTMLResponse)
+@app.get("/lingxi/tasks/", response_class=HTMLResponse)
+@app.get("/lingxi/runs", response_class=HTMLResponse)
+@app.get("/lingxi/runs/", response_class=HTMLResponse)
 @app.get("/settings", response_class=HTMLResponse)
 @app.get("/admin", response_class=HTMLResponse)
 def index_page():

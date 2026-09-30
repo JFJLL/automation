@@ -6,7 +6,7 @@ import { fetchJson } from '@/shared/api/client';
 import { Dialog } from '@/shared/components/Dialog';
 import { useToast } from '@/shared/components/Toast';
 
-export const KeywordTasksPage: React.FC = () => {
+export const LingxiTasksPage: React.FC = () => {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
 
@@ -17,16 +17,16 @@ export const KeywordTasksPage: React.FC = () => {
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
 
   const { data: tasks = [], isLoading, refetch } = useQuery<any[]>({
-    queryKey: ['keywordTasks'],
-    queryFn: () => fetchJson('/api/keyword/tasks'),
+    queryKey: ['lingxiTasks'],
+    queryFn: () => fetchJson('/api/lingxi/tasks'),
   });
 
   const runNowMutation = useMutation({
-    mutationFn: (taskId: number) => fetchJson(`/api/keyword/tasks/${taskId}/run_now`, { method: 'POST' }),
+    mutationFn: (taskId: number) => fetchJson(`/api/lingxi/tasks/${taskId}/run_now`, { method: 'POST' }),
     onSuccess: (res: any) => {
       showSuccess(res.message || '任务同步成功');
-      queryClient.invalidateQueries({ queryKey: ['keywordTasks'] });
-      queryClient.invalidateQueries({ queryKey: ['keywordRuns'] });
+      queryClient.invalidateQueries({ queryKey: ['lingxiTasks'] });
+      queryClient.invalidateQueries({ queryKey: ['lingxiRuns'] });
     },
     onError: (err: any) => {
       showError(err.message || '立即同步失败');
@@ -34,10 +34,10 @@ export const KeywordTasksPage: React.FC = () => {
   });
 
   const toggleMutation = useMutation({
-    mutationFn: (taskId: number) => fetchJson(`/api/keyword/tasks/${taskId}/toggle`, { method: 'POST' }),
+    mutationFn: (taskId: number) => fetchJson(`/api/lingxi/tasks/${taskId}/toggle`, { method: 'POST' }),
     onSuccess: (res: any) => {
       showSuccess(`任务状态已切换为: ${res.status === 'active' ? '正常运行' : '已暂停'}`);
-      queryClient.invalidateQueries({ queryKey: ['keywordTasks'] });
+      queryClient.invalidateQueries({ queryKey: ['lingxiTasks'] });
     },
     onError: (err: any) => {
       showError(err.message || '切换状态失败');
@@ -46,7 +46,7 @@ export const KeywordTasksPage: React.FC = () => {
 
   const appendMutation = useMutation({
     mutationFn: ({ taskId, words }: { taskId: number; words: string[] }) =>
-      fetchJson(`/api/keyword/tasks/${taskId}/append_keywords`, {
+      fetchJson(`/api/lingxi/tasks/${taskId}/append_keywords`, {
         method: 'POST',
         body: JSON.stringify({ keywords: words, sync_now: true }),
       }),
@@ -54,8 +54,8 @@ export const KeywordTasksPage: React.FC = () => {
       showSuccess('加词成功并已触发增量同步');
       setAppendModalTaskId(null);
       setAppendWordsInput('');
-      queryClient.invalidateQueries({ queryKey: ['keywordTasks'] });
-      queryClient.invalidateQueries({ queryKey: ['keywordRuns'] });
+      queryClient.invalidateQueries({ queryKey: ['lingxiTasks'] });
+      queryClient.invalidateQueries({ queryKey: ['lingxiRuns'] });
     },
     onError: (err: any) => {
       showError(err.message || '加词失败');
@@ -64,7 +64,7 @@ export const KeywordTasksPage: React.FC = () => {
 
   const removeMutation = useMutation({
     mutationFn: ({ taskId, words }: { taskId: number; words: string[] }) =>
-      fetchJson(`/api/keyword/tasks/${taskId}/remove_keywords`, {
+      fetchJson(`/api/lingxi/tasks/${taskId}/remove_keywords`, {
         method: 'POST',
         body: JSON.stringify({ keywords: words }),
       }),
@@ -72,7 +72,7 @@ export const KeywordTasksPage: React.FC = () => {
       showSuccess('减词成功，历史数据保留且后续不再更新');
       setRemoveModalTaskId(null);
       setRemoveWordSelect([]);
-      queryClient.invalidateQueries({ queryKey: ['keywordTasks'] });
+      queryClient.invalidateQueries({ queryKey: ['lingxiTasks'] });
     },
     onError: (err: any) => {
       showError(err.message || '减词失败');
@@ -80,11 +80,11 @@ export const KeywordTasksPage: React.FC = () => {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: (taskId: number) => fetchJson(`/api/keyword/tasks/${taskId}`, { method: 'DELETE' }),
+    mutationFn: (taskId: number) => fetchJson(`/api/lingxi/tasks/${taskId}`, { method: 'DELETE' }),
     onSuccess: () => {
       showSuccess('关键词任务已归档删除');
       setDeleteConfirmId(null);
-      queryClient.invalidateQueries({ queryKey: ['keywordTasks'] });
+      queryClient.invalidateQueries({ queryKey: ['lingxiTasks'] });
     },
     onError: (err: any) => {
       showError(err.message || '删除任务失败');
@@ -96,7 +96,7 @@ export const KeywordTasksPage: React.FC = () => {
   return (
     <div className="card">
       <div className="card-title">
-        <span>现有关键词监控任务</span>
+        <span>现有灵犀关键词监控任务</span>
         <button type="button" className="btn btn-outline btn-sm" onClick={() => refetch()}>
           🔄 刷新列表
         </button>
@@ -106,7 +106,7 @@ export const KeywordTasksPage: React.FC = () => {
         {isLoading ? (
           <div style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>加载任务中...</div>
         ) : tasks.length === 0 ? (
-          <div style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>暂无关键词监控任务</div>
+          <div style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>暂无灵犀关键词监控任务</div>
         ) : (
           <table>
             <thead>
@@ -330,12 +330,12 @@ export const KeywordTasksPage: React.FC = () => {
       <Dialog
         isOpen={deleteConfirmId !== null}
         onClose={() => setDeleteConfirmId(null)}
-        title="确认删除关键词任务"
+        title="确认删除灵犀任务"
         width="400px"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-            确定要归档删除该关键词监控任务吗？飞书表格内容将保留，但不再触发后续同步。
+            确定要归档删除该灵犀关键词监控任务吗？飞书表格内容将保留，但不再触发后续同步。
           </p>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
             <button type="button" className="btn btn-outline" onClick={() => setDeleteConfirmId(null)}>
