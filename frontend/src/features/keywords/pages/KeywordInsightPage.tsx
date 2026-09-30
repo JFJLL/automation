@@ -1,14 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { FileSpreadsheet, Clock } from 'lucide-react';
+import { Sparkles, Calendar, Search, ExternalLink, X, Clock, GripHorizontal } from 'lucide-react';
 import { fetchJson } from '@/shared/api/client';
-import { Button } from '@/shared/components/Button';
+import { Dialog } from '@/shared/components/Dialog';
 import { useToast } from '@/shared/components/Toast';
-import { KeywordSearchBar } from '../components/KeywordSearchBar';
-import { KeywordLibrary } from '../components/KeywordLibrary';
-import { KeywordResultTable } from '../components/KeywordResultTable';
-import { DirectSheetDialog } from '../components/DirectSheetDialog';
-import { CreateKeywordTaskDialog } from '../components/CreateKeywordTaskDialog';
 
 export const KeywordInsightPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -16,8 +11,12 @@ export const KeywordInsightPage: React.FC = () => {
 
   const [inputWord, setInputWord] = useState('');
   const [selectedWords, setSelectedWords] = useState<string[]>(['凯乐石']);
+  const [activePrimeCategory, setActivePrimeCategory] = useState<string>('全部词库');
+  const [activeSubCategory, setActiveSubCategory] = useState<string>('全部');
+  const [libraryFilter, setLibraryFilter] = useState('');
+  const [isDescending, setIsDescending] = useState(true);
 
-  // 获取业务基准时区时间 (Section 二十八)
+  // 日期范围服务 (Asia/Shanghai)
   const { data: businessTime } = useQuery<{
     timezone: string;
     now: string;
@@ -29,23 +28,48 @@ export const KeywordInsightPage: React.FC = () => {
   });
 
   const maxEndDate = businessTime?.latest_keyword_date || '2026-09-29';
-  const isAfterNoon = businessTime?.is_after_noon ?? true;
-
   const [endDate, setEndDate] = useState(maxEndDate);
   const [startDate, setStartDate] = useState(() => {
     const d = new Date(maxEndDate);
-    d.setDate(d.getDate() - 29);
+    d.setDate(d.getDate() - 89);
     return d.toISOString().split('T')[0];
   });
+  const [activePresetPill, setActivePresetPill] = useState<number>(90);
 
   useEffect(() => {
     if (businessTime?.latest_keyword_date) {
       setEndDate(businessTime.latest_keyword_date);
       const d = new Date(businessTime.latest_keyword_date);
-      d.setDate(d.getDate() - 29);
+      d.setDate(d.getDate() - 89);
       setStartDate(d.toISOString().split('T')[0]);
     }
   }, [businessTime?.latest_keyword_date]);
+
+  // 词库高度拖拽与记忆
+  const [libraryHeight, setLibraryHeight] = useState<number>(() => {
+    return parseInt(localStorage.getItem('kw_lib_height') || '260', 10);
+  });
+  const isDraggingHeight = useRef(false);
+  const startDragY = useRef(0);
+  const startHeight = useRef(0);
+
+  const handlePointerDownResize = (e: React.PointerEvent) => {
+    isDraggingHeight.current = true;
+    startDragY.current = e.clientY;
+    startHeight.current = libraryHeight;
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const handlePointerMoveResize = (e: React.PointerEvent) => {
+    if (!isDraggingHeight.current) return;
+    const delta = e.clientY - startDragY.current;
+    const newH = Math.max(160, Math.min(650, startHeight.current + delta));
+    setLibraryHeight(newH);
+    localStorage.setItem('kw_lib_height', String(newH));
+  };
+  const handlePointerUpResize = (e: React.PointerEvent) => {
+    isDraggingHeight.current = false;
+    try { (e.target as HTMLElement).releasePointerCapture(e.pointerId); } catch {}
+  };
 
   // 弹窗状态
   const [directSheetOpen, setDirectSheetOpen] = useState(false);
@@ -55,7 +79,7 @@ export const KeywordInsightPage: React.FC = () => {
   const [taskUpdateMode, setTaskUpdateMode] = useState('overwrite');
   const [taskRrule, setTaskRrule] = useState('FREQ=DAILY;BYHOUR=12;BYMINUTE=30');
 
-  // 词库查询
+  // 获取完整词库
   const { data: libraryData } = useQuery<{
     categories: Record<string, Record<string, string[]>>;
     counts: Record<string, any>;
@@ -66,7 +90,7 @@ export const KeywordInsightPage: React.FC = () => {
     staleTime: 5 * 60 * 1000,
   });
 
-  // 关键词检索
+  // 查询数据 Mutation
   const searchMutation = useMutation({
     mutationFn: (kws: string[]) =>
       fetchJson<any>('/api/keyword/search', {
@@ -79,9 +103,9 @@ export const KeywordInsightPage: React.FC = () => {
       }),
     onSuccess: (res) => {
       if (res.failed_keywords?.length > 0) {
-        showError(`${res.failed_keywords.length} 个关键词抓取失败，请检查或点击“仅重试失败关键词”`);
+        showError(`${res.failed_keywords.length} 个关键词获取失败，可在表格中查看错误详情`);
       } else {
-        showSuccess(`成功检索 ${res.keywords.length} 个关键词的官方真实指标`);
+        showSuccess(`成功检索 ${res.keywords.length} 个关键词的指标数据`);
       }
     },
     onError: (err: any) => {
@@ -89,7 +113,7 @@ export const KeywordInsightPage: React.FC = () => {
     },
   });
 
-  // 直接建表
+  // 直接建表 Mutation
   const directCreateMutation = useMutation({
     mutationFn: () =>
       fetchJson<any>('/api/keyword/feishu/direct_create', {
@@ -101,8 +125,8 @@ export const KeywordInsightPage: React.FC = () => {
           title: directSheetTitle || undefined,
         }),
       }),
-    onSuccess: () => {
-      showSuccess('飞书在线表格生成完成！已配置全员可读写。');
+    onSuccess: (res) => {
+      showSuccess('飞书在线表格生成完成！已设置公开读写权限。');
       queryClient.invalidateQueries({ queryKey: ['keywordRuns'] });
     },
     onError: (err: any) => {
@@ -110,7 +134,7 @@ export const KeywordInsightPage: React.FC = () => {
     },
   });
 
-  // 创建定时任务
+  // 创建定时任务 Mutation
   const createTaskMutation = useMutation({
     mutationFn: () =>
       fetchJson<any>('/api/keyword/tasks', {
@@ -133,7 +157,7 @@ export const KeywordInsightPage: React.FC = () => {
     },
   });
 
-  const handleAddWords = (text: string) => {
+  const handleAddWordString = (text: string) => {
     const words = text
       .replace(/[,，\n]/g, ' ')
       .split(/\s+/)
@@ -157,124 +181,565 @@ export const KeywordInsightPage: React.FC = () => {
   };
 
   const handlePresetDays = (days: number) => {
+    setActivePresetPill(days);
     const end = new Date(maxEndDate);
     const start = new Date(end.getTime() - (days - 1) * 86400 * 1000);
     setStartDate(start.toISOString().split('T')[0]);
     setEndDate(end.toISOString().split('T')[0]);
   };
 
+  // 词库过滤与展示
+  const primeCategories = ['全部词库', '防晒衣', '冲锋衣', '户外鞋', '速干衣裤', '羽绒服', '背包配件'];
+  const subCategories =
+    activePrimeCategory !== '全部词库' && libraryData?.categories[activePrimeCategory]
+      ? ['全部', ...Object.keys(libraryData.categories[activePrimeCategory])]
+      : ['全部'];
+
+  const displayKeywords = React.useMemo(() => {
+    if (!libraryData) return [];
+    let words: string[] = [];
+    if (activePrimeCategory === '全部词库') {
+      words = libraryData.all_keywords || [];
+    } else if (libraryData.categories[activePrimeCategory]) {
+      const subCats = libraryData.categories[activePrimeCategory];
+      if (activeSubCategory && activeSubCategory !== '全部' && subCats[activeSubCategory]) {
+        words = subCats[activeSubCategory];
+      } else {
+        Object.values(subCats).forEach((wList) => {
+          words.push(...wList);
+        });
+      }
+    }
+
+    if (libraryFilter.trim()) {
+      const q = libraryFilter.trim().toLowerCase();
+      words = words.filter((w) => w.toLowerCase().includes(q));
+    }
+    return Array.from(new Set(words));
+  }, [libraryData, activePrimeCategory, activeSubCategory, libraryFilter]);
+
   const queryResult = searchMutation.data;
+  const sortedDates = React.useMemo(() => {
+    if (!queryResult?.dates) return [];
+    return isDescending ? [...queryResult.dates].reverse() : queryResult.dates;
+  }, [queryResult?.dates, isDescending]);
+
   const hasFailedKeywords = Boolean(queryResult && queryResult.failed_keywords?.length > 0);
 
   return (
-    <div style={{ maxWidth: '1240px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* 顶部标题区 */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+    <>
+      {/* 页面标题 */}
+      <div className="page-heading">
         <div>
-          <h2 style={{ fontSize: '20px', fontWeight: 700, color: '#0f172a' }}>小红书聚光关键词深度洞察</h2>
-          <p style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>
-            分析搜索指数、广告曝光量、笔记数及市场出价，直接生成飞书在线表格或创建滚动定时任务
-          </p>
+          <h2>关键词洞察</h2>
+          <p>查询小红书关键词热度与投放数据，辅助选词和预算决策</p>
         </div>
-        <div style={{ display: 'flex', gap: '10px' }}>
-          <Button
-            variant="outline"
-            onClick={() => {
-              setDirectSheetTitle(`关键词搜索指数监控_${new Date().toISOString().slice(0, 10)}`);
-              setDirectSheetOpen(true);
+        <span className="platform-badge">
+          <Sparkles className="icon" size={14} /> 小红书聚光
+        </span>
+      </div>
+
+      {/* 原版搜索卡片 */}
+      <div className="card search-card">
+        <div className="search-card-head">
+          <h3>查询关键词数据</h3>
+          <p>选择时间范围并输入一个或多个关键词</p>
+        </div>
+        <div className="search-card-body">
+          <form
+            id="searchForm"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (selectedWords.length > 0) searchMutation.mutate(selectedWords);
             }}
-            disabled={selectedWords.length === 0 || hasFailedKeywords}
-            title={hasFailedKeywords ? '存在失败关键词，请重试或移除后再生成' : ''}
           >
-            <FileSpreadsheet size={15} /> 直接生成飞书表
-          </Button>
-          <Button
-            variant="primary"
-            onClick={() => {
-              setTaskName(`关键词监控任务_${new Date().toISOString().slice(0, 10)}`);
-              setTaskModalOpen(true);
-            }}
-            disabled={selectedWords.length === 0 || hasFailedKeywords}
-            title={hasFailedKeywords ? '存在失败关键词，请重试或移除后再创建任务' : ''}
-          >
-            <Clock size={15} /> 创建定时任务
-          </Button>
+            <div className="search-flex-row">
+              {/* 时间选择器 (统一胶囊容器 + 快捷分段Pill) */}
+              <div className="time-range-group">
+                <span className="time-range-label">
+                  时间范围
+                  <small style={{ color: 'var(--text-muted)', fontWeight: 'normal', marginLeft: '4px' }}>
+                    (中午12:00起支持T-1)
+                  </small>
+                </span>
+                <div className="range-capsule">
+                  <div className="input-icon-wrap">
+                    <Calendar className="date-icon" size={15} />
+                    <input
+                      type="date"
+                      className="date-input"
+                      value={startDate}
+                      max={endDate}
+                      onChange={(e) => setStartDate(e.target.value)}
+                    />
+                  </div>
+                  <span className="range-sep">至</span>
+                  <input
+                    type="date"
+                    className="date-input"
+                    value={endDate}
+                    max={maxEndDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                  />
+                </div>
+                <div className="pill-segmented ms-1">
+                  <button
+                    type="button"
+                    className={`pill-btn ${activePresetPill === 7 ? 'active' : ''}`}
+                    onClick={() => handlePresetDays(7)}
+                  >
+                    近7天
+                  </button>
+                  <button
+                    type="button"
+                    className={`pill-btn ${activePresetPill === 30 ? 'active' : ''}`}
+                    onClick={() => handlePresetDays(30)}
+                  >
+                    近30天
+                  </button>
+                  <button
+                    type="button"
+                    className={`pill-btn ${activePresetPill === 90 ? 'active' : ''}`}
+                    onClick={() => handlePresetDays(90)}
+                  >
+                    近90天
+                  </button>
+                </div>
+              </div>
+
+              {/* 关键词输入框 */}
+              <div className="keyword-input-group">
+                <span className="keyword-input-label">关键词</span>
+                <div className="input-icon-wrap" style={{ width: '100%' }}>
+                  <Search className="date-icon" size={15} />
+                  <input
+                    type="text"
+                    className="form-control-custom"
+                    placeholder="输入关键词，按空格或回车添加"
+                    value={inputWord}
+                    onChange={(e) => setInputWord(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (inputWord.trim()) handleAddWordString(inputWord);
+                      }
+                    }}
+                    onPaste={(e) => {
+                      const text = e.clipboardData.getData('text');
+                      if (text && (text.includes(' ') || text.includes(',') || text.includes('\n'))) {
+                        e.preventDefault();
+                        handleAddWordString(text);
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+
+              {/* 查询按钮 */}
+              <div className="search-btn-group">
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  id="btnSearch"
+                  disabled={selectedWords.length === 0 || searchMutation.isPending}
+                >
+                  <span>{searchMutation.isPending ? '查询中…' : '查询数据'}</span>
+                </button>
+              </div>
+            </div>
+
+            <div className="input-tip-row">
+              <span className="tip-icon">💡</span>
+              <span>可在下方关键词库中直接选择，也可以在输入框自定义添加；已选关键词会显示为可删除标签。</span>
+            </div>
+
+            {/* 已选关键词标签展示区 */}
+            <div className="chips-container" id="chipsContainer">
+              {selectedWords.map((word) => (
+                <span key={word} className="selected-chip">
+                  <span>{word}</span>
+                  <span className="remove-btn" onClick={() => handleRemoveWord(word)}>
+                    ✕
+                  </span>
+                </span>
+              ))}
+              {selectedWords.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedWords([])}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    fontSize: '12px',
+                    color: 'var(--text-muted)',
+                    cursor: 'pointer',
+                    marginLeft: '8px',
+                  }}
+                >
+                  清空全部 ({selectedWords.length})
+                </button>
+              )}
+            </div>
+          </form>
         </div>
       </div>
 
-      {/* 搜索与日期控制栏 */}
-      <KeywordSearchBar
-        inputWord={inputWord}
-        setInputWord={setInputWord}
-        selectedWords={selectedWords}
-        onAddWords={handleAddWords}
-        onRemoveWord={handleRemoveWord}
-        onClearWords={() => setSelectedWords([])}
-        startDate={startDate}
-        setStartDate={setStartDate}
-        endDate={endDate}
-        setEndDate={setEndDate}
-        maxEndDate={maxEndDate}
-        isAfterNoon={isAfterNoon}
-        onPresetDays={handlePresetDays}
-        onSearch={() => searchMutation.mutate(selectedWords)}
-        isSearching={searchMutation.isPending}
-      />
+      {/* 原版关键词库卡片 */}
+      <div className="card library-card" id="libraryCard">
+        <div className="library-header">
+          <div className="library-title-group">
+            <h3>关键词库</h3>
+            <p>先选择大类，再按细类筛选关键词；点击即可添加，也支持自定义输入。</p>
+          </div>
+          <div className="library-search">
+            <Search className="icon" size={14} />
+            <input
+              id="libraryFilterInput"
+              className="form-control-custom"
+              type="search"
+              placeholder="筛选关键词"
+              value={libraryFilter}
+              onChange={(e) => setLibraryFilter(e.target.value)}
+            />
+          </div>
+        </div>
 
-      {/* 词库分类索引 (完整词库、实时筛选、多级子类、高度拖拽与框选) */}
-      <KeywordLibrary
-        libraryData={libraryData}
-        selectedWords={selectedWords}
-        onToggleWord={handleToggleWord}
-        onSelectMultipleWords={(words) => {
-          const set = new Set([...selectedWords, ...words]);
-          setSelectedWords(Array.from(set));
-          showSuccess(`框选添加了 ${words.length} 个关键词`);
-        }}
-      />
+        {/* 大类按钮栏 */}
+        <div className="category-row" id="primaryCategoryRow" style={{ marginTop: '10px' }}>
+          <span className="category-label">大类</span>
+          <div className="category-btn-group" id="primaryCategoryGroup">
+            {primeCategories.map((cat) => {
+              const count = cat === '全部词库' ? (libraryData?.counts?.total || 205) : (libraryData?.counts?.[cat]?.['_total'] || 0);
+              const isActive = activePrimeCategory === cat;
+              return (
+                <button
+                  key={cat}
+                  type="button"
+                  className={`category-btn ${isActive ? 'active' : ''}`}
+                  onClick={() => {
+                    setActivePrimeCategory(cat);
+                    setActiveSubCategory('全部');
+                  }}
+                >
+                  {cat} <span className="cat-count">{count}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
 
-      {/* 结果表格 (含失败词 - 展示与仅重试失败词功能) */}
+        {/* 细类按钮栏 */}
+        <div className="category-row" id="secondaryCategoryRow" style={{ marginTop: '8px' }}>
+          <span className="category-label">细类</span>
+          <div className="category-btn-group" id="secondaryCategoryGroup">
+            {subCategories.map((sub) => {
+              const isActive = activeSubCategory === sub;
+              return (
+                <button
+                  key={sub}
+                  type="button"
+                  className={`category-btn ${isActive ? 'active' : ''}`}
+                  onClick={() => setActiveSubCategory(sub)}
+                >
+                  {sub}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 词项平铺与框选区域 */}
+        <div
+          className="library-keyword-scroll"
+          style={{ height: `${libraryHeight}px`, overflowY: 'auto', marginTop: '12px' }}
+        >
+          <div className="library-grid" id="libraryKeywordGrid">
+            {displayKeywords.map((word) => {
+              const isSelected = selectedWords.includes(word);
+              return (
+                <button
+                  key={word}
+                  type="button"
+                  className={`library-keyword ${isSelected ? 'selected' : ''}`}
+                  onClick={() => handleToggleWord(word)}
+                >
+                  {word}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* 原版拖拽调整高度 Bar */}
+        <div
+          className="library-resize-bar"
+          title="拖拽调整词库高度"
+          onPointerDown={handlePointerDownResize}
+          onPointerMove={handlePointerMoveResize}
+          onPointerUp={handlePointerUpResize}
+          style={{ cursor: 'ns-resize', textAlign: 'center', padding: '4px', background: '#fcfcfc', borderTop: '1px solid var(--border)' }}
+        >
+          <GripHorizontal size={14} color="#999" />
+        </div>
+      </div>
+
+      {/* 原版查询结果卡片 */}
       {queryResult && (
-        <KeywordResultTable
-          queryResult={queryResult}
-          isRetrying={searchMutation.isPending}
-          onRetryFailed={(failedWords) => {
-            searchMutation.mutate(failedWords);
-          }}
-        />
+        <div className="card result-card" id="resultCard" style={{ animation: 'uiFadeUp .28s both' }}>
+          <div className="result-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <div>
+              <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#1d2129' }}>
+                查询结果 <span style={{ fontSize: '13px', fontWeight: 'normal', color: 'var(--text-muted)' }}>({queryResult.keywords.length} 关键词，{queryResult.dates.length} 自然日)</span>
+              </h3>
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => setIsDescending(!isDescending)}
+              >
+                <span>{isDescending ? '📅 最新在前 (降序)' : '📅 最早在前 (升序)'}</span>
+              </button>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                disabled={hasFailedKeywords}
+                onClick={() => {
+                  setDirectSheetTitle(`关键词搜索指数监控_${new Date().toISOString().slice(0, 10)}`);
+                  setDirectSheetOpen(true);
+                }}
+              >
+                直接生成飞书表
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary btn-sm"
+                disabled={hasFailedKeywords}
+                onClick={() => {
+                  setTaskName(`关键词监控任务_${new Date().toISOString().slice(0, 10)}`);
+                  setTaskModalOpen(true);
+                }}
+              >
+                创建定时任务
+              </button>
+            </div>
+          </div>
+
+          <div className="table-scroll-wrap" style={{ overflowX: 'auto', maxHeight: '550px' }}>
+            <table className="custom-grid">
+              <thead>
+                <tr>
+                  <th style={{ minWidth: '140px' }}>关键词</th>
+                  <th style={{ minWidth: '100px' }}>状态</th>
+                  {sortedDates.map((d: string) => (
+                    <th key={d} colSpan={4} style={{ textAlign: 'center', borderLeft: '1px solid var(--border)' }}>
+                      {d}
+                    </th>
+                  ))}
+                </tr>
+                <tr style={{ background: '#fdfbfa', fontSize: '11px', color: 'var(--text-muted)' }}>
+                  <th></th>
+                  <th></th>
+                  {sortedDates.map((d: string) => (
+                    <React.Fragment key={d}>
+                      <th style={{ textAlign: 'right', borderLeft: '1px solid var(--border)' }}>搜索</th>
+                      <th style={{ textAlign: 'right' }}>曝光</th>
+                      <th style={{ textAlign: 'right' }}>笔记</th>
+                      <th style={{ textAlign: 'right' }}>出价</th>
+                    </React.Fragment>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {queryResult.keywords.map((kw: string) => {
+                  const statusInfo = queryResult.keyword_statuses[kw] || { status: 'success' };
+                  const kwStatus = statusInfo.status;
+                  const kwData = queryResult.data[kw];
+                  const isFailed = kwStatus !== 'success' && kwStatus !== 'empty';
+
+                  return (
+                    <tr key={kw}>
+                      <td style={{ fontWeight: 600 }}>{kw}</td>
+                      <td>
+                        <span
+                          className={`badge ${
+                            kwStatus === 'success'
+                              ? 'badge-success'
+                              : kwStatus === 'empty'
+                              ? 'badge-gray'
+                              : 'badge-danger'
+                          }`}
+                        >
+                          {kwStatus === 'success' ? '成功' : kwStatus === 'empty' ? '暂无数据' : '获取失败'}
+                        </span>
+                      </td>
+                      {sortedDates.map((d: string) => {
+                        const dayItem = kwData ? kwData[d] : null;
+                        return (
+                          <React.Fragment key={d}>
+                            <td style={{ textAlign: 'right', borderLeft: '1px solid var(--border)' }}>
+                              {isFailed ? '-' : (dayItem ? dayItem.search_num : 0)}
+                            </td>
+                            <td style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>
+                              {isFailed ? '-' : (dayItem ? dayItem.imp_num : 0)}
+                            </td>
+                            <td style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>
+                              {isFailed ? '-' : (dayItem ? dayItem.note_num : 0)}
+                            </td>
+                            <td style={{ textAlign: 'right', color: 'var(--text-secondary)' }}>
+                              {isFailed ? '-' : (dayItem && dayItem.bid ? `¥${Number(dayItem.bid).toFixed(2)}` : '¥0.00')}
+                            </td>
+                          </React.Fragment>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
       )}
 
-      {/* 直接生成飞书表格弹窗 */}
-      <DirectSheetDialog
+      {/* 原版直接生成飞书表 Dialog */}
+      <Dialog
         isOpen={directSheetOpen}
         onClose={() => setDirectSheetOpen(false)}
-        title={directSheetTitle}
-        setTitle={setDirectSheetTitle}
-        keywordsCount={selectedWords.length}
-        startDate={startDate}
-        endDate={endDate}
-        hasFailedKeywords={hasFailedKeywords}
-        onSubmit={() => directCreateMutation.mutate()}
-        isSubmitting={directCreateMutation.isPending}
-        spreadsheetUrl={directCreateMutation.data?.spreadsheet_url}
-      />
+        title="直接生成飞书表格"
+        width="460px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div>
+            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
+              表格标题
+            </label>
+            <input
+              type="text"
+              className="form-control"
+              value={directSheetTitle}
+              onChange={(e) => setDirectSheetTitle(e.target.value)}
+            />
+          </div>
+          <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+            写入 <strong>{selectedWords.length}</strong> 个关键词，时间跨度：{startDate} 至 {endDate}。
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+            <button className="btn btn-outline" type="button" onClick={() => setDirectSheetOpen(false)}>
+              取消
+            </button>
+            <button
+              className="btn btn-primary"
+              type="button"
+              disabled={directCreateMutation.isPending || !directSheetTitle.trim()}
+              onClick={() => directCreateMutation.mutate()}
+            >
+              {directCreateMutation.isPending ? '生成中…' : '立即生成'}
+            </button>
+          </div>
 
-      {/* 创建关键词任务弹窗 */}
-      <CreateKeywordTaskDialog
+          {directCreateMutation.data?.spreadsheet_url && (
+            <div
+              style={{
+                marginTop: '10px',
+                padding: '12px',
+                background: '#e8ffea',
+                border: '1px solid #b7eb8f',
+                borderRadius: '8px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+              }}
+            >
+              <span style={{ fontSize: '13px', color: '#00b42a', fontWeight: 500 }}>飞书在线表格已生成！</span>
+              <a
+                href={directCreateMutation.data.spreadsheet_url}
+                target="_blank"
+                rel="noreferrer"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  color: '#00b42a',
+                }}
+              >
+                打开飞书表格 ↗
+              </a>
+            </div>
+          )}
+        </div>
+      </Dialog>
+
+      {/* 原版创建定时任务 Dialog */}
+      <Dialog
         isOpen={taskModalOpen}
         onClose={() => setTaskModalOpen(false)}
-        taskName={taskName}
-        setTaskName={setTaskName}
-        updateMode={taskUpdateMode}
-        setUpdateMode={setTaskUpdateMode}
-        rrule={taskRrule}
-        setRrule={setTaskRrule}
-        keywordsCount={selectedWords.length}
-        hasFailedKeywords={hasFailedKeywords}
-        onSubmit={() => createTaskMutation.mutate()}
-        isSubmitting={createTaskMutation.isPending}
-      />
-    </div>
+        title="创建关键词监控定时任务"
+        width="460px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div>
+            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
+              任务名称
+            </label>
+            <input
+              type="text"
+              className="form-control"
+              value={taskName}
+              onChange={(e) => setTaskName(e.target.value)}
+            />
+          </div>
+
+          <div>
+            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
+              写入模式
+            </label>
+            <select
+              className="form-control"
+              value={taskUpdateMode}
+              onChange={(e) => setTaskUpdateMode(e.target.value)}
+            >
+              <option value="overwrite">全量滚动覆写 (保持最近90天滚动)</option>
+              <option value="append">增量历史累加 (保留历史旧日期并右侧追加新日期)</option>
+            </select>
+          </div>
+
+          <div>
+            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
+              调度频率 (RRULE)
+            </label>
+            <select
+              className="form-control"
+              value={taskRrule}
+              onChange={(e) => setTaskRrule(e.target.value)}
+            >
+              <option value="FREQ=DAILY;BYHOUR=12;BYMINUTE=30">每天 12:30 执行 (推荐，T-1数据就绪)</option>
+              <option value="FREQ=DAILY;BYHOUR=18;BYMINUTE=0">每天 18:00 执行</option>
+              <option value="FREQ=DAILY;BYHOUR=9;BYMINUTE=0">每天 09:00 执行 (T-2数据)</option>
+            </select>
+          </div>
+
+          <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+            将监控当前选中的 <strong>{selectedWords.length}</strong> 个关键词。
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
+            <button className="btn btn-outline" type="button" onClick={() => setTaskModalOpen(false)}>
+              取消
+            </button>
+            <button
+              className="btn btn-primary"
+              type="button"
+              disabled={createTaskMutation.isPending || !taskName.trim()}
+              onClick={() => createTaskMutation.mutate()}
+            >
+              {createTaskMutation.isPending ? '创建中…' : '确认创建'}
+            </button>
+          </div>
+        </div>
+      </Dialog>
+    </>
   );
 };
 

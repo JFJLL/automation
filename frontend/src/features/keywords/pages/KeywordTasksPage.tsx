@@ -1,9 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Play, Pause, Trash2, Plus, Minus, ExternalLink, RefreshCw, FileText } from 'lucide-react';
 import { fetchJson } from '@/shared/api/client';
-import { Button } from '@/shared/components/Button';
-import { StatusBadge } from '@/shared/components/Badge';
 import { Dialog } from '@/shared/components/Dialog';
 import { useToast } from '@/shared/components/Toast';
 
@@ -95,159 +92,129 @@ export const KeywordTasksPage: React.FC = () => {
   const activeTaskForRemove = tasks.find((t) => t.id === removeModalTaskId);
 
   return (
-    <div style={{ maxWidth: '1240px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <h2 style={{ fontSize: '20px', fontWeight: 700, color: '#0f172a' }}>关键词监控任务管理</h2>
-          <p style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>
-            管理聚光关键词每日自动化监控任务、动态加词、减词与飞书表格协同
-          </p>
-        </div>
-        <Button variant="secondary" size="sm" onClick={() => refetch()}>
-          <RefreshCw size={14} /> 刷新任务
-        </Button>
+    <div className="card">
+      <div className="card-title">
+        <span>现有关键词监控任务</span>
+        <button type="button" className="btn btn-outline btn-sm" onClick={() => refetch()}>
+          🔄 刷新列表
+        </button>
       </div>
 
-      <div style={{ backgroundColor: '#ffffff', borderRadius: '12px', border: '1px solid #e2e8f0', overflow: 'hidden' }}>
+      <div className="table-container">
         {isLoading ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>加载任务列表中...</div>
+          <div style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>加载任务中...</div>
         ) : tasks.length === 0 ? (
-          <div style={{ padding: '60px 20px', textAlign: 'center', color: '#94a3b8' }}>
-            <FileText size={40} style={{ margin: '0 auto 12px', opacity: 0.5 }} />
-            <div style={{ fontSize: '15px', color: '#475569', fontWeight: 500 }}>暂无生效的关键词监控任务</div>
-          </div>
+          <div style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>暂无关键词监控任务</div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '13px' }}>
+          <table>
             <thead>
-              <tr style={{ backgroundColor: '#f8fafc', borderBottom: '1px solid #e2e8f0', color: '#475569' }}>
-                <th style={{ padding: '12px 16px', fontWeight: 600 }}>任务名称 / ID</th>
-                <th style={{ padding: '12px 16px', fontWeight: 600 }}>词数 / 详情</th>
-                <th style={{ padding: '12px 16px', fontWeight: 600 }}>状态</th>
-                <th style={{ padding: '12px 16px', fontWeight: 600 }}>更新模式</th>
-                <th style={{ padding: '12px 16px', fontWeight: 600 }}>上次执行</th>
-                <th style={{ padding: '12px 16px', fontWeight: 600 }}>下次预定</th>
-                <th style={{ padding: '12px 16px', fontWeight: 600, textAlign: 'right' }}>操作</th>
+              <tr>
+                <th>任务名称</th>
+                <th>关键词详情</th>
+                <th>状态</th>
+                <th>对应飞书表格</th>
+                <th>模式</th>
+                <th>调度频率</th>
+                <th>上次执行</th>
+                <th style={{ textAlign: 'center' }}>操作</th>
               </tr>
             </thead>
             <tbody>
               {tasks.map((t) => (
-                <tr key={t.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                  <td style={{ padding: '14px 16px' }}>
-                    <div style={{ fontWeight: 600, color: '#0f172a' }}>{t.name}</div>
-                    <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '2px' }}>ID: #{t.id}</div>
+                <tr key={t.id}>
+                  <td>
+                    <strong>{t.name}</strong>
+                    <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>ID: #{t.id}</div>
                   </td>
-                  <td style={{ padding: '14px 16px', maxWidth: '320px' }}>
-                    <div style={{ fontWeight: 600, color: '#334155', marginBottom: '4px' }}>
-                      有效监控：{t.keywords?.length || 0} 个词
-                      {t.removed_keywords?.length > 0 && (
-                        <span style={{ fontSize: '11px', color: '#94a3b8', marginLeft: '6px' }}>
-                          (已减 {t.removed_keywords.length} 个)
-                        </span>
-                      )}
+                  <td style={{ maxWidth: '280px' }}>
+                    <div style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>
+                      有效监控: {t.keywords?.length || 0} 个词
                     </div>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '2px' }}>
                       {t.keywords?.slice(0, 4).map((kw: string) => (
-                        <span
-                          key={kw}
-                          style={{
-                            padding: '2px 6px',
-                            borderRadius: '4px',
-                            backgroundColor: '#f1f5f9',
-                            fontSize: '11px',
-                            color: '#475569',
-                          }}
-                        >
+                        <span key={kw} className="badge badge-gray" style={{ fontSize: '11px' }}>
                           {kw}
                         </span>
                       ))}
                       {t.keywords?.length > 4 && (
-                        <span style={{ fontSize: '11px', color: '#94a3b8' }}>+{t.keywords.length - 4}...</span>
+                        <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>+{t.keywords.length - 4}...</span>
                       )}
                     </div>
                   </td>
-                  <td style={{ padding: '14px 16px' }}>
-                    <StatusBadge status={t.status} />
+                  <td>
+                    <span className={`badge ${t.status === 'active' ? 'badge-success' : 'badge-gray'}`}>
+                      {t.status === 'active' ? '正常运行' : '已暂停'}
+                    </span>
                   </td>
-                  <td style={{ padding: '14px 16px', color: '#475569' }}>
-                    {t.update_mode === 'append' ? '增量追加' : '全量覆写'}
+                  <td>
+                    {t.spreadsheet_url ? (
+                      <a
+                        href={t.spreadsheet_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ color: 'var(--primary)', fontWeight: 500, textDecoration: 'none' }}
+                      >
+                        查看飞书表格 ↗
+                      </a>
+                    ) : '-'}
                   </td>
-                  <td style={{ padding: '14px 16px' }}>
+                  <td>{t.update_mode === 'append' ? '增量追加' : '全量覆写'}</td>
+                  <td>{t.rrule || '每天 12:30'}</td>
+                  <td>
                     <div>{t.last_run_at ? t.last_run_at.substring(0, 16).replace('T', ' ') : '-'}</div>
-                    {t.last_status && <StatusBadge status={t.last_status} style={{ marginTop: '4px' }} />}
+                    {t.last_status && (
+                      <span className={`badge ${t.last_status === 'success' ? 'badge-success' : 'badge-danger'}`} style={{ marginTop: '2px' }}>
+                        {t.last_status === 'success' ? '成功' : '失败'}
+                      </span>
+                    )}
                   </td>
-                  <td style={{ padding: '14px 16px', color: '#64748b' }}>
-                    {t.next_run_at ? t.next_run_at.substring(0, 16).replace('T', ' ') : '-'}
-                  </td>
-                  <td style={{ padding: '14px 16px', textAlign: 'right' }}>
+                  <td style={{ textAlign: 'center' }}>
                     <div style={{ display: 'inline-flex', gap: '6px' }}>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        title="立即执行同步"
-                        loading={runNowMutation.isPending && runNowMutation.variables === t.id}
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-sm"
+                        disabled={runNowMutation.isPending && runNowMutation.variables === t.id}
                         onClick={() => runNowMutation.mutate(t.id)}
                       >
-                        <Play size={13} /> 运行
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        title="追加新词"
+                        ⚡ 立即同步
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-sm"
+                        style={{ color: 'var(--primary)', fontWeight: 600 }}
                         onClick={() => {
                           setAppendModalTaskId(t.id);
                           setAppendWordsInput('');
                         }}
                       >
-                        <Plus size={13} /> 加词
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        title="减词"
+                        加词
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-sm"
+                        style={{ color: '#d97706', fontWeight: 600 }}
                         onClick={() => {
                           setRemoveModalTaskId(t.id);
                           setRemoveWordSelect([]);
                         }}
                       >
-                        <Minus size={13} /> 减词
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        title={t.status === 'active' ? '暂停任务' : '恢复任务'}
+                        减词
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-sm"
                         onClick={() => toggleMutation.mutate(t.id)}
                       >
-                        {t.status === 'active' ? <Pause size={13} /> : <Play size={13} />}
-                      </Button>
-                      {t.spreadsheet_url && (
-                        <a
-                          href={t.spreadsheet_url}
-                          target="_blank"
-                          rel="noreferrer"
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: '4px',
-                            padding: '6px 10px',
-                            fontSize: '13px',
-                            borderRadius: '6px',
-                            backgroundColor: '#f0fdf4',
-                            color: '#16a34a',
-                            border: '1px solid #bbf7d0',
-                            textDecoration: 'none',
-                          }}
-                        >
-                          <ExternalLink size={13} /> 飞书
-                        </a>
-                      )}
-                      <Button
-                        size="sm"
-                        variant="danger"
-                        title="归档删除任务"
+                        {t.status === 'active' ? '暂停' : '恢复'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-sm"
+                        style={{ color: 'var(--danger)' }}
                         onClick={() => setDeleteConfirmId(t.id)}
                       >
-                        <Trash2 size={13} />
-                      </Button>
+                        删除
+                      </button>
                     </div>
                   </td>
                 </tr>
@@ -257,7 +224,7 @@ export const KeywordTasksPage: React.FC = () => {
         )}
       </div>
 
-      {/* 加词弹窗 */}
+      {/* 加词 Dialog */}
       <Dialog
         isOpen={appendModalTaskId !== null}
         onClose={() => setAppendModalTaskId(null)}
@@ -265,29 +232,24 @@ export const KeywordTasksPage: React.FC = () => {
         width="440px"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <p style={{ fontSize: '13px', color: '#64748b' }}>
-            新词将立即加入该任务的监控列表，并自动抓取数据填入飞书表格中：
+          <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+            新词将立即加入该任务监控列表，并自动抓取数据填入飞书表格中：
           </p>
           <input
             type="text"
+            className="form-control"
             placeholder="输入新关键词（空格或逗号分隔多词）"
             value={appendWordsInput}
             onChange={(e) => setAppendWordsInput(e.target.value)}
-            style={{
-              padding: '9px 12px',
-              borderRadius: '6px',
-              border: '1px solid #cbd5e1',
-              fontSize: '14px',
-            }}
           />
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-            <Button variant="secondary" onClick={() => setAppendModalTaskId(null)}>
+            <button type="button" className="btn btn-outline" onClick={() => setAppendModalTaskId(null)}>
               取消
-            </Button>
-            <Button
-              variant="primary"
-              loading={appendMutation.isPending}
-              disabled={!appendWordsInput.trim()}
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={appendMutation.isPending || !appendWordsInput.trim()}
               onClick={() => {
                 if (appendModalTaskId) {
                   const words = appendWordsInput.replace(/[,，]/g, ' ').split(/\s+/).filter(Boolean);
@@ -296,12 +258,12 @@ export const KeywordTasksPage: React.FC = () => {
               }}
             >
               确认加词
-            </Button>
+            </button>
           </div>
         </div>
       </Dialog>
 
-      {/* 减词弹窗 */}
+      {/* 减词 Dialog */}
       <Dialog
         isOpen={removeModalTaskId !== null}
         onClose={() => setRemoveModalTaskId(null)}
@@ -309,10 +271,10 @@ export const KeywordTasksPage: React.FC = () => {
         width="480px"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <p style={{ fontSize: '13px', color: '#64748b' }}>
-            被减掉的词将保留表格中的历史数据，但后续不再拉取更新，且不会产生历史日期错位：
+          <p style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+            被减掉的词将保留表格中的历史数据，但后续不再拉取更新：
           </p>
-          <div style={{ maxHeight: '240px', overflowY: 'auto', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+          <div style={{ maxHeight: '220px', overflowY: 'auto', display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
             {activeTaskForRemove?.keywords?.map((kw: string) => {
               const isSelected = removeWordSelect.includes(kw);
               return (
@@ -327,9 +289,9 @@ export const KeywordTasksPage: React.FC = () => {
                     borderRadius: '6px',
                     fontSize: '12px',
                     cursor: 'pointer',
-                    border: '1px solid ' + (isSelected ? '#ef4444' : '#cbd5e1'),
-                    backgroundColor: isSelected ? '#fef2f2' : '#ffffff',
-                    color: isSelected ? '#ef4444' : '#334155',
+                    border: '1px solid ' + (isSelected ? '#ef4444' : 'var(--border)'),
+                    background: isSelected ? '#fef2f2' : '#ffffff',
+                    color: isSelected ? '#ef4444' : 'var(--text)',
                   }}
                 >
                   {kw}
@@ -338,13 +300,13 @@ export const KeywordTasksPage: React.FC = () => {
             })}
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-            <Button variant="secondary" onClick={() => setRemoveModalTaskId(null)}>
+            <button type="button" className="btn btn-outline" onClick={() => setRemoveModalTaskId(null)}>
               取消
-            </Button>
-            <Button
-              variant="danger"
-              loading={removeMutation.isPending}
-              disabled={removeWordSelect.length === 0}
+            </button>
+            <button
+              type="button"
+              className="btn btn-danger"
+              disabled={removeMutation.isPending || removeWordSelect.length === 0}
               onClick={() => {
                 if (removeModalTaskId) {
                   removeMutation.mutate({ taskId: removeModalTaskId, words: removeWordSelect });
@@ -352,33 +314,34 @@ export const KeywordTasksPage: React.FC = () => {
               }}
             >
               确认减去 ({removeWordSelect.length} 词)
-            </Button>
+            </button>
           </div>
         </div>
       </Dialog>
 
-      {/* 删除确认弹窗 */}
+      {/* 删除确认 Dialog */}
       <Dialog
         isOpen={deleteConfirmId !== null}
         onClose={() => setDeleteConfirmId(null)}
         title="确认删除关键词任务"
         width="400px"
       >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-          <p style={{ fontSize: '14px', color: '#475569' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
             确定要归档删除该关键词监控任务吗？飞书表格内容将保留，但不再触发后续同步。
           </p>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-            <Button variant="secondary" onClick={() => setDeleteConfirmId(null)}>
+            <button type="button" className="btn btn-outline" onClick={() => setDeleteConfirmId(null)}>
               取消
-            </Button>
-            <Button
-              variant="danger"
-              loading={deleteMutation.isPending}
+            </button>
+            <button
+              type="button"
+              className="btn btn-danger"
+              disabled={deleteMutation.isPending}
               onClick={() => deleteConfirmId && deleteMutation.mutate(deleteConfirmId)}
             >
               确认删除
-            </Button>
+            </button>
           </div>
         </div>
       </Dialog>

@@ -1,24 +1,22 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { UploadCloud, ArrowRight } from 'lucide-react';
+import { Info, Check, AlertTriangle, ArrowRight, RotateCw } from 'lucide-react';
 import { fetchJson } from '@/shared/api/client';
-import { Button } from '@/shared/components/Button';
 import { useToast } from '@/shared/components/Toast';
-import { PlatformSelector } from '../components/PlatformSelector';
-import { SheetSelector } from '../components/SheetSelector';
-import { PreviewPanel } from '../components/PreviewPanel';
 
 export const ImportPage: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const { showSuccess, showError, showInfo } = useToast();
+  const { showSuccess, showError } = useToast();
 
   const [platform, setPlatform] = useState<string>('jzt');
   const [subAccountId, setSubAccountId] = useState<string>('');
   const [file, setFile] = useState<File | null>(null);
   const [analyzedSheets, setAnalyzedSheets] = useState<any[]>([]);
   const [selectedSheetIndices, setSelectedSheetIndices] = useState<number[]>([0]);
+
+  // 任务配置项
   const [taskName, setTaskName] = useState<string>('');
   const [updateMode, setUpdateMode] = useState<string>('append');
   const [calibrationDays, setCalibrationDays] = useState<number>(2);
@@ -31,7 +29,13 @@ export const ImportPage: React.FC = () => {
     enabled: platform === 'juguang',
   });
 
-  // 上传文件并分析
+  // 获取最近的同步任务
+  const { data: recentTasks = [] } = useQuery<any[]>({
+    queryKey: ['syncTasks'],
+    queryFn: () => fetchJson('/api/tasks'),
+  });
+
+  // 上传 Excel 样本
   const uploadMutation = useMutation({
     mutationFn: async (uploadFile: File) => {
       const formData = new FormData();
@@ -44,7 +48,7 @@ export const ImportPage: React.FC = () => {
     },
     onSuccess: (res) => {
       setAnalyzedSheets(res.sheets);
-      setSelectedSheetIndices(res.sheets.map((_, i) => i)); // 默认全选
+      setSelectedSheetIndices(res.sheets.map((_, i) => i));
       if (!taskName && res.filename) {
         setTaskName(res.filename.replace(/\.[^/.]+$/, '') + '_自动同步');
       }
@@ -55,12 +59,12 @@ export const ImportPage: React.FC = () => {
     },
   });
 
-  // 抓取真实数据 Preview (Section 二十一 parity)
+  // 平台预览
   const previewMutation = useMutation({
     mutationFn: async () => {
       const firstSheet = analyzedSheets[selectedSheetIndices[0] || 0];
       if (!firstSheet) throw new Error('未选择有效工作表');
-      
+
       const today = new Date();
       const endStr = today.toISOString().split('T')[0];
       const startDt = new Date(today.getTime() - 7 * 86400 * 1000);
@@ -90,13 +94,12 @@ export const ImportPage: React.FC = () => {
     },
   });
 
-  // 创建任务 (支持多 Sheet 勾选与真实预览数据提交)
+  // 创建同步任务
   const createTaskMutation = useMutation({
     mutationFn: async () => {
       if (selectedSheetIndices.length === 0) {
         throw new Error('请至少勾选一个工作表');
       }
-
       const previewRows = previewMutation.data?.rows || [];
 
       const sheetsPayload = selectedSheetIndices.map((idx) => {
@@ -154,175 +157,354 @@ export const ImportPage: React.FC = () => {
     }
   };
 
+  const currentStep = !file ? 1 : analyzedSheets.length === 0 ? 2 : !previewMutation.data ? 3 : 4;
+
   return (
-    <div style={{ maxWidth: '1000px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '24px' }}>
-      <div>
-        <h2 style={{ fontSize: '20px', fontWeight: 700, color: '#0f172a' }}>导入报表并创建同步任务</h2>
-        <p style={{ fontSize: '13px', color: '#64748b', marginTop: '4px' }}>
-          上传已有业务 Excel，系统将智能提取实体 ID、匹配维度并初始化飞书在线报表
-        </p>
+    <>
+      <div className="page-heading">
+        <h2>新建同步任务</h2>
+        <p>按照以下步骤完成设置，将广告投放数据自动同步到飞书</p>
       </div>
 
-      {/* 1. 选择数据源平台 */}
-      <PlatformSelector
-        platform={platform}
-        setPlatform={(p) => {
-          setPlatform(p);
-          if (file) uploadMutation.mutate(file);
-        }}
-        subAccountId={subAccountId}
-        setSubAccountId={setSubAccountId}
-        subaccounts={subaccounts}
-      />
-
-      {/* 2. 上传 Excel */}
-      <div style={{ backgroundColor: '#ffffff', borderRadius: '12px', padding: '20px', border: '1px solid #e2e8f0' }}>
-        <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#0f172a', marginBottom: '14px' }}>
-          2. 上传数据模板 Excel
-        </h3>
-        <label
-          style={{
-            display: 'flex',
-            flexDirection: 'column',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: '36px',
-            border: '2px dashed #cbd5e1',
-            borderRadius: '8px',
-            cursor: 'pointer',
-            backgroundColor: '#f8fafc',
-          }}
-        >
-          <UploadCloud size={36} color="#ea3445" />
-          <div style={{ marginTop: '10px', fontSize: '14px', fontWeight: 500, color: '#334155' }}>
-            {file ? file.name : '点击或拖拽上传 .xlsx 报表文件'}
-          </div>
-          <div style={{ fontSize: '12px', color: '#94a3b8', marginTop: '4px' }}>支持包含多工作表的 Excel 报表</div>
-          <input type="file" accept=".xlsx,.xls" onChange={handleFileChange} style={{ display: 'none' }} />
-        </label>
+      {/* 原版步骤条 */}
+      <div className="workflow-steps" aria-label="任务创建进度">
+        <div className={`workflow-step ${currentStep >= 1 ? 'active' : ''}`}>
+          <span className="step-index">1</span>
+          <span>选择投放平台</span>
+        </div>
+        <span className="step-line" />
+        <div className={`workflow-step ${currentStep >= 2 ? 'active' : ''}`}>
+          <span className="step-index">2</span>
+          <span>上传 Excel 数据样本</span>
+        </div>
+        <span className="step-line" />
+        <div className={`workflow-step ${currentStep >= 3 ? 'active' : ''}`}>
+          <span className="step-index">3</span>
+          <span>核验数据</span>
+        </div>
+        <span className="step-line" />
+        <div className={`workflow-step ${currentStep >= 4 ? 'active' : ''}`}>
+          <span className="step-index">4</span>
+          <span>创建同步任务</span>
+        </div>
       </div>
 
-      {/* 3. Sheet 识别、预览与任务配置 */}
-      {analyzedSheets.length > 0 && (
-        <div style={{ backgroundColor: '#ffffff', borderRadius: '12px', padding: '20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-          <h3 style={{ fontSize: '15px', fontWeight: 600, color: '#0f172a' }}>
-            3. 配置同步任务与调度
-          </h3>
-
-          {/* 多 Sheet 勾选选择器 */}
-          <SheetSelector
-            sheets={analyzedSheets}
-            selectedSheetIndices={selectedSheetIndices}
-            onToggleSheet={handleToggleSheet}
-            selectedPlatform={platform}
-          />
-
-          {/* 真实平台数据 Preview */}
-          <PreviewPanel
-            onFetchPreview={() => previewMutation.mutate()}
-            isLoading={previewMutation.isPending}
-            previewResult={previewMutation.data}
-          />
-
-          {/* 任务名称 */}
-          <div>
-            <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155', display: 'block', marginBottom: '6px' }}>
-              任务名称
-            </label>
-            <input
-              type="text"
-              value={taskName}
-              onChange={(e) => setTaskName(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '9px 12px',
-                borderRadius: '6px',
-                border: '1px solid #cbd5e1',
-                fontSize: '14px',
-              }}
-            />
-          </div>
-
-          {/* 更新模式与回溯天数 */}
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-            <div>
-              <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155', display: 'block', marginBottom: '6px' }}>
-                写入模式
-              </label>
-              <select
-                value={updateMode}
-                onChange={(e) => setUpdateMode(e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: '9px 12px',
-                  borderRadius: '6px',
-                  border: '1px solid #cbd5e1',
-                  fontSize: '14px',
+      <div className="import-dashboard-grid">
+        <div className="card workflow-primary">
+          {/* 第 1 步：选择投放平台 */}
+          <section className="workflow-section">
+            <div className="section-heading">
+              <span className="step-index">1</span>
+              <div>
+                <h3>选择投放平台</h3>
+                <p>请选择需要同步的广告平台</p>
+              </div>
+            </div>
+            <div className="platform-selector">
+              <div
+                className={`platform-card ${platform === 'jzt' ? 'selected' : ''}`}
+                onClick={() => {
+                  setPlatform('jzt');
+                  if (file) uploadMutation.mutate(file);
                 }}
               >
-                <option value="append">增量更新 (自动校准并防重)</option>
-                <option value="overwrite">全量覆写 (滚动窗口)</option>
-              </select>
+                <img className="platform-logo" src="/static/assets/platform-jzt.png" alt="京准通" />
+                <div className="title">京准通</div>
+                <div className="desc">京东达人/小红盟报表<br />(25列日明细)</div>
+              </div>
+              <div
+                className={`platform-card ${platform === 'taobao' ? 'selected' : ''}`}
+                onClick={() => {
+                  setPlatform('taobao');
+                  if (file) uploadMutation.mutate(file);
+                }}
+              >
+                <img className="platform-logo" src="/static/assets/platform-taobao.png" alt="淘宝星河" />
+                <div className="title">淘宝星河</div>
+                <div className="desc">小红星达人效果报表<br />(内容/任务维度)</div>
+              </div>
+              <div
+                className={`platform-card ${platform === 'juguang' ? 'selected' : ''}`}
+                onClick={() => {
+                  setPlatform('juguang');
+                  if (file) uploadMutation.mutate(file);
+                }}
+              >
+                <img className="platform-logo" src="/static/assets/platform-juguang.png" alt="小红书聚光" />
+                <div className="title">小红书聚光</div>
+                <div className="desc">小红书后台报表<br />(创意/定向/关键词/账户)</div>
+              </div>
             </div>
 
-            <div>
-              <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155', display: 'block', marginBottom: '6px' }}>
-                回溯校准天数
-              </label>
+            {platform === 'juguang' && (
+              <div style={{ marginTop: '16px', padding: '14px', background: '#fff8f8', border: '1px solid #f9d2d5', borderRadius: '8px' }}>
+                <label style={{ fontSize: '13px', fontWeight: 600, color: '#82222b', display: 'block', marginBottom: '8px' }}>
+                  选择聚光子账号
+                </label>
+                <select
+                  value={subAccountId}
+                  onChange={(e) => setSubAccountId(e.target.value)}
+                  className="form-control"
+                  style={{ maxWidth: '400px' }}
+                >
+                  <option value="">默认主账号 / 全局凭据</option>
+                  {subaccounts.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {s.name} ({s.id})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
+          </section>
+
+          {/* 第 2 步：上传 Excel */}
+          <section className="workflow-section">
+            <div className="section-heading">
+              <span className="step-index">2</span>
+              <div>
+                <h3>上传 Excel 数据样本</h3>
+                <p>请上传广告平台导出的 Excel 报表样本，系统将自动解析表头与数据结构</p>
+              </div>
+            </div>
+            <label
+              className="upload-box"
+              style={{ display: 'block', cursor: 'pointer' }}
+            >
+              <input type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleFileChange} />
+              <div className="upload-file-icon">X</div>
+              <div className="upload-title">{file ? file.name : '点击或拖拽上传 Excel 文件'}</div>
+              <div className="upload-desc">支持 .xlsx、.xls 格式，建议使用近 30 行样本数据，文件不超过 50MB</div>
+            </label>
+            <div className="upload-note">
+              <Info className="icon" size={14} />
+              <span>上传后系统将自动解析表头字段、数据类型，并进行格式校验</span>
+            </div>
+          </section>
+        </div>
+
+        {/* 右侧指引 Rail */}
+        <aside className="insight-rail">
+          <section className="rail-card">
+            <div className="rail-title">
+              <h3>最近的同步任务</h3>
+              <button className="rail-link" type="button" onClick={() => navigate('/tasks')}>
+                查看更多 ›
+              </button>
+            </div>
+            {recentTasks.length === 0 ? (
+              <div className="recent-empty">任务创建后会显示在这里<br />便于快速查看运行状态</div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {recentTasks.slice(0, 3).map((t) => (
+                  <div key={t.id} style={{ fontSize: '12px', padding: '6px 0', borderBottom: '1px solid #f1f5f9' }}>
+                    <div style={{ fontWeight: 600, color: 'var(--text)' }}>{t.name}</div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{t.platform} · {t.update_mode}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+
+          <section className="rail-card">
+            <div className="rail-title">
+              <h3>操作指引</h3>
+            </div>
+            <div className="guide-list">
+              <div className="guide-item">
+                <span className="num">1</span>
+                <div>
+                  <strong>选择投放平台</strong>
+                  <p>根据需要同步的数据来源，选择对应平台</p>
+                </div>
+              </div>
+              <div className="guide-item">
+                <span className="num">2</span>
+                <div>
+                  <strong>上传 Excel 数据样本</strong>
+                  <p>使用平台导出的报表文件，系统将自动解析字段</p>
+                </div>
+              </div>
+              <div className="guide-item">
+                <span className="num">3</span>
+                <div>
+                  <strong>核验数据</strong>
+                  <p>确认字段映射关系与数据格式是否正确</p>
+                </div>
+              </div>
+              <div className="guide-item">
+                <span className="num">4</span>
+                <div>
+                  <strong>创建同步任务</strong>
+                  <p>配置飞书表格、同步频率等信息</p>
+                </div>
+              </div>
+            </div>
+          </section>
+        </aside>
+      </div>
+
+      {/* 第 3 步：工作表分析与实体确认 */}
+      {analyzedSheets.length > 0 && (
+        <div className="card" id="sheetAnalysisCard" style={{ animation: 'uiFadeUp .28s both' }}>
+          <div className="card-title">第三步：工作表分析与实体确认</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+              已解析 {analyzedSheets.length} 个工作表，勾选需要包含进同步计划的 Sheet：
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' }}>
+              {analyzedSheets.map((s, idx) => {
+                const isSelected = selectedSheetIndices.includes(idx);
+                return (
+                  <div
+                    key={s.sheet_title}
+                    onClick={() => handleToggleSheet(idx)}
+                    style={{
+                      padding: '14px 16px',
+                      borderRadius: '8px',
+                      border: '1.5px solid ' + (isSelected ? 'var(--primary)' : 'var(--border)'),
+                      background: isSelected ? 'var(--primary-light)' : '#ffffff',
+                      cursor: 'pointer',
+                      display: 'flex',
+                      flexDirection: 'column',
+                      gap: '6px',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <strong style={{ fontSize: '14px', color: isSelected ? 'var(--primary)' : 'var(--text)' }}>
+                        {s.sheet_title}
+                      </strong>
+                      <span style={{ fontSize: '12px', color: isSelected ? 'var(--primary)' : 'var(--text-muted)' }}>
+                        {isSelected ? '✓ 已选中' : '未选择'}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                      ID 列: <strong>{s.id_column || '未识别'}</strong> · 日期: <strong>{s.date_column || '未识别'}</strong>
+                    </div>
+                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                      识别到实体数: <strong>{s.detected_entity_ids?.length || 0} 个</strong>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 第 4 步：平台接口预览 */}
+      {analyzedSheets.length > 0 && (
+        <div className="card" id="previewCard" style={{ animation: 'uiFadeUp .28s both' }}>
+          <div className="card-title">
+            <span>第四步：调取平台接口数据预览</span>
+            <button
+              type="button"
+              className="btn btn-primary btn-sm"
+              onClick={() => previewMutation.mutate()}
+              disabled={previewMutation.isPending}
+            >
+              🔄 重新测试抓取
+            </button>
+          </div>
+
+          {previewMutation.data ? (
+            <div className="table-container" style={{ maxHeight: '280px', overflowY: 'auto' }}>
+              <table>
+                <thead>
+                  <tr>
+                    {previewMutation.data.headers.map((h: string, i: number) => (
+                      <th key={i}>{h}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {previewMutation.data.rows.slice(0, 8).map((row: any[], rIdx: number) => (
+                    <tr key={rIdx}>
+                      {row.map((c: any, cIdx: number) => (
+                        <td key={cIdx}>{c !== null && c !== undefined ? String(c) : '-'}</td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
+              点击上方按钮测试调取目标平台（{platform === 'jzt' ? '京准通' : platform === 'taobao' ? '淘宝星河' : '小红书聚光'}）接口并核验字段映射。
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 第 5 步：创建任务与定时配置 */}
+      {analyzedSheets.length > 0 && (
+        <div className="card" id="scheduleConfigCard" style={{ animation: 'uiFadeUp .28s both' }}>
+          <div className="card-title">第五步：创建飞书表格并配置定时自动同步</div>
+
+          <div className="form-row">
+            <div className="form-group" style={{ flex: 2 }}>
+              <label>飞书表格名称</label>
+              <input
+                type="text"
+                className="form-control"
+                value={taskName}
+                onChange={(e) => setTaskName(e.target.value)}
+              />
+            </div>
+            <div className="form-group">
+              <label>更新方式</label>
+              <select
+                className="form-control"
+                value={updateMode}
+                onChange={(e) => setUpdateMode(e.target.value)}
+              >
+                <option value="append">增量更新（自动校准并防重）</option>
+                <option value="overwrite">全量覆盖（滚动窗口覆写）</option>
+              </select>
+            </div>
+            <div className="form-group" style={{ maxWidth: '140px' }}>
+              <label>回溯校准天数</label>
               <input
                 type="number"
                 min="0"
                 max="30"
+                className="form-control"
                 value={calibrationDays}
                 onChange={(e) => setCalibrationDays(parseInt(e.target.value) || 0)}
-                style={{
-                  width: '100%',
-                  padding: '9px 12px',
-                  borderRadius: '6px',
-                  border: '1px solid #cbd5e1',
-                  fontSize: '14px',
-                }}
               />
             </div>
           </div>
 
-          {/* 定时频率 */}
-          <div>
-            <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155', display: 'block', marginBottom: '6px' }}>
-              执行频率 (RRULE)
+          <div style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '18px', background: '#fafbfc', margin: '16px 0' }}>
+            <label style={{ fontSize: '14px', fontWeight: 600, display: 'block', marginBottom: '8px' }}>
+              ⏰ 自动化同步周期 (RRULE)
             </label>
             <select
+              className="form-control"
               value={rrule}
               onChange={(e) => setRrule(e.target.value)}
-              style={{
-                width: '100%',
-                padding: '9px 12px',
-                borderRadius: '6px',
-                border: '1px solid #cbd5e1',
-                fontSize: '14px',
-              }}
+              style={{ maxWidth: '360px' }}
             >
               <option value="RRULE:FREQ=DAILY;BYHOUR=9;BYMINUTE=0">每天 09:00 执行</option>
-              <option value="RRULE:FREQ=DAILY;BYHOUR=12;BYMINUTE=30">每天 12:30 执行 (T-1 推荐)</option>
+              <option value="RRULE:FREQ=DAILY;BYHOUR=12;BYMINUTE=30">每天 12:30 执行 (推荐，T-1数据)</option>
               <option value="RRULE:FREQ=DAILY;BYHOUR=18;BYMINUTE=0">每天 18:00 执行</option>
               <option value="RRULE:FREQ=WORKDAY;BYHOUR=9;BYMINUTE=30">法定工作日 09:30 执行</option>
             </select>
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
-            <Button
-              size="lg"
-              variant="primary"
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={createTaskMutation.isPending || !taskName.trim() || selectedSheetIndices.length === 0}
               onClick={() => createTaskMutation.mutate()}
-              loading={createTaskMutation.isPending}
-              disabled={!taskName || selectedSheetIndices.length === 0}
             >
-              创建同步任务并建立飞书表 ({selectedSheetIndices.length} Sheet) <ArrowRight size={16} />
-            </Button>
+              {createTaskMutation.isPending ? '创建中…' : '🚀 立即生成飞书表格并启用定时任务'}
+            </button>
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 };
 
