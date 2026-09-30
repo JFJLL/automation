@@ -1293,13 +1293,13 @@
             
             <!-- 时间选择器 (统一胶囊容器 + 快捷分段Pill，高度统一 38px) -->
             <div class="filter-field">
-              <span class="filter-label">时间范围</span>
+              <span class="filter-label">时间范围 <span style="font-size:12px; font-weight:normal; color:var(--text-muted); margin-left:6px;">(中午12:00起支持T-1)</span></span>
               <div class="date-picker-box">
                 <div class="date-range-capsule">
                   <span class="date-icon"><i data-lucide="calendar" class="icon"></i></span>
-                  <input type="date" id="startDate" class="date-input" aria-label="开始日期">
+                  <input type="date" id="startDate" class="date-input" aria-label="开始日期" onchange="validateDateRange(true)">
                   <span class="date-separator">至</span>
-                  <input type="date" id="endDate" class="date-input" aria-label="结束日期">
+                  <input type="date" id="endDate" class="date-input" aria-label="结束日期" onchange="validateDateRange(true)">
                 </div>
                 <div class="pill-segmented ms-1">
                   <button type="button" class="pill-btn" onclick="setDateRange(7, this)">近7天</button>
@@ -2344,31 +2344,71 @@
       });
     }
 
-    function initDates() {
+    function getLatestAvailableDate() {
       const now = new Date();
-      // 昨天 (T-1)
-      const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-      const past90 = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 90);
-      document.getElementById('endDate').value = formatYMD(yesterday);
-      document.getElementById('startDate').value = formatYMD(past90);
+      // 中午 12:00 起支持 T-1，12:00 前只支持到 T-2
+      const offsetDays = now.getHours() >= 12 ? 1 : 2;
+      return new Date(now.getFullYear(), now.getMonth(), now.getDate() - offsetDays);
+    }
+
+    function initDates() {
+      const latest = getLatestAvailableDate();
+      const past90 = new Date(latest.getFullYear(), latest.getMonth(), latest.getDate() - 89);
+      const endEl = document.getElementById("endDate");
+      const startEl = document.getElementById("startDate");
+      endEl.value = formatYMD(latest);
+      endEl.max = formatYMD(latest);
+      startEl.value = formatYMD(past90);
+      startEl.max = formatYMD(latest);
     }
 
     function formatYMD(d) {
       const y = d.getFullYear();
       const m = String(d.getMonth() + 1).padStart(2, '0');
       const day = String(d.getDate()).padStart(2, '0');
-      return `${y}-${m}-${day}`;
+      return y + '-' + m + '-' + day;
     }
 
     function setDateRange(days, btn) {
-      const now = new Date();
-      const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-      const past = new Date(now.getFullYear(), now.getMonth(), now.getDate() - days);
-      document.getElementById('endDate').value = formatYMD(yesterday);
-      document.getElementById('startDate').value = formatYMD(past);
+      const latest = getLatestAvailableDate();
+      const past = new Date(latest.getFullYear(), latest.getMonth(), latest.getDate() - (days - 1));
+      document.getElementById("endDate").value = formatYMD(latest);
+      document.getElementById("startDate").value = formatYMD(past);
 
       document.querySelectorAll('.pill-btn').forEach(b => b.classList.remove('active'));
       if (btn) btn.classList.add('active');
+    }
+
+    function validateDateRange(autoClamp = false) {
+      const startEl = document.getElementById("startDate");
+      const endEl = document.getElementById("endDate");
+      const startVal = startEl.value;
+      const endVal = endEl.value;
+      if (!startVal || !endVal) return true;
+      const s = new Date(startVal + 'T00:00:00');
+      const e = new Date(endVal + 'T00:00:00');
+      const latest = getLatestAvailableDate();
+      const latestDay = new Date(latest.getFullYear(), latest.getMonth(), latest.getDate());
+
+      if (e > latestDay) {
+        endEl.value = formatYMD(latest);
+        showAlert('中午12:00前最多支持查询至 ' + formatYMD(latest) + ' (T-2)', 'error');
+        return false;
+      }
+      if (s > e) {
+        showAlert('开始日期不能大于结束日期', 'error');
+        return false;
+      }
+      const daysDiff = Math.round((e - s) / (1000 * 3600 * 24)) + 1;
+      if (daysDiff > 90) {
+        showAlert('查询日期间隔不超过90天', 'error');
+        if (autoClamp) {
+          const clampedStart = new Date(e.getFullYear(), e.getMonth(), e.getDate() - 89);
+          startEl.value = formatYMD(clampedStart);
+        }
+        return false;
+      }
+      return true;
     }
 
     function switchMainTab(tab, updateUrl = true) {
@@ -2474,6 +2514,7 @@
 
     // 搜索
     async function doSearch() {
+      if (!validateDateRange(false)) return;
       commitKeywordInput();
       const rawKw = selectedKeywords.join(' ');
       if (!rawKw) {

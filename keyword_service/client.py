@@ -216,13 +216,25 @@ def fetch_keywords_insight(
 ) -> Dict[str, Any]:
     token = load_token(token_path)
     
-    # 默认近90天 (T-1 往前90天)
+    # 每天中午 12:00 前只支持到 T-2，12:00 起支持 T-1
+    now = datetime.now()
+    default_offset = 1 if now.hour >= 12 else 2
     if not end_date:
-        yesterday = datetime.now() - timedelta(days=1)
-        end_date = yesterday.strftime("%Y-%m-%d")
-    if not start_date:
+        end_dt = now - timedelta(days=default_offset)
+        end_date = end_dt.strftime("%Y-%m-%d")
+    else:
         end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+        
+    if not start_date:
         start_date = (end_dt - timedelta(days=89)).strftime("%Y-%m-%d")
+    s_dt = datetime.strptime(start_date, "%Y-%m-%d")
+
+    # 严格校验：日期间隔不超过90天 (与官网保持一致)
+    days_count = (end_dt - s_dt).days + 1
+    if days_count > 90:
+        raise ValueError("查询日期间隔不超过90天")
+    if days_count < 1:
+        raise ValueError("开始日期不能大于结束日期")
         
     # 生成从 start_date 到 end_date 的完整连续自然日历列表
     s_dt = datetime.strptime(start_date, "%Y-%m-%d")

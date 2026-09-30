@@ -252,6 +252,10 @@ def search_keywords(req: KeywordSearchRequest):
             end_date=req.end_date
         )
         return data
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except PermissionError as e:
+        raise HTTPException(status_code=401, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
