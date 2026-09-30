@@ -1280,8 +1280,8 @@
       <span class="platform-badge"><i data-lucide="sparkles" class="icon"></i>小红书聚光</span>
     </div>
 
-    <!-- 提示消息横幅 -->
-    <div id="alertBanner" style="display:none; padding:14px 20px; border-radius:8px; margin-bottom:18px; font-size:14px;"></div>
+    <!-- 提示消息悬浮 Toast (不占用布局流，不引起页面滚动) -->
+    <div id="alertBanner" style="display:none; position:fixed; top:24px; left:50%; transform:translateX(-50%); z-index:999999; min-width:280px; max-width:90vw; padding:10px 20px; border-radius:8px; font-size:14px; font-weight:500; box-shadow:0 10px 25px -5px rgba(0,0,0,0.18), 0 8px 10px -6px rgba(0,0,0,0.1); pointer-events:none; transition:opacity 0.2s ease, transform 0.2s ease; text-align:center;"></div>
 
     <!-- 板块一：关键词查询与概览 -->
     <div id="section-search">
@@ -2501,15 +2501,25 @@
     });
 
     function showAlert(msg, type = 'success') {
+      // 1. 如果在 iframe 内，通知父页面在主视口顶层展示 Toast
+      if (window.parent && window.parent !== window) {
+        try {
+          window.parent.postMessage({ type: 'show_toast', message: msg, toastType: type }, '*');
+        } catch(e) {}
+      }
+
+      // 2. 本地 Toast 显示 (适配独立运行及无干扰展示)
       const b = document.getElementById('alertBanner');
+      if (!b) return;
       const sequence = ++alertSequence;
       if (alertHideTimer) {
         clearTimeout(alertHideTimer);
         alertHideTimer = null;
       }
+
       b.style.display = 'block';
       b.style.opacity = '1';
-      b.style.transform = 'translateY(0)';
+      b.style.transform = 'translateX(-50%) translateY(0)';
       b.style.transition = 'opacity .2s ease, transform .2s ease';
       if (type === 'success') {
         b.style.background = '#e8ffea';
@@ -2521,22 +2531,21 @@
         b.style.color = '#f53f3f';
       }
       b.innerHTML = msg;
-      setTimeout(() => { b.scrollIntoView({ behavior: 'smooth' }); }, 100);
 
-      if (type === 'success') {
+      // 移除 scrollIntoView 避免页面发生任何跳跃与滚动
+      // 成功与错误提示均在 2.8 秒后平滑自动淡出消失
+      alertHideTimer = setTimeout(() => {
+        if (sequence !== alertSequence) return;
+        b.style.opacity = '0';
+        b.style.transform = 'translateX(-50%) translateY(-8px)';
         alertHideTimer = setTimeout(() => {
           if (sequence !== alertSequence) return;
-          b.style.opacity = '0';
-          b.style.transform = 'translateY(-4px)';
-          alertHideTimer = setTimeout(() => {
-            if (sequence !== alertSequence) return;
-            b.style.display = 'none';
-            b.style.opacity = '1';
-            b.style.transform = 'translateY(0)';
-            alertHideTimer = null;
-          }, 220);
-        }, 4000);
-      }
+          b.style.display = 'none';
+          b.style.opacity = '1';
+          b.style.transform = 'translateX(-50%) translateY(0)';
+          alertHideTimer = null;
+        }, 220);
+      }, 2800);
     }
 
     // 切换日期升序/降序展示

@@ -1111,6 +1111,9 @@
   </div>
 
 
+  <!-- 全局悬浮 Toast 容器 (不占用文档流，不引起页面滚动) -->
+  <div id="globalToast" style="display:none; position:fixed; top:24px; left:50%; transform:translateX(-50%); z-index:999999; min-width:280px; max-width:90vw; padding:10px 20px; border-radius:8px; font-size:14px; font-weight:500; box-shadow:0 10px 25px -5px rgba(0,0,0,0.18), 0 8px 10px -6px rgba(0,0,0,0.1); pointer-events:none; transition:opacity 0.2s ease, transform 0.2s ease; text-align:center;"></div>
+
   <div class="help-backdrop" id="helpDrawer" onclick="if(event.target===this) closeHelpDrawer()">
     <aside class="help-drawer" role="dialog" aria-modal="true" aria-labelledby="helpDrawerTitle">
       <div class="help-head"><h2 id="helpDrawerTitle">使用帮助</h2><button class="help-close" type="button" onclick="closeHelpDrawer()" aria-label="关闭">✕</button></div>

@@ -290,6 +290,9 @@ window.addEventListener('message', function(e) {
       window.history.pushState({ tab: 'kw_' + e.data.tab }, '', target);
     }
   }
+  if (e.data && e.data.type === 'show_toast') {
+    showGlobalToast(e.data.message || e.data.msg, e.data.toastType || e.data.alertType || 'success');
+  }
   if (e.data && e.data.type === 'kw_tasks_count') {
     const b = document.getElementById('kwTaskCountBadge');
     if (b) b.innerText = e.data.count;
@@ -382,6 +385,37 @@ function switchTab(name, updateUrl = true) {
       window.history.pushState({ tab: name }, '', targetPath);
     }
   }
+}
+
+let globalToastTimer = null;
+function showGlobalToast(message, type = 'success') {
+  const el = document.getElementById('globalToast');
+  if (!el) return;
+  if (globalToastTimer) {
+    clearTimeout(globalToastTimer);
+    globalToastTimer = null;
+  }
+  el.style.display = 'block';
+  el.style.opacity = '1';
+  el.style.transform = 'translateX(-50%) translateY(0)';
+  if (type === 'error' || type === 'danger') {
+    el.style.background = '#ffece8';
+    el.style.border = '1px solid #f53f3f';
+    el.style.color = '#f53f3f';
+  } else {
+    el.style.background = '#e8ffea';
+    el.style.border = '1px solid #b7eb8f';
+    el.style.color = '#00b42a';
+  }
+  el.innerHTML = message;
+  globalToastTimer = setTimeout(() => {
+    el.style.opacity = '0';
+    el.style.transform = 'translateX(-50%) translateY(-8px)';
+    setTimeout(() => {
+      el.style.display = 'none';
+      globalToastTimer = null;
+    }, 200);
+  }, 2800);
 }
 
 function updateKeywordTaskBadge() {
