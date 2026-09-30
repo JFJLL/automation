@@ -11,6 +11,7 @@ from core.errors import (
     KeywordAuthExpiredError,
     KeywordTimeoutError,
     KeywordUpstreamError,
+    KeywordInvalidResponseError,
 )
 from core.models import KeywordFetchStatus, KeywordItemResult
 

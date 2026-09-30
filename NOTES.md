@@ -253,3 +253,35 @@ esolve_auto_range, parse_args, main。
   All checks passed!
 
 ---
+
+## 6. 阶段 5：调度引擎可靠性 (分支: fix/scheduler)
+
+### 6.1 改动文件清单与对应问题
+- `sync_console/core/schedule_rules.py`:
+  - 抽离出统一的纯函数 `next_run(rule_str, after_dt)`，支持 RRULE 与 WORKDAY 规则；
+  - 严格支持周末跳过、法定调休补班及法定节假日计算，BYHOUR/BYMINUTE 缺失时默认 09:00。
+- `sync_console/core/scheduler_manager.py`:
+  - 调度任务注册统一加上 `misfire_grace_time=3600, coalesce=True, max_instances=1`；
+  - `restore_all_tasks` 增加错失运行检测机制：当 next_run_at < now 且 last_run_at < next_run_at 时，依据 `MISSED_RUN_POLICY` (默认 run_once) 自动补跑一次；
+  - 注册失败的任务记录进 `failed_tasks`，使得 `/api/ready` 返回 degraded 降级状态；
+  - 启动时检测 `WEB_CONCURRENCY > 1` 或 `WORKERS > 1` 时，调度器拒绝在从属 worker 中启动，防止跨进程竞态。
+- `sync_console/app/main.py`:
+  - `/api/ready` 检查增加对调度器降级状态的响应。
+- `frontend/src/features/sync/pages/RunsPage.tsx` & `TasksPage.tsx`:
+  - 增加 3 秒动态轮询：当存在 running / queued 状态时自动以 3 秒间隔轮询刷新，无 running 时停止轮询。
+- `frontend/src/features/keywords/pages/KeywordRunsPage.tsx` & `frontend/src/features/lingxi/pages/LingxiRunsPage.tsx`:
+  - 同样增加 3 秒动态轮询机制。
+- `DEPLOY.md`:
+  - 创建并详细记录调度器单进程约束、系统环境变量约束、Linux 内核安全沙箱参数与 Nginx 反代配置。
+- `tests/test_scheduler.py`:
+  - 单元测试覆盖周末跳过、缺省时分兜底、多进程启动阻止、就绪检查 degraded 状态。
+
+### 6.2 验证结果
+- pytest 测试摘要:
+  88 passed, 3 warnings in 8.31s
+- 前端构建与测试摘要:
+  1969 modules transformed, built in 2.48s; Tests 2 passed (2)
+- ruff 代码检查:
+  All checks passed!
+
+---

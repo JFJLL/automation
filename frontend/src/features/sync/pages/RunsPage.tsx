@@ -15,6 +15,7 @@ export const RunsPage: React.FC = () => {
   }>({
     queryKey: ['syncRuns', page],
     queryFn: () => fetchJson(`/api/runs?page=${page}&page_size=${pageSize}`),
+    refetchInterval: (query: any) => (query.state.data?.items || query.state.data || []).some((r: any) => r.status === 'running' || r.status === 'queued') ? 3000 : false,
   });
 
   const runs = data?.items || [];

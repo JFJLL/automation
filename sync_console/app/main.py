@@ -148,7 +148,7 @@ def health_check():
 
 @app.get("/api/ready")
 def readiness_check():
-    """就绪检查：验证数据库可访问与调度器就绪"""
+    """就绪检查：验证数据库可访问与调度器就绪，包含降级状态检查"""
     db_ok = False
     try:
         with get_db() as conn:
@@ -157,13 +157,19 @@ def readiness_check():
     except Exception:
         db_ok = False
 
-    scheduler_ok = SchedulerManager.get_instance().scheduler.running
+    mgr = SchedulerManager.get_instance()
+    scheduler_ok = mgr.scheduler.running
     if not (db_ok and scheduler_ok):
         raise HTTPException(status_code=503, detail="服务未就绪")
+
+    failed_tasks = mgr.failed_tasks
+    status_str = "degraded" if failed_tasks else "ready"
     return {
-        "status": "ready",
+        "status": status_str,
         "database": "ok",
         "scheduler": "ok",
+        "failed_tasks_count": len(failed_tasks),
+        "failed_tasks": failed_tasks,
         "timestamp": now_business_tz().isoformat()
     }
 

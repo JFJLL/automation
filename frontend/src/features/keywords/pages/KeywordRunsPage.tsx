@@ -15,6 +15,7 @@ export const KeywordRunsPage: React.FC = () => {
   }>({
     queryKey: ['keywordRuns', page],
     queryFn: () => fetchJson(`/api/keyword/runs?page=${page}&page_size=${pageSize}`),
+    refetchInterval: (query: any) => (query.state.data?.items || []).some((r: any) => r.status === 'running' || r.status === 'queued') ? 3000 : false,
   });
 
   const runs = data?.items || [];

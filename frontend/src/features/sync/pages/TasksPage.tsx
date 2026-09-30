@@ -14,6 +14,7 @@ export const TasksPage: React.FC = () => {
   const { data: tasks = [], isLoading, refetch } = useQuery<any[]>({
     queryKey: ['syncTasks'],
     queryFn: () => fetchJson('/api/tasks'),
+    refetchInterval: (query: any) => (query.state.data || []).some((t: any) => t.status === 'running' || t.last_status === 'running') ? 3000 : false,
   });
 
   const runNowMutation = useMutation({
