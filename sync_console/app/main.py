@@ -51,9 +51,13 @@ from core.errors import (
 # 确保根目录在 sys.path
 PROJECT_ROOT = BASE_DIR.parent
 FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
-automation_root = str(PROJECT_ROOT)
-if automation_root not in sys.path:
-    sys.path.insert(0, automation_root)
+if not FRONTEND_DIST.exists():
+    FRONTEND_DIST = BASE_DIR / "frontend" / "dist"
+
+for root_dir in [PROJECT_ROOT, BASE_DIR]:
+    r_str = str(root_dir)
+    if r_str not in sys.path:
+        sys.path.insert(0, r_str)
 
 from keyword_service.router import router as keyword_router, private_router as keyword_private_router
 from lingxi_service.router import router as lingxi_router, private_router as lingxi_private_router
