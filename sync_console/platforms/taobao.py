@@ -1,14 +1,14 @@
-import os
+import hashlib
 import json
+import os
 import time
-import requests
-from typing import List, Dict, Any, Optional
-from urllib.parse import urlparse
 from pathlib import Path
-from platforms.registry import fetch_oss_token
-from app.config import ADSTAR_OSS_OBJECT_KEY, ADSTAR_OSS_BASE_URL, BASE_DIR
-from core.models import ProviderFetchResult, ProviderFetchStatus
+from typing import Dict, Optional
+
+import requests
+from app.config import BASE_DIR
 from core.errors import ProviderAuthError, ProviderUpstreamError
+from core.models import ProviderFetchResult, ProviderFetchStatus
 
 REPORT_BASE_URL = "https://adstar.alimama.com"
 
@@ -16,37 +16,45 @@ EFFECT_COLUMNS = [
     ("阅读/播放UV", "readUv1d"),
     ("点赞UV", "likeUv1d"),
     ("评论UV", "commentUv1d"),
-    ("收藏UV", "favoriteUv1d"),
+    ("收藏UV", "favorUv1d"),
     ("转发UV", "forwardUv1d"),
-    ("互动UV", "engagementUv1d"),
-    ("内容互动率", "contentEngagementRate"),
-    ("搜索曝光UV", "slrAttrItmSeImpsUv1d"),
-    ("搜索进店UV", "slrAttrSlrSeVstUv1d"),
-    ("进店UV", "slrAttrSlrVstUv1d"),
-    ("新客进店UV", "slrAttrSlrVstUv1dNew"),
-    ("商品收藏UV", "slrAttrItmCltUv1d"),
-    ("商品加购UV", "slrAttrItmCltCartUv1d"),
-    ("关注店铺UV", "slrAttrSlrSubUv1d"),
-    ("店铺会员UV", "slrAttrSlrMbrUv1d"),
-    ("成交UV", "slrAttrItmOrdUv1d"),
-    ("商家GMV", "slrAttrItmOrdGmv1d"),
-    ("订单商品成交GMV", "slrAttrItmOrdGmv1d1bpOrd"),
-    ("非订单商品成交GMV", "slrAttrItmOrdGmv1dNot1bpOrd"),
-    ("新客成交UV", "slrAttrItmOrdUv1dNew"),
-    ("订单商品新客成交GMV", "slrAttrItmOrdGmv1d1bpOrdNew"),
-    ("预售付定GMV", "slrAttrItmOrdSubpayGmv1d"),
-    ("预售整单预估GMV", "slrAttrItmOrdSubpayGmv1dPredAll"),
-    ("预售付定UV", "slrAttrItmOrdSubpayUv1d"),
-    ("成交转化率", "conversionRate"),
+    ("互动UV", "interactiveUv1d"),
+    ("内容互动率", "interactiveRate1d"),
+    ("搜索曝光UV", "searchIpvUv1d"),
+    ("搜索进店UV", "searchGuideShopUv1d"),
+    ("进店UV", "guideShopUv1d"),
+    ("新客进店uv", "guideShopNewUv1d"),
+    ("商品收藏UV", "favorItemUv1d"),
+    ("商品加购UV", "cartItemUv1d"),
+    ("关注店铺UV", "followShopUv1d"),
+    ("店铺会员UV", "memberShopUv1d"),
+    ("成交UV", "tradeUv1d"),
+    ("商家GMV", "alipayShopAmt1d"),
+    ("订单商品成交GMV", "alipayItemAmt1d"),
+    ("非订单商品成交GMV", "alipayOtherItemAmt1d"),
+    ("新客成交UV", "alipayShopNewUv1d"),
+    ("订单商品新客成交GMV", "alipayItemNewAmt1d"),
+    ("预售付定GMV", "alipayPreAmt1d"),
+    ("预售整单预估GMV", "alipayPreAllAmt1d"),
+    ("预售付定UV", "alipayPreUv1d"),
+    ("成交转化率", "alipayRate1d"),
+    ("达人昵称", "kolNick"),
+    ("内容链接", "detailUrl"),
+    ("订单名称", "orderName")
 ]
 
 def parse_cookie_payload(raw: str) -> Dict[str, str]:
+    if not raw or not raw.strip():
+        return {}
     raw = raw.strip()
     if raw.startswith("{") and raw.endswith("}"):
         try:
             data = json.loads(raw)
             if isinstance(data, dict):
-                return {str(k): str(v) for k, v in data.items()}
+                if "cookie" in data:
+                    raw = data["cookie"]
+                else:
+                    return data
         except Exception:
             pass
     cookies = {}
@@ -97,7 +105,7 @@ def fetch_taobao_data(
         "Origin": "https://adstar.alimama.com"
     })
     session.cookies.update(cookies)
-    
+
     ext = {
         "settleSeqId": int(entity_id) if str(entity_id).isdigit() else entity_id,
         "projectId": 0,
@@ -109,12 +117,13 @@ def fetch_taobao_data(
         "flowType": "all",
         "cycleStr": "30",
     }
-    
+
     rows = []
     pages_fetched = 0
-    expected_pages = 1
-    
-    for page in range(1, 101):
+    seen_page_fingerprints = set()
+    MAX_PAGES = 100
+
+    for page in range(1, MAX_PAGES + 1):
         pages_fetched = page
         payload = {
             "bizType": "selfOfficial_orderInfo_detail",
@@ -125,32 +134,48 @@ def fetch_taobao_data(
             "pageNo": page,
             "pageSize": 100
         }
-        try:
-            r = session.get(f"{REPORT_BASE_URL}/api/report/multiscene/query/detail/data", params=payload, timeout=(10, 60))
-            if r.status_code in (401, 403):
-                raise ProviderAuthError("淘宝星河未授权或 Cookie 失效 (HTTP 401/403)")
-            r.raise_for_status()
-            data = r.json()
-        except requests.Timeout:
-            raise ProviderUpstreamError(f"淘宝星河请求第 {page} 页超时")
-        except Exception as e:
-            if isinstance(e, (ProviderAuthError, ProviderUpstreamError)):
-                raise e
-            raise ProviderUpstreamError(f"淘宝星河网络异常: {e}")
-            
+
+        data = None
+        for attempt in range(3):
+            try:
+                r = session.get(f"{REPORT_BASE_URL}/api/report/multiscene/query/detail/data", params=payload, timeout=(10, 60))
+                if r.status_code in (401, 403):
+                    raise ProviderAuthError("淘宝星河未授权或 Cookie 失效 (HTTP 401/403)")
+                r.raise_for_status()
+                data = r.json()
+                break
+            except requests.Timeout:
+                if attempt == 2:
+                    raise ProviderUpstreamError(f"淘宝星河请求第 {page} 页超时")
+            except Exception as e:
+                if isinstance(e, ProviderAuthError):
+                    raise e
+                if attempt == 2:
+                    raise ProviderUpstreamError(f"淘宝星河网络异常: {e}")
+            time.sleep(0.3 * (attempt + 1))
+
+        if not data:
+            raise ProviderUpstreamError(f"淘宝星河第 {page} 页未获取到有效数据")
+
         info = data.get("info") or {}
-        if info.get("message") == "nologin" or data.get("code") == 601:
+        if info.get("message") == "nologin" or data.get("code") in (401, 403, 601):
             raise ProviderAuthError("淘宝星河登录会话已过期 (nologin)，请刷新更新凭据")
-            
+
         if not data.get("success"):
             err_msg = info.get("message") or data.get("message") or f"code={data.get('code')}"
             raise ProviderUpstreamError(f"淘宝星河接口错误: {err_msg}")
-            
+
         model = data.get("model") or {}
         items = model.get("list") if isinstance(model, dict) else (model if isinstance(model, list) else [])
         if not items and page == 1:
             return ProviderFetchResult(status=ProviderFetchStatus.EMPTY, rows=[], pages_fetched=1)
-            
+
+        # 重复页检测
+        page_fp = hashlib.sha256(json.dumps(items, sort_keys=True).encode("utf-8")).hexdigest()
+        if page_fp in seen_page_fingerprints and items:
+            return ProviderFetchResult(status=ProviderFetchStatus.PARTIAL, rows=rows, pages_fetched=pages_fetched, error_message="检测到重复页数据，判定为异常并返回 PARTIAL")
+        seen_page_fingerprints.add(page_fp)
+
         for item in items:
             d_val = str(item.get("ds") or item.get("theDate") or "").strip().replace("/", "-")[:10]
             if start_date <= d_val <= end_date:
@@ -158,11 +183,24 @@ def fetch_taobao_data(
                 for label, key in EFFECT_COLUMNS:
                     item[label] = item.get(key, "")
                 rows.append(item)
-                
-        if len(items) < 100 or not model.get("hasNext"):
+
+        has_next = model.get("hasNext", False) if isinstance(model, dict) else False
+        total = model.get("total", 0) if isinstance(model, dict) else 0
+
+        # 达到上限且仍有数据未拉取完整
+        if page == MAX_PAGES and (has_next or (total and len(rows) < total)):
+            return ProviderFetchResult(
+                status=ProviderFetchStatus.PARTIAL,
+                rows=rows,
+                pages_fetched=pages_fetched,
+                expected_pages=MAX_PAGES,
+                error_message=f"分页达到上限 {MAX_PAGES} 且仍有后续数据，返回 PARTIAL"
+            )
+
+        if len(items) < 100 or not has_next:
             break
         time.sleep(0.15)
-        
+
     status = ProviderFetchStatus.SUCCESS if rows else ProviderFetchStatus.EMPTY
     return ProviderFetchResult(
         status=status,
@@ -170,4 +208,3 @@ def fetch_taobao_data(
         pages_fetched=pages_fetched,
         expected_pages=pages_fetched
     )
-

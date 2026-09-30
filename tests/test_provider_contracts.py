@@ -1,22 +1,22 @@
 import io
 import json
-import pytest
-import pandas as pd
 from unittest.mock import MagicMock, patch
-import requests
 
-from platforms.jzt import fetch_jzt_data
-from platforms.juguang import fetch_juguang_data
-from platforms.taobao import fetch_taobao_data
-from core.models import ProviderFetchStatus
+import pandas as pd
+import pytest
 from core.errors import ProviderAuthError, ProviderUpstreamError
+from core.models import ProviderFetchStatus
+from platforms.juguang import fetch_juguang_data
+from platforms.jzt import fetch_jzt_data
+from platforms.taobao import fetch_taobao_data
+
 
 def test_jzt_valid_excel():
     df = pd.DataFrame([{"日期": "2026-09-20", "任务ID": "12345", "成交GMV": 99.0}])
     bio = io.BytesIO()
     df.to_excel(bio, index=False)
     content = bio.getvalue()
-    
+
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.content = content
@@ -31,7 +31,7 @@ def test_jzt_empty_excel():
     bio = io.BytesIO()
     df.to_excel(bio, index=False)
     content = bio.getvalue()
-    
+
     mock_resp = MagicMock()
     mock_resp.status_code = 200
     mock_resp.content = content
@@ -115,3 +115,71 @@ def test_taobao_nologin_raises_auth_error():
         with pytest.raises(ProviderAuthError):
             fetch_taobao_data("123", "内容", "2026-09-20", "2026-09-21", cookies={"adstar": "token"})
 
+
+def test_jzt_30_day_window_restriction():
+    # 超过 30 天回溯明确报错
+    with pytest.raises(ProviderUpstreamError) as exc_info:
+        fetch_jzt_data("12345", "2026-01-01", "2026-09-30", cookie="pin=test")
+    assert "30 天" in str(exc_info.value)
+
+def test_taobao_partial_on_max_pages():
+    def mock_get(url, params, **kwargs):
+        p = params.get("pageNo", 1)
+        resp = MagicMock()
+        resp.status_code = 200
+        # 每页 100 条且包含当前页标识以避免被判定为重复页
+        items = [{"theDate": "2026-09-20", "readUv1d": 100, "detailUrl": f"http://test.com/{p}/{i}"} for i in range(100)]
+        resp.json.return_value = {
+            "success": True,
+            "model": {
+                "list": items,
+                "hasNext": True,
+                "total": 50000
+            }
+        }
+        return resp
+
+    with patch("requests.Session.get", side_effect=mock_get), patch("time.sleep"):
+        res = fetch_taobao_data("12345", "内容", "2026-09-20", "2026-09-20", cookies={"_tb_token_": "test"})
+        assert res.status == ProviderFetchStatus.PARTIAL
+        assert res.pages_fetched == 100
+
+def test_excel_upload_limits_and_zip_bomb():
+    import zipfile
+
+    from core.ingest import check_zip_bomb, parse_excel_sheets
+    from fastapi import HTTPException
+
+    # 1. 超过 10MB 拒绝
+    with pytest.raises(HTTPException) as exc:
+        parse_excel_sheets(b"0" * (11 * 1024 * 1024), "large.xlsx")
+    assert exc.value.status_code == 400
+
+    # 2. 不支持的扩展名拒绝
+    with pytest.raises(HTTPException) as exc:
+        parse_excel_sheets(b"data", "script.exe")
+    assert exc.value.status_code == 400
+
+    # 3. 构造 ZipBomb 拒绝 (高压缩比)
+    bio = io.BytesIO()
+    with zipfile.ZipFile(bio, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("huge.txt", "A" * (1024 * 1024))
+    compressed = bio.getvalue()
+    # 压缩比检查直接生效
+    with pytest.raises(HTTPException):
+        check_zip_bomb(compressed)
+
+def test_webhook_domain_whitelist():
+    from feishu.notify import Notifier
+    notifier = Notifier()
+    # 非法域名被拦截
+    ok = notifier.send_webhook_message("https://evil-attacker.com/webhook", "test alert")
+    assert ok is False
+
+def test_formula_injection_sanitization():
+    from core.feishu_matrix import sanitize_formula_injection
+    assert sanitize_formula_injection("=SUM(A1:A10)") == "'=SUM(A1:A10)"
+    assert sanitize_formula_injection("+cmd|' /C calc'!A0") == "'+cmd|' /C calc'!A0"
+    assert sanitize_formula_injection("-200") == "'-200"
+    assert sanitize_formula_injection("@secret") == "'@secret"
+    assert sanitize_formula_injection("normal_text") == "normal_text"

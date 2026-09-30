@@ -210,3 +210,46 @@ esolve_auto_range, parse_args, main。
   All checks passed!
 
 ---
+
+## 5. 阶段 4：Provider 与输入边界 (分支: fix/providers)
+
+### 5.1 京准通日期参数用法查明与判断依据
+- **代码与脚本证据**：
+  - `feishu_three_sync/jzt_sync/daily_client.py:fetch_report` 中调用 `https://jzt-api.jd.com/jrw/content/outside/demand/report/downloadGrassDailyData`，请求体载荷写死为 `dataCycle='30'`，没有传入任何 `startDate` 或 `endDate` 字段；
+  - 返回内容直接为 25 列的 Excel 导出版（包含近 30 天数据）。
+- **技术判断**：
+  - 京准通该接口是面向看板导出的滚动 30 天汇总数据包，不支持自定义历史大跨度区间拉取；
+  - 在 `platforms/jzt.py` 中，如果业务传入的 start_date 早于当前时间 30 天前，接口无法覆盖全部日期。
+  - **处理方案**：计算请求起始日期与业务当前日期的间隔，若超出 30 天窗口，明确抛出 `ProviderUpstreamError("京准通接口仅支持导出近 30 天窗口数据，无法回溯至 {start_norm}")`，绝不静默截断数据；同时增加 3 次网络错误重试与指数退避。
+
+### 5.2 改动文件清单与对应问题
+- `sync_console/platforms/jzt.py`:
+  - 30 天窗口严格校验；网络异常 3 次指数重试；规范日期格式解析校验；
+- `sync_console/platforms/taobao.py`:
+  - 分页同时校验 `hasNext` 与 `total`，设置最大 100 页上限；达到上限且仍有数据时返回 `PARTIAL`；
+  - 引入 SHA-256 页面数据指纹检测，发现重复页时返回 `PARTIAL` 防止死循环；网络重试 3 次；
+- `sync_console/core/models.py`:
+  - 统一 Provider 契约：`SUCCESS`、`EMPTY`、`PARTIAL`、`AUTH_EXPIRED`、`UPSTREAM_ERROR` 五种状态模型；
+- `sync_console/core/ingest.py`:
+  - Excel 文件大小限制 10MB；仅允许 .xlsx/.xls/.csv；
+  - 增加 ZipBomb 压缩炸弹安全检测 (解压体积 > 100MB 或压缩比 > 100 拦截)；
+  - 采用 openpyxl `read_only=True, data_only=True` 流式读取；单个文件限制最多 20 个工作表，每表最多 5000 行、200 列；解析失败严格返回 400；
+- `sync_console/feishu/notify.py`:
+  - 限制 webhook URL 必须属于 `open.feishu.cn` 官方白名单域名；
+  - 告警内容严格脱敏 (URL 敏感 query 参数、Cookie、Bearer 令牌)，限制最大长度 1000 字符；
+- `sync_console/core/workdays.py`:
+  - 增加对 chinesecalendar 库缺失的显式告警日志，保留 2026 年调休表与常规工作日作为平滑兜底；
+- `keyword_service/client.py` & `lingxi_service/client.py`:
+  - 依据 HTTP 状态码 (401/403) 与业务错误码 (401/403/601/902/100001) 判定 auth_expired，不再仅依赖中文匹配；
+- `tests/test_provider_contracts.py`:
+  - 新增 JZT 30 天窗口拦截测试、淘宝最大 100 页 PARTIAL 判定测试、ZipBomb 与文件大小拦截测试、Webhook 域名白名单拦截测试、公式注入转义测试。
+
+### 5.3 验证结果
+- pytest 测试摘要:
+  84 passed, 3 warnings in 7.94s
+- 前端构建与测试摘要:
+  1969 modules transformed, built in 2.48s; Tests 2 passed (2)
+- ruff 代码检查:
+  All checks passed!
+
+---

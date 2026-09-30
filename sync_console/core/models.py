@@ -1,14 +1,17 @@
 from enum import Enum
-from typing import Dict, Any, List, Optional
+from typing import Any, Dict, List, Optional
+
 from pydantic import BaseModel, Field
+
 
 class KeywordFetchStatus(str, Enum):
     SUCCESS = "success"
     EMPTY = "empty"
-    AUTH_ERROR = "auth_error"
+    AUTH_EXPIRED = "auth_expired"
     UPSTREAM_ERROR = "upstream_error"
     TIMEOUT = "timeout"
     INVALID_RESPONSE = "invalid_response"
+    AUTH_ERROR = "auth_expired"
 
 class KeywordItemResult(BaseModel):
     keyword: str
@@ -19,13 +22,12 @@ class KeywordItemResult(BaseModel):
 
 class KeywordBatchResult(BaseModel):
     success: bool
-    overall_status: str # "success", "partial", "failed"
+    overall_status: str
     keywords: List[str]
     start_date: str
     end_date: str
     dates: List[str]
     results: Dict[str, KeywordItemResult] = Field(default_factory=dict)
-    # 兼容现有格式的纯数据字典，但仅包含 success 和 empty 的真实数据，failed 词不填充为 0
     data: Dict[str, Dict[str, Dict[str, Any]]] = Field(default_factory=dict)
     successful_keywords: List[str] = Field(default_factory=list)
     empty_keywords: List[str] = Field(default_factory=list)
@@ -35,9 +37,11 @@ class KeywordBatchResult(BaseModel):
 class ProviderFetchStatus(str, Enum):
     SUCCESS = "success"
     EMPTY = "empty"
-    AUTH_ERROR = "auth_error"
+    PARTIAL = "partial"
+    AUTH_EXPIRED = "auth_expired"
     UPSTREAM_ERROR = "upstream_error"
-    TIMEOUT = "timeout"
+    AUTH_ERROR = "auth_expired"
+    TIMEOUT = "upstream_error"
 
 class ProviderFetchResult(BaseModel):
     status: ProviderFetchStatus
@@ -45,6 +49,7 @@ class ProviderFetchResult(BaseModel):
     pages_fetched: int = 0
     expected_pages: int = 0
     error: Optional[str] = None
+    error_message: Optional[str] = None
 
     def __iter__(self):
         return iter(self.rows)

@@ -1,10 +1,9 @@
 import json
-import os
-import requests
-from typing import Dict, Any, List, Optional
-from pathlib import Path
-from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+import requests
 
 DEFAULT_TOKEN_FILE = Path(__file__).parent / "token.json"
 API_URL = "https://idea.xiaohongshu.com/api/idea/audience/group/tag/search"
@@ -12,7 +11,7 @@ API_URL = "https://idea.xiaohongshu.com/api/idea/audience/group/tag/search"
 def sync_token_from_oss(force: bool = False) -> Optional[Dict[str, str]]:
     """从 CredentialStore 获取最新的灵犀 Token / Cookie 并持久化到本地 token.json"""
     try:
-        from core.credentials import default_credential_store, calc_fingerprint
+        from core.credentials import calc_fingerprint, default_credential_store
     except Exception as import_err:
         print(f"[Lingxi OSS Sync] Import config error: {import_err}")
         return None
@@ -95,17 +94,20 @@ def _fetch_single_word(kw: str, token_dict: Dict[str, str], timeout: int = 15) -
                 "recommend_words": []
             }
         data = resp.json()
+        AUTH_CODES = {401, 403, 601, 902, 100001}
+        code = data.get("code")
+        if resp.status_code in (401, 403) or code in AUTH_CODES:
+            msg = data.get("msg") or "登录凭据已过期"
+            return {
+                "keyword": kw,
+                "status": "auth_expired",
+                "message": msg,
+                "user_cnt": 0,
+                "recommend_words": []
+            }
+
         if data.get("code") != 0 or not data.get("success"):
             msg = data.get("msg") or "请求失败"
-            # 判断是否登录过期
-            if "登录" in msg or "login" in msg.lower() or "auth" in msg.lower():
-                return {
-                    "keyword": kw,
-                    "status": "auth_expired",
-                    "message": msg,
-                    "user_cnt": 0,
-                    "recommend_words": []
-                }
             return {
                 "keyword": kw,
                 "status": "failed",
