@@ -211,10 +211,15 @@ def delete_task_endpoint(task_id: int):
     return {"code": 0, "msg": "任务删除成功"}
 
 @private_router.get("/runs")
-def list_lingxi_runs(limit: int = 50):
+def list_lingxi_runs(page: int = 1, page_size: int = 20):
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT * FROM lingxi_runs ORDER BY id DESC LIMIT ?", (limit,))
+    cur.execute("SELECT COUNT(*) FROM lingxi_runs")
+    total = cur.fetchone()[0]
+    total_pages = max(1, (total + page_size - 1) // page_size)
+
+    offset = (page - 1) * page_size
+    cur.execute("SELECT * FROM lingxi_runs ORDER BY id DESC LIMIT ? OFFSET ?", (page_size, offset))
     runs = [dict(r) for r in cur.fetchall()]
     for r in runs:
         try:
@@ -223,6 +228,11 @@ def list_lingxi_runs(limit: int = 50):
         except Exception:
             r["successful_keywords"] = []
             r["failed_keywords"] = []
-    return runs
+    return {
+        "total": total,
+        "page": page,
+        "total_pages": total_pages,
+        "items": runs
+    }
 
 router.include_router(private_router)

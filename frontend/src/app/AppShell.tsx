@@ -99,25 +99,17 @@ export const AppShell: React.FC = () => {
             </NavLink>
           </div>
         ) : isKeywordSection ? (
-          /* 聚光关键词 导航组 */
-          <div id="sidebar-group-keyword" className="sidebar-nav">
-            <button
-              className="sidebar-link"
-              type="button"
-              onClick={() => navigate('/import')}
-            >
-              <LayoutDashboard className="icon" size={16} />
-              <span className="nav-label">数据同步中心</span>
-            </button>
-            <button
-              className="sidebar-link"
-              type="button"
-              onClick={() => navigate('/lingxi')}
-            >
-              <Sparkles className="icon" size={16} />
-              <span className="nav-label">灵犀关键词</span>
-            </button>
-            <div className="sidebar-divider" />
+            /* 聚光关键词 导航组 (顺序固定：数据同步中心 -> 聚光关键词子导航 -> 灵犀关键词) */
+            <div id="sidebar-group-keyword" className="sidebar-nav">
+              <button
+                className="sidebar-link"
+                type="button"
+                onClick={() => navigate('/import')}
+              >
+                <LayoutDashboard className="icon" size={16} />
+                <span className="nav-label">数据同步中心</span>
+              </button>
+              <div className="sidebar-divider" />
             <NavLink
               to="/keyword"
               end
@@ -136,14 +128,23 @@ export const AppShell: React.FC = () => {
                 {keywordTasks.length}
               </span>
             </NavLink>
-            <NavLink
-              to="/keyword/runs"
-              className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
-            >
-              <Clock3 className="icon" size={16} />
-              <span className="nav-label">运行记录</span>
-            </NavLink>
-          </div>
+              <NavLink
+                to="/keyword/runs"
+                className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
+              >
+                <Clock3 className="icon" size={16} />
+                <span className="nav-label">运行记录</span>
+              </NavLink>
+              <div className="sidebar-divider" />
+              <button
+                className="sidebar-link"
+                type="button"
+                onClick={() => navigate('/lingxi')}
+              >
+                <Sparkles className="icon" size={16} />
+                <span className="nav-label">灵犀关键词</span>
+              </button>
+            </div>
         ) : (
           /* 数据同步中心 导航组 */
           <div id="sidebar-group-sync" className="sidebar-nav">

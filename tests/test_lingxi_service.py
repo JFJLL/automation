@@ -56,7 +56,9 @@ def test_lingxi_api_routes():
 
     res_runs = client.get("/api/lingxi/runs")
     assert res_runs.status_code == 200
-    assert isinstance(res_runs.json(), list)
+    runs_data = res_runs.json()
+    assert "items" in runs_data
+    assert isinstance(runs_data["items"], list)
 
     # 搜索接口容错测试
     res_search = client.post("/api/lingxi/search", json={"keywords": ""})

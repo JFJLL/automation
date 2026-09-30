@@ -1,123 +1,106 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { History, ExternalLink, CheckCircle2, XCircle, Clock } from 'lucide-react';
 import { fetchJson } from '@/shared/api/client';
+import { Pagination } from '@/shared/components/Pagination';
 
 export const LingxiRunsPage: React.FC = () => {
-  const { data: runs = [], isLoading } = useQuery<any[]>({
-    queryKey: ['lingxiRuns'],
-    queryFn: () => fetchJson('/api/lingxi/runs'),
-    refetchInterval: 5000,
+  const [page, setPage] = useState<number>(1);
+  const pageSize = 20;
+
+  const { data, isLoading, refetch } = useQuery<{
+    total: number;
+    page: number;
+    total_pages: number;
+    items: any[];
+  }>({
+    queryKey: ['lingxiRuns', page],
+    queryFn: () => fetchJson(`/api/lingxi/runs?page=${page}&page_size=${pageSize}`),
   });
 
+  const runs = data?.items || [];
+  const total = data?.total || 0;
+  const totalPages = data?.total_pages || 1;
+
   return (
-    <div className="tab-pane active" style={{ padding: '0 4px' }}>
-      <div className="section-head" style={{ marginBottom: '16px' }}>
-        <div className="section-title">
-          <div className="title-icon" style={{ background: '#fef2f2', color: '#ef4444' }}>
-            <History size={20} />
-          </div>
-          <div>
-            <h2>灵犀关键词运行记录</h2>
-            <div className="section-desc">查看小红书灵犀关键词监控任务与即时同步的历史执行日志及飞书报表状态。</div>
-          </div>
-        </div>
+    <div className="card">
+      <div className="card-title">
+        <span>灵犀关键词运行历史记录</span>
+        <button type="button" className="btn btn-outline btn-sm" onClick={() => refetch()}>
+          🔄 刷新日志
+        </button>
       </div>
 
-      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
-        <div style={{ overflowX: 'auto' }}>
-          <table className="table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
+      <div className="table-container">
+        {isLoading ? (
+          <div style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>加载日志中...</div>
+        ) : runs.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>暂无灵犀关键词运行记录</div>
+        ) : (
+          <table>
             <thead>
-              <tr style={{ background: '#f8fafc', borderBottom: '1px solid #e2e8f0' }}>
-                <th style={{ padding: '12px 16px', fontSize: '13px', color: '#475569' }}>任务名称</th>
-                <th style={{ padding: '12px 16px', fontSize: '13px', color: '#475569' }}>触发方式</th>
-                <th style={{ padding: '12px 16px', fontSize: '13px', color: '#475569' }}>开始时间</th>
-                <th style={{ padding: '12px 16px', fontSize: '13px', color: '#475569' }}>耗时</th>
-                <th style={{ padding: '12px 16px', fontSize: '13px', color: '#475569' }}>关键词词数</th>
-                <th style={{ padding: '12px 16px', fontSize: '13px', color: '#475569' }}>飞书表格</th>
-                <th style={{ padding: '12px 16px', fontSize: '13px', color: '#475569' }}>状态</th>
+              <tr>
+                <th>任务名称</th>
+                <th>触发方式</th>
+                <th>状态</th>
+                <th>关键词数</th>
+                <th>耗时</th>
+                <th>完成时间</th>
+                <th>日志说明</th>
+                <th style={{ textAlign: 'right' }}>飞书表格</th>
               </tr>
             </thead>
             <tbody>
-              {isLoading ? (
-                <tr>
-                  <td colSpan={7} style={{ padding: '30px', textAlign: 'center', color: '#94a3b8' }}>
-                    加载运行记录中...
+              {runs.map((r) => (
+                <tr key={r.id}>
+                  <td><strong>{r.task_name}</strong></td>
+                  <td>
+                    {r.trigger_type === 'direct_create'
+                      ? '直接建表'
+                      : r.trigger_type === 'task_init'
+                      ? '初始写入'
+                      : r.trigger_type === 'scheduled'
+                      ? '定时调度'
+                      : r.trigger_type === 'append_sync'
+                      ? '加词触发'
+                      : '手动运行'}
+                  </td>
+                  <td>
+                    <span className={`badge ${r.status === 'success' ? 'badge-success' : 'badge-danger'}`}>
+                      {r.status === 'success' ? '成功' : '失败'}
+                    </span>
+                  </td>
+                  <td>{r.keywords_count || 0} 个词</td>
+                  <td>{r.duration_ms ? `${(r.duration_ms / 1000).toFixed(1)}s` : '-'}</td>
+                  <td>{r.finished_at ? r.finished_at.substring(0, 16).replace('T', ' ') : '-'}</td>
+                  <td style={{ maxWidth: '280px' }}>
+                    {r.error_detail ? (
+                      <span style={{ color: 'var(--danger)', fontSize: '12px' }} title={r.error_detail}>
+                        {r.error_detail}
+                      </span>
+                    ) : (
+                      <span>{r.message || '更新完成'}</span>
+                    )}
+                  </td>
+                  <td style={{ textAlign: 'right' }}>
+                    {r.spreadsheet_url && (
+                      <a
+                        href={r.spreadsheet_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ color: 'var(--primary)', fontWeight: 500, textDecoration: 'none' }}
+                      >
+                        查看飞书表格 ↗
+                      </a>
+                    )}
                   </td>
                 </tr>
-              ) : runs.length === 0 ? (
-                <tr>
-                  <td colSpan={7} style={{ padding: '40px', textAlign: 'center', color: '#94a3b8' }}>
-                    暂无运行记录
-                  </td>
-                </tr>
-              ) : (
-                runs.map((run) => {
-                  const isSuccess = run.status === 'success';
-                  const isRunning = run.status === 'running';
-
-                  return (
-                    <tr key={run.id} style={{ borderBottom: '1px solid #f1f5f9' }}>
-                      <td style={{ padding: '12px 16px', fontWeight: 600, color: '#1e293b' }}>
-                        {run.task_name}
-                      </td>
-                      <td style={{ padding: '12px 16px', fontSize: '13px', color: '#64748b' }}>
-                        {run.trigger_type === 'scheduled' ? '定时触发' : '手动执行'}
-                      </td>
-                      <td style={{ padding: '12px 16px', fontSize: '13px', color: '#475569' }}>
-                        {run.started_at ? new Date(run.started_at).toLocaleString() : '-'}
-                      </td>
-                      <td style={{ padding: '12px 16px', fontSize: '13px', color: '#475569' }}>
-                        {run.duration_ms ? `${(run.duration_ms / 1000).toFixed(1)}s` : '-'}
-                      </td>
-                      <td style={{ padding: '12px 16px', fontSize: '13px', color: '#475569' }}>
-                        {run.keywords_count} 个词
-                      </td>
-                      <td style={{ padding: '12px 16px' }}>
-                        {run.spreadsheet_url ? (
-                          <a
-                            href={run.spreadsheet_url}
-                            target="_blank"
-                            rel="noreferrer"
-                            style={{ color: '#0284c7', display: 'inline-flex', alignItems: 'center', gap: '4px', textDecoration: 'none' }}
-                          >
-                            <span>打开表格</span>
-                            <ExternalLink size={13} />
-                          </a>
-                        ) : (
-                          <span style={{ color: '#94a3b8' }}>-</span>
-                        )}
-                      </td>
-                      <td style={{ padding: '12px 16px' }}>
-                        {isRunning ? (
-                          <span className="badge badge-gray" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                            <Clock size={12} className="animate-spin" />
-                            运行中
-                          </span>
-                        ) : isSuccess ? (
-                          <span className="badge badge-success" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
-                            <CheckCircle2 size={12} />
-                            成功
-                          </span>
-                        ) : (
-                          <span
-                            className="badge badge-danger"
-                            title={run.error_detail || run.message}
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}
-                          >
-                            <XCircle size={12} />
-                            失败
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
+              ))}
             </tbody>
           </table>
-        </div>
+        )}
       </div>
+
+      <Pagination page={page} totalPages={totalPages} total={total} onPageChange={setPage} />
     </div>
   );
 };
