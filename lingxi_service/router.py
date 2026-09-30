@@ -41,10 +41,10 @@ class LingxiDirectSheetRequest(BaseModel):
 class CreateLingxiTaskRequest(BaseModel):
     task_name: str = Field(..., min_length=1, max_length=120)
     keywords: List[str] = Field(..., min_items=1)
-    spreadsheet_token: str = Field(..., min_length=1)
-    spreadsheet_url: str = Field(..., min_length=1)
-    update_mode: str = Field("append")
-    rrule: str = Field("FREQ=DAILY;BYHOUR=9;BYMINUTE=30")
+    spreadsheet_token: Optional[str] = Field(default=None)
+    spreadsheet_url: Optional[str] = Field(default=None)
+    update_mode: str = Field(default="append")
+    rrule: str = Field(default="FREQ=DAILY;BYHOUR=9;BYMINUTE=30")
 
 class TaskKeywordsMutation(BaseModel):
     keywords: List[str] = Field(..., min_items=1)

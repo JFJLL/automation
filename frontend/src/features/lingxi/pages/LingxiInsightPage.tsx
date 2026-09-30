@@ -63,23 +63,12 @@ export const LingxiInsightPage: React.FC = () => {
 
   // 创建定时任务 Mutation
   const createTaskMutation = useMutation({
-    mutationFn: async () => {
-      // 先创建飞书表格底表
-      const sheetRes = await fetchJson<any>('/api/lingxi/feishu/direct_create', {
-        method: 'POST',
-        body: JSON.stringify({
-          keywords: selectedWords,
-          title: `${taskName}_底表`,
-        }),
-      });
-      // 再绑定定时同步任务
+    mutationFn: () => {
       return fetchJson<any>('/api/lingxi/tasks', {
         method: 'POST',
         body: JSON.stringify({
           task_name: taskName,
           keywords: selectedWords,
-          spreadsheet_token: sheetRes.data.spreadsheet_token,
-          spreadsheet_url: sheetRes.data.spreadsheet_url,
           update_mode: 'append',
           rrule: taskRrule,
         }),

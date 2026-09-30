@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react';
 import { CheckCircle2, AlertCircle, Info, X } from 'lucide-react';
 
 interface ToastItem {
@@ -18,18 +18,33 @@ const ToastContext = createContext<ToastContextType | undefined>(undefined);
 
 export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
+  const timerMapRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   const removeToast = useCallback((id: string) => {
+    const timer = timerMapRef.current.get(id);
+    if (timer) {
+      clearTimeout(timer);
+      timerMapRef.current.delete(id);
+    }
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
   const showToast = useCallback((message: string, type: 'success' | 'error' | 'info' = 'info') => {
-    const id = Math.random().toString(36).substring(2, 9);
+    const id = typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2, 9);
     setToasts((prev) => [...prev, { id, type, message }]);
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       removeToast(id);
     }, 3500);
+    timerMapRef.current.set(id, timer);
   }, [removeToast]);
+
+  useEffect(() => {
+    const currentTimers = timerMapRef.current;
+    return () => {
+      currentTimers.forEach((timer) => clearTimeout(timer));
+      currentTimers.clear();
+    };
+  }, []);
 
   const showSuccess = useCallback((msg: string) => showToast(msg, 'success'), [showToast]);
   const showError = useCallback((msg: string) => showToast(msg, 'error'), [showToast]);
@@ -38,17 +53,21 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   return (
     <ToastContext.Provider value={{ showToast, showSuccess, showError, showInfo }}>
       {children}
-      <div style={{
-        position: 'fixed',
-        top: '20px',
-        right: '20px',
-        zIndex: 9999,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '8px',
-        maxWidth: '420px',
-        pointerEvents: 'none'
-      }}>
+      <div
+        role="status"
+        aria-live="polite"
+        style={{
+          position: 'fixed',
+          top: '20px',
+          right: '20px',
+          zIndex: 9999,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '8px',
+          maxWidth: '420px',
+          pointerEvents: 'none'
+        }}
+      >
         {toasts.map((t) => (
           <div
             key={t.id}
@@ -73,6 +92,8 @@ export const ToastProvider: React.FC<{ children: React.ReactNode }> = ({ childre
             {t.type === 'info' && <Info size={18} color="#0284c7" />}
             <span style={{ flex: 1 }}>{t.message}</span>
             <button
+              type="button"
+              aria-label="关闭提示"
               onClick={() => removeToast(t.id)}
               style={{
                 background: 'none',
@@ -99,4 +120,3 @@ export const useToast = () => {
   }
   return context;
 };
-

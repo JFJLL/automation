@@ -121,8 +121,6 @@ async def http_error_handler(request: Request, exc: HTTPException):
 # 挂载前端 React SPA 生产构建静态产物
 if FRONTEND_DIST.exists() and (FRONTEND_DIST / "assets").exists():
     app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST / "assets")), name="assets")
-if (BASE_DIR / "web").exists():
-    app.mount("/static", StaticFiles(directory=str(BASE_DIR / "web")), name="static")
 
 
 # 注册关键词路由
@@ -176,9 +174,6 @@ def readiness_check():
 def render_spa_index():
     if FRONTEND_DIST.exists() and (FRONTEND_DIST / "index.html").exists():
         return HTMLResponse((FRONTEND_DIST / "index.html").read_text(encoding="utf-8"))
-    html_path = BASE_DIR / "web" / "index.html"
-    if html_path.exists():
-        return HTMLResponse(html_path.read_text(encoding="utf-8"))
     return HTMLResponse("<h1>自动化中心前端构建未就绪，请在 frontend 目录执行 npm run build</h1>", status_code=503)
 
 @app.get("/", response_class=HTMLResponse)

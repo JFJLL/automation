@@ -341,3 +341,43 @@ esolve_auto_range, parse_args, main。
   All checks passed!
 
 ---
+
+## 8. 阶段 7：前端重构与安全交互 (分支: fix/frontend)
+
+### 8.1 改动文件清单与对应问题
+- `frontend/src/features/shared/useTaskMutations.ts`:
+  - 统一抽离任务相关 mutation (run_now / toggle / delete / append / remove)；
+  - 维护按任务 ID 精准追踪的 pending 状态，并在提交过程中禁用按钮防重；
+- `frontend/src/features/shared/TaskTable.tsx`:
+  - 提取聚光与灵犀监控任务的统一展示与交互表格；
+  - 增加对“暂停”操作的二次确认 Dialog，对“归档删除”操作的二次确认 Dialog；
+- `frontend/src/features/shared/CopyTableButton.tsx`:
+  - 统一 TSV 制表符格式导出与剪贴板复制组件，增加复制成功反馈；
+- `frontend/src/features/shared/CreateSheetDialog.tsx`:
+  - 统一直接生成飞书表格的弹窗表单；增加 1~120 字符标题校验、1~5000 关键词范围校验；
+- `frontend/src/features/shared/useKeywordSearch.ts`:
+  - 统一关键词查询状态与参数绑定钩子；
+- `frontend/src/features/keywords/pages/KeywordTasksPage.tsx` & `LingxiTasksPage.tsx`:
+  - 全面复用 `TaskTable` 与 `useTaskMutations`，消除超过 1000 行重复代码；
+- `frontend/src/features/lingxi/pages/LingxiInsightPage.tsx` & `lingxi_service/router.py`:
+  - 灵犀建任务改为后端单一原子接口请求，由后端自动完成建表、权限设置与任务记录绑定，前端不再分步请求 (P1-原子任务创建)；
+- 无障碍 (Accessibility):
+  - `Dialog.tsx`: 增加 `role="dialog"`、`aria-modal="true"`、`aria-labelledby`，增加键盘 Esc 键监听关闭与弹窗内 Tab 焦点陷阱；
+  - `Toast.tsx`: 增加 `role="status"`、`aria-live="polite"`，ID 改用 `crypto.randomUUID()`，并在组件卸载时清理所有定时器；
+- 冗余清理：
+  - 彻底删除 `frontend/public/static/assets` 重复静态资源；
+  - 彻底删除未引用的 `sync_console/web/lucide.min.js` (397KB)；清理 `main.py` 中的旧 web 挂载与旧 favicon 回退；
+- 样式优化：
+  - `main.tsx` 顶部统一引入 `tokens.css`，保证色彩与圆角变量对齐；
+- 单元测试：
+  - 新增 `frontend/src/__tests__/stage7_frontend.test.ts`，覆盖 API Client 401 拦截与事件广播、任务表单规则校验、按任务 ID 的 Pending 禁用判定。
+
+### 8.2 验证结果
+- pytest 测试摘要:
+  92 passed, 3 warnings in 8.23s
+- 前端构建与测试摘要:
+  1972 modules transformed, built in 2.49s; Test Files 2 passed, Tests 5 passed
+- ruff 代码检查:
+  All checks passed!
+
+---

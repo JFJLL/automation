@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 
 export interface DialogProps {
@@ -10,10 +10,45 @@ export interface DialogProps {
 }
 
 export const Dialog: React.FC<DialogProps> = ({ isOpen, onClose, title, children, width = '520px' }) => {
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+      if (e.key === 'Tab' && dialogRef.current) {
+        const focusableElements = dialogRef.current.querySelectorAll<HTMLElement>(
+          'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+        );
+        if (focusableElements.length === 0) return;
+        const first = focusableElements[0];
+        const last = focusableElements[focusableElements.length - 1];
+        if (e.shiftKey) {
+          if (document.activeElement === first) {
+            last.focus();
+            e.preventDefault();
+          }
+        } else {
+          if (document.activeElement === last) {
+            first.focus();
+            e.preventDefault();
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   return (
     <div
+      role="presentation"
       style={{
         position: 'fixed',
         top: 0,
@@ -32,6 +67,10 @@ export const Dialog: React.FC<DialogProps> = ({ isOpen, onClose, title, children
       }}
     >
       <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="dialog-title-label"
         style={{
           width,
           maxWidth: '92vw',
@@ -54,8 +93,10 @@ export const Dialog: React.FC<DialogProps> = ({ isOpen, onClose, title, children
             borderBottom: '1px solid #e2e8f0',
           }}
         >
-          <h3 style={{ fontSize: '16px', fontWeight: 600, color: '#0f172a' }}>{title}</h3>
+          <h3 id="dialog-title-label" style={{ fontSize: '16px', fontWeight: 600, color: '#0f172a' }}>{title}</h3>
           <button
+            type="button"
+            aria-label="关闭对话框"
             onClick={onClose}
             style={{
               background: 'none',
@@ -74,4 +115,3 @@ export const Dialog: React.FC<DialogProps> = ({ isOpen, onClose, title, children
     </div>
   );
 };
-
