@@ -48,8 +48,8 @@ class FeishuClient:
             if is_write:
                 with self.req_lock:
                     elapsed = time.monotonic() - self.last_write
-                    if elapsed < 1.0:
-                        time.sleep(1.0 - elapsed)
+                    if elapsed < 0.05:
+                        time.sleep(0.05 - elapsed)
                     token = self.get_token()
                     headers = kwargs.setdefault("headers", {})
                     headers["Authorization"] = f"Bearer {token}"
@@ -147,6 +147,32 @@ class FeishuClient:
             "range": range_str,
             "mergeType": merge_type
         })
+
+    def write_cells(self, spreadsheet_token: str, range_str: str, values: List[List[Any]]) -> Dict[str, Any]:
+        return self.request("PUT", f"sheets/v2/spreadsheets/{spreadsheet_token}/values", json={
+            "valueRange": {"range": range_str, "values": values}
+        })
+
+    def add_columns(self, spreadsheet_token: str, sheet_id: str, length: int) -> Dict[str, Any]:
+        return self.request("POST", f"sheets/v2/spreadsheets/{spreadsheet_token}/dimension_range", json={
+            "dimension": {
+                "sheetId": sheet_id,
+                "majorDimension": "COLUMNS",
+                "length": length
+            }
+        })
+
+    def add_rows(self, spreadsheet_token: str, sheet_id: str, length: int) -> Dict[str, Any]:
+        return self.request("POST", f"sheets/v2/spreadsheets/{spreadsheet_token}/dimension_range", json={
+            "dimension": {
+                "sheetId": sheet_id,
+                "majorDimension": "ROWS",
+                "length": length
+            }
+        })
+
+    def set_public_permission(self, spreadsheet_token: str, edit: bool = True):
+        return self.set_sheet_public_editable(spreadsheet_token)
 
     def clear_rows_below(self, spreadsheet_token: str, sheet_id: str, keep_header_row: int = 1, col_count: int = 50):
         last = self.find_last_row_index(spreadsheet_token, sheet_id)

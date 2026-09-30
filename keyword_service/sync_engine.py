@@ -212,8 +212,15 @@ def direct_create_feishu_sheet(
     first_sheet_id = sheets[0]["sheet_id"] if sheets else "0"
     
     write_matrix_to_sheet(feishu, ss_token, first_sheet_id, matrix)
-    merge_date_headers(feishu, ss_token, first_sheet_id, len(dates))
     feishu.set_sheet_public_editable(ss_token)
+    
+    # 异步平滑合并表头，避免阻塞同步 HTTP 请求引发长等待超时
+    import threading
+    threading.Thread(
+        target=merge_date_headers,
+        args=(feishu, ss_token, first_sheet_id, len(dates)),
+        daemon=True
+    ).start()
     
     finished_at = datetime.now().isoformat()
     duration_ms = int((time.time() - t0) * 1000)
@@ -283,8 +290,14 @@ def create_keyword_task(
     first_sheet_id = sheets[0]["sheet_id"] if sheets else "0"
     
     write_matrix_to_sheet(feishu, ss_token, first_sheet_id, matrix)
-    merge_date_headers(feishu, ss_token, first_sheet_id, len(insight_res["dates"]))
     feishu.set_sheet_public_editable(ss_token)
+    
+    import threading
+    threading.Thread(
+        target=merge_date_headers,
+        args=(feishu, ss_token, first_sheet_id, len(insight_res["dates"])),
+        daemon=True
+    ).start()
     
     now_str = datetime.now().isoformat()
     duration_ms = int((time.time() - t0) * 1000)
