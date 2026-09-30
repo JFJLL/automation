@@ -1,3 +1,4 @@
+from app.config import ACCESS_TOKEN
 import pytest
 import json
 from fastapi.testclient import TestClient
@@ -49,19 +50,19 @@ def test_lingxi_task_crud():
 
 def test_lingxi_api_routes():
     init_db()
-    res = client.get("/api/lingxi/tasks")
+    res = client.get("/api/lingxi/tasks", headers={"X-Access-Token": ACCESS_TOKEN})
     assert res.status_code == 200
     tasks = res.json()
     assert isinstance(tasks, list)
 
-    res_runs = client.get("/api/lingxi/runs")
+    res_runs = client.get("/api/lingxi/runs", headers={"X-Access-Token": ACCESS_TOKEN})
     assert res_runs.status_code == 200
     runs_data = res_runs.json()
     assert "items" in runs_data
     assert isinstance(runs_data["items"], list)
 
     # 搜索接口容错测试
-    res_search = client.post("/api/lingxi/search", json={"keywords": ""})
+    res_search = client.post("/api/lingxi/search", json={"keywords": ""}, headers={"X-Access-Token": ACCESS_TOKEN})
     assert res_search.status_code == 400
 
 if __name__ == "__main__":

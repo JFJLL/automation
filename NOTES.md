@@ -116,3 +116,46 @@ esolve_auto_range, parse_args, main。
    ```
 
 ---
+
+## 3. 阶段 2：鉴权改为 fail-closed (分支: fix/auth)
+
+### 3.1 改动文件清单与对应问题
+- `sync_console/core/security.py`:
+  - 核心鉴权逻辑由 fail-open 彻底改为 fail-closed (后端 P1 鉴权)；
+  - `AUTH_MODE` 统一读取 app.config，默认值为 token；require_auth 与 require_admin 统一校验标准；
+  - 强制启动时校验 `SESSION_SECRET` 长度不得小于 32 字符，小于时直接阻止启动 (P2-启动安全)；
+  - 密码与令牌比对全面替换为 `hmac.compare_digest`，防御时序侧信道攻击；
+  - 会话载荷加入 `jti` (16 字节随机 hex) 唯一令牌标识；
+  - 彻底移除对废弃 `access_token` 明文 Cookie 的读写与依赖。
+- `sync_console/app/main.py`:
+  - 增加全局 API 中间件，除公开白名单 (health/ready/business-time/login/check) 之外，所有 `/api/*` 默认全部拦截未授权访问 (返回 401)；
+  - 登录接口增加 IP 限速 (单 IP 每分钟最多 10 次，超限返回 429)；
+  - 响应脱敏：`/api/settings` 中的 notification_webhook 与 shared_folder_token 进行自动脱敏掩码，`/api/tasks` 严格使用字段白名单过滤内部字段，`/api/runs` 对 error_detail 深度脱敏；
+  - 飞书权限：接入 `FEISHU_SHEET_SHARE_MODE` (默认 private)，新建表格后自动设置并在服务端回读确认 (P1 飞书权限)。
+- 统一 CSRF 防御机制说明与选择理由：
+  - 方案选择：采用 **Double-Submit Cookie (CSRF Token)** 机制。
+  - 选择理由：系统前端管理后台同时支持 Cookie Session 会话与 API Token。在浏览器环境下，Cookie 会在同源请求中自动附带，必须通过由 JS 可读的非 HttpOnly `csrf_token` Cookie 并由前端在写请求 (POST/PUT/PATCH/DELETE) 中作为 `X-CSRF-Token` 请求头回传，服务端在检测到 Cookie 登录时强制校验一致性。同时对携带 Bearer/X-Access-Token 的外部 API 调用予以免校验，兼顾了浏览器防护与脚本自动化兼容性。
+- `frontend/src/shared/api/client.ts`:
+  - `VITE_API_BASE` 动态配置支持；
+  - 自动在写请求中附加 `X-CSRF-Token` 请求头；
+  - 捕获 401 自动广播 `auth:unauthorized` 事件并提供统一 ApiError 类型。
+- `frontend/src/features/settings/pages/SettingsPage.tsx`:
+  - 删除写死的 sellerId；Cookie 输入增加密码显示/隐藏切换；展示脱敏后的系统配置。
+- `tests/test_api_auth.py`:
+  - 新增动态遍历所有注册路由测试，全自动验证白名单外所有接口 401 拦截；
+  - 新增 SESSION_SECRET 长度与存在性防御测试；
+  - 新增 CSRF 缺失拦截 (403) 与正确通行测试；
+  - 新增登录限速测试 (第 11 次返回 429)。
+
+### 3.2 验证结果
+- pytest 测试摘要:
+  69 passed, 3 warnings in 3.12s
+- 前端构建与测试摘要:
+  1969 modules transformed, built in 2.65s; Tests 2 passed (2)
+- ruff 代码检查:
+  All checks passed!
+
+### 3.3 剩余风险
+- 若用户在反向代理下未配置 X-Forwarded-For，登录限速将回退到代理 IP；部署文档中需强调配置 --proxy-headers --forwarded-allow-ips=127.0.0.1。
+
+---

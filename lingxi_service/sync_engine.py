@@ -147,7 +147,7 @@ def direct_create_feishu_sheet(keywords: List[str], title: Optional[str] = None)
     write_matrix_to_sheet(feishu, ss_token, sheet_id, matrix)
 
     try:
-        feishu.set_public_permission(ss_token, edit=True)
+        feishu.set_sheet_share_permission(ss_token)
     except Exception as e:
         print(f"[Feishu Permission Error] {e}")
 

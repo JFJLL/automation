@@ -10,7 +10,8 @@ export const SettingsPage: React.FC = () => {
   const { showSuccess, showError } = useToast();
 
   const [cookieInput, setCookieInput] = useState('');
-  const [sellerIdInput, setSellerIdInput] = useState('628b3a5056228a000189c0e4');
+  const [sellerIdInput, setSellerIdInput] = useState('');
+  const [showCookie, setShowCookie] = useState(false);
 
   // 获取设置信息 (需要管理员)
   const { data: settings, isLoading: settingsLoading, refetch: refetchSettings } = useQuery<{
@@ -169,11 +170,27 @@ export const SettingsPage: React.FC = () => {
           </div>
 
           <div>
-            <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155', display: 'block', marginBottom: '6px' }}>
-              更新聚光 Cookie
-            </label>
-            <textarea
-              rows={3}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '6px' }}>
+              <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+                更新聚光 Cookie
+              </label>
+              <button
+                type="button"
+                onClick={() => setShowCookie(!showCookie)}
+                style={{
+                  background: 'none',
+                  border: 'none',
+                  color: '#2563eb',
+                  fontSize: '12px',
+                  cursor: 'pointer',
+                  padding: '2px 4px'
+                }}
+              >
+                {showCookie ? '隐藏凭据' : '显示明文'}
+              </button>
+            </div>
+            <input
+              type={showCookie ? 'text' : 'password'}
               placeholder="从浏览器复制包含 a1= 的有效聚光 Cookie 粘贴至此更新"
               value={cookieInput}
               onChange={(e) => setCookieInput(e.target.value)}

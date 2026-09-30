@@ -18,7 +18,7 @@ class TestJuguangSubaccountFlow(unittest.TestCase):
             {"id": "628b3a5056228a000189c0e4", "name": "测试子账号B", "status": 1}
         ]
         with patch("app.main.get_juguang_subaccounts_list", return_value=mock_subaccounts):
-            r = self.client.get("/api/platforms/juguang/subaccounts")
+            r = self.client.get("/api/platforms/juguang/subaccounts", headers=self.headers)
             self.assertEqual(r.status_code, 200)
             items = r.json()
             self.assertIsInstance(items, list)

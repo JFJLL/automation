@@ -1,23 +1,25 @@
 import json
-import os
-import sys
 import math
-from datetime import datetime
-from typing import List, Dict, Any, Optional, Literal
-from pydantic import BaseModel, Field
+import sys
 from contextlib import asynccontextmanager
-from pathlib import Path
-from pydantic import BaseModel
-
-from fastapi import FastAPI, UploadFile, File, Form, Header, HTTPException, Depends, Request, Response
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.middleware.gzip import GZipMiddleware
+from datetime import datetime
+from typing import Any, Dict, List, Literal, Optional
 
 from app.config import (
-    ACCESS_TOKEN, BASE_DIR, SHARED_FOLDER_TOKEN, SHARED_FOLDER_NAME,
-    FEISHU_CHAT_ID, NOTIFICATION_WEBHOOK, NOTIFICATION_POLICY
+    ACCESS_TOKEN,
+    BASE_DIR,
+    COOKIE_SECURE,
+    FEISHU_CHAT_ID,
+    NOTIFICATION_POLICY,
+    NOTIFICATION_WEBHOOK,
+    SHARED_FOLDER_NAME,
 )
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi.middleware.gzip import GZipMiddleware
+from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+
 # 确保项目根目录在 sys.path 中，以便导入 keyword_service 和 lingxi_service
 PROJECT_ROOT = BASE_DIR.parent
 FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
@@ -30,41 +32,42 @@ for root_dir in [PROJECT_ROOT, BASE_DIR]:
         sys.path.insert(0, r_str)
 
 from app.db import get_db, init_db
-from keyword_service.db import init_db as init_kw_db
-from lingxi_service.db import init_db as init_lingxi_db
-from feishu.client import FeishuClient
-from feishu.notify import Notifier
-from platforms.registry import PLATFORMS
-from platforms.juguang import get_juguang_subaccounts_list
-from core.ingest import parse_excel_sheets, analyze_sheet_for_platform
-from core.sync import preview_fetch, execute_task_sync
-from core.scheduler_manager import SchedulerManager
-from core.security import (
-    require_admin,
-    require_auth,
-    is_admin_authenticated,
-    create_admin_session,
-    SESSION_COOKIE_NAME
-)
-from core.business_time import now_business_tz, latest_keyword_available_date
+from core.business_time import latest_keyword_available_date, now_business_tz
 from core.errors import (
     AppError,
-    AuthenticationError,
-    AuthorizationError,
-    TaskNotFoundError,
-    TaskAlreadyRunningError,
-    DataValidationError,
-    InvalidDateRangeError,
-    FeishuError,
-    ProviderError
 )
+from core.ingest import analyze_sheet_for_platform, parse_excel_sheets
+from core.scheduler_manager import SchedulerManager
+from core.security import (
+    CSRF_COOKIE_NAME,
+    SESSION_COOKIE_NAME,
+    check_login_rate_limit,
+    create_admin_session,
+    generate_csrf_token,
+    get_session_secret,
+    is_admin_authenticated,
+    require_admin,
+    require_auth,
+    reset_login_rate_limit,
+)
+from core.sync import execute_task_sync, preview_fetch
+from feishu.client import FeishuClient
+from feishu.notify import Notifier
+from platforms.juguang import get_juguang_subaccounts_list
+from platforms.registry import PLATFORMS
+
+from keyword_service.db import init_db as init_kw_db
 
 # 确保根目录在 sys.path
-from keyword_service.router import router as keyword_router, private_router as keyword_private_router
-from lingxi_service.router import router as lingxi_router, private_router as lingxi_private_router
+from keyword_service.router import router as keyword_router
+from lingxi_service.db import init_db as init_lingxi_db
+from lingxi_service.router import router as lingxi_router
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # 启动时强制校验密钥
+    get_session_secret()
     # 启动时执行数据库迁移与任务恢复
     init_db()
     init_kw_db()
@@ -76,6 +79,28 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="飞书数据自动同步中心", lifespan=lifespan)
 app.add_middleware(GZipMiddleware, minimum_size=1000)
+
+PUBLIC_API_ROUTES = {
+    "/api/health",
+    "/api/ready",
+    "/api/business-time",
+    "/api/auth/login",
+    "/api/auth/check"
+}
+
+@app.middleware("http")
+async def fail_closed_api_auth_middleware(request: Request, call_next):
+    path = request.url.path
+    if path.startswith("/api/") and path not in PUBLIC_API_ROUTES:
+        try:
+            require_auth(request)
+        except HTTPException as exc:
+            msg = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+            return JSONResponse(status_code=exc.status_code, content={"error": {"code": f"HTTP_{exc.status_code}", "message": msg}, "detail": msg})
+        except Exception:
+            return JSONResponse(status_code=401, content={"error": {"code": "HTTP_401", "message": "未授权，需要管理员权限"}, "detail": "未授权，需要管理员权限"})
+    response = await call_next(request)
+    return response
 
 # 全局业务异常处理
 @app.exception_handler(AppError)
@@ -90,7 +115,7 @@ async def http_error_handler(request: Request, exc: HTTPException):
     msg = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
     return JSONResponse(
         status_code=exc.status_code,
-        content={"error": {"code": f"HTTP_{exc.status_code}", "message": msg}}
+        content={"error": {"code": f"HTTP_{exc.status_code}", "message": msg}, "detail": msg}
     )
 
 # 挂载前端 React SPA 生产构建静态产物
@@ -131,7 +156,7 @@ def readiness_check():
             db_ok = True
     except Exception:
         db_ok = False
-        
+
     scheduler_ok = SchedulerManager.get_instance().scheduler.running
     if not (db_ok and scheduler_ok):
         raise HTTPException(status_code=503, detail="服务未就绪")
@@ -200,12 +225,20 @@ def favicon_ico():
 # ---------------- 鉴权端点 (Section 十五, 十八) ----------------
 @app.post("/api/auth/login")
 def login(payload: Dict[str, str], request: Request, response: Response):
+    import hmac
+    client_ip = request.client.host if request.client else "127.0.0.1"
+    if not check_login_rate_limit(client_ip):
+        raise HTTPException(status_code=429, detail="登录尝试过于频繁，请稍后再试")
+
     pwd = payload.get("password", "")
-    if not ACCESS_TOKEN or pwd != ACCESS_TOKEN:
+    if not ACCESS_TOKEN or not hmac.compare_digest(pwd, ACCESS_TOKEN):
         raise HTTPException(status_code=400, detail="口令错误")
-        
+
+    reset_login_rate_limit(client_ip)
     token = create_admin_session()
-    is_secure = request.url.scheme == "https"
+    csrf_token = generate_csrf_token()
+    is_secure = (request.url.scheme == "https") or COOKIE_SECURE
+
     response.set_cookie(
         key=SESSION_COOKIE_NAME,
         value=token,
@@ -214,49 +247,68 @@ def login(payload: Dict[str, str], request: Request, response: Response):
         samesite="lax",
         secure=is_secure
     )
-    # 兼容过渡期 cookie
     response.set_cookie(
-        key="access_token",
-        value=ACCESS_TOKEN,
+        key=CSRF_COOKIE_NAME,
+        value=csrf_token,
         max_age=86400 * 30,
-        httponly=True,
+        httponly=False,
         samesite="lax",
         secure=is_secure
     )
-    # 绝不再向前端返回原始密码或 ACCESS_TOKEN！
-    return {"success": True}
+    return {"success": True, "csrf_token": csrf_token}
 
 @app.post("/api/auth/logout")
 def logout(response: Response):
     response.delete_cookie(key=SESSION_COOKIE_NAME)
+    response.delete_cookie(key=CSRF_COOKIE_NAME)
     response.delete_cookie(key="access_token")
     return {"success": True}
 
 @app.get("/api/auth/check")
-def auth_check(request: Request):
-    return {"authenticated": is_admin_authenticated(request)}
+def auth_check(request: Request, response: Response):
+    authenticated = is_admin_authenticated(request)
+    csrf_token = request.cookies.get(CSRF_COOKIE_NAME)
+    if authenticated and not csrf_token:
+        csrf_token = generate_csrf_token()
+        is_secure = (request.url.scheme == "https") or COOKIE_SECURE
+        response.set_cookie(
+            key=CSRF_COOKIE_NAME,
+            value=csrf_token,
+            max_age=86400 * 30,
+            httponly=False,
+            samesite="lax",
+            secure=is_secure
+        )
+    return {"authenticated": authenticated, "csrf_token": csrf_token}
 
 # ---------------- 数据同步 API ----------------
-@app.get("/api/platforms")
+@app.get("/api/platforms", dependencies=[Depends(require_admin)])
 def get_platforms():
     return {
         code: {"name": p["name"], "vocab_count": len(p["vocab"])}
         for code, p in PLATFORMS.items()
     }
 
-@app.get("/api/platforms/juguang/subaccounts")
+@app.get("/api/platforms/juguang/subaccounts", dependencies=[Depends(require_admin)])
 def get_juguang_subaccounts(refresh: bool = False):
     return get_juguang_subaccounts_list(force_refresh=refresh)
+
+def mask_string(val: str, prefix_len: int = 4, suffix_len: int = 4) -> str:
+    if not val:
+        return ""
+    if len(val) <= prefix_len + suffix_len:
+        return "*" * len(val)
+    return f"{val[:prefix_len]}{'*' * (len(val) - prefix_len - suffix_len)}{val[-suffix_len:]}"
 
 @app.get("/api/settings", dependencies=[Depends(require_admin)])
 def get_settings():
     feishu = FeishuClient()
     folder_token = feishu.get_or_create_shared_folder()
     return {
-        "shared_folder_token": folder_token,
+        "shared_folder_token": mask_string(folder_token, 4, 4),
         "shared_folder_name": SHARED_FOLDER_NAME,
         "feishu_chat_id": FEISHU_CHAT_ID,
-        "notification_webhook": NOTIFICATION_WEBHOOK,
+        "notification_webhook": mask_string(NOTIFICATION_WEBHOOK, 18, 6),
         "notification_policy": NOTIFICATION_POLICY
     }
 
@@ -276,12 +328,12 @@ async def upload_excel(
     raw_sheets = parse_excel_sheets(content, file.filename)
     if not raw_sheets:
         raise HTTPException(status_code=400, detail="未能从文件中读取到有效工作表或表头")
-        
+
     analyzed_sheets = []
     for s in raw_sheets:
         analysis = analyze_sheet_for_platform(s, selected_platform)
         analyzed_sheets.append(analysis)
-        
+
     return {
         "filename": file.filename,
         "selected_platform": selected_platform,
@@ -343,28 +395,28 @@ def create_task(req: CreateTaskRequest):
         SchedulerManager.get_instance().parse_sync_next_run(req.rrule)
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"非法 RRULE 调度表达式: {e}")
-        
+
     feishu = FeishuClient()
     folder_token = feishu.get_or_create_shared_folder()
-    
+
     ss_meta = feishu.create_spreadsheet(title=req.task_name, folder_token=folder_token)
     ss_token = ss_meta["spreadsheet_token"]
     ss_url = ss_meta["url"]
-    
+
     existing_sheets = feishu.get_sheets(ss_token)
     first_sheet_id = existing_sheets[0]["sheet_id"] if existing_sheets else "0"
-    
+
     sheet_records = []
     for idx, sc in enumerate(req.sheets):
         if idx == 0:
             ws_id = first_sheet_id
         else:
             ws_id = feishu.add_worksheet(ss_token, title=sc.sheet_title)
-            
+
         feishu.write_rows(ss_token, ws_id, start_row=1, rows=[sc.headers])
         if req.write_initial_data and sc.initial_rows:
             feishu.write_rows(ss_token, ws_id, start_row=2, rows=sc.initial_rows)
-            
+
         sheet_records.append({
             "sheet_title": sc.sheet_title,
             "worksheet_id": ws_id,
@@ -375,10 +427,10 @@ def create_task(req: CreateTaskRequest):
             "column_mapping": sc.column_mapping,
             "entity_ids": sc.entity_ids
         })
-        
-    feishu.set_sheet_public_editable(ss_token)
+
+    feishu.set_sheet_share_permission(ss_token)
     now = datetime.now().isoformat()
-    
+
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute(
@@ -394,7 +446,7 @@ def create_task(req: CreateTaskRequest):
             )
         )
         task_id = cursor.lastrowid
-        
+
         for sr in sheet_records:
             cursor.execute(
                 """
@@ -411,9 +463,9 @@ def create_task(req: CreateTaskRequest):
                 )
             )
         conn.commit()
-        
+
     SchedulerManager.get_instance().schedule_sync_task(task_id)
-    
+
     return {
         "success": True,
         "task_id": task_id,
@@ -421,11 +473,28 @@ def create_task(req: CreateTaskRequest):
         "spreadsheet_url": ss_url
     }
 
-@app.get("/api/tasks")
+TASK_WHITELIST_FIELDS = [
+    "id", "name", "platform", "status", "rrule",
+    "spreadsheet_token", "spreadsheet_url", "sub_account_id", "sub_account_name",
+    "update_mode", "calibration_days", "last_run_at", "next_run_at",
+    "last_status", "last_error", "created_at", "updated_at"
+]
+
+def sanitize_error_detail(err: Optional[str]) -> Optional[str]:
+    if not err:
+        return err
+    import re
+    sanitized = re.sub(r"([?&][a-zA-Z0-9_-]*(?:token|key|secret|password|cookie|auth)[a-zA-Z0-9_-]*=)[^&s]+", r"\1[REDACTED]", str(err), flags=re.IGNORECASE)
+    sanitized = re.sub(r"(Cookie:\s*)[^\r\n]+", r"\1[REDACTED]", sanitized, flags=re.IGNORECASE)
+    sanitized = re.sub(r"(Bearer\s+)[a-zA-Z0-9_.-]+", r"\1[REDACTED]", sanitized, flags=re.IGNORECASE)
+    return sanitized
+
+@app.get("/api/tasks", dependencies=[Depends(require_admin)])
 def list_tasks():
     with get_db() as conn:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM tasks WHERE status != 'archived' ORDER BY id DESC")
+        cols = ", ".join(TASK_WHITELIST_FIELDS)
+        cursor.execute(f"SELECT {cols} FROM tasks WHERE status != 'archived' ORDER BY id DESC")
         tasks = [dict(r) for r in cursor.fetchall()]
         for t in tasks:
             cursor.execute("SELECT sheet_title, worksheet_id, dimension, id_column, entity_ids_json FROM task_sheets WHERE task_id = ?", (t["id"],))
@@ -444,6 +513,8 @@ def toggle_task_status(task_id: int):
         r = cursor.fetchone()
         if not r:
             raise HTTPException(status_code=404, detail="Task not found")
+        if r["status"] == "archived":
+            raise HTTPException(status_code=409, detail="Archived tasks cannot be toggled")
         new_status = "paused" if r["status"] == "active" else "active"
         cursor.execute("UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?", (new_status, datetime.now().isoformat(), task_id))
         conn.commit()
@@ -456,12 +527,16 @@ def toggle_task_status(task_id: int):
 @app.delete("/api/tasks/{task_id}", dependencies=[Depends(require_admin)])
 def archive_task(task_id: int):
     with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT status FROM tasks WHERE id = ?", (task_id,))
+        if not cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Task not found")
         conn.execute("UPDATE tasks SET status = 'archived', updated_at = ? WHERE id = ?", (datetime.now().isoformat(), task_id))
         conn.commit()
     SchedulerManager.get_instance().remove_sync_task(task_id)
     return {"success": True}
 
-@app.get("/api/runs")
+@app.get("/api/runs", dependencies=[Depends(require_admin)])
 def list_runs(
     task_id: Optional[int] = None,
     page: Optional[int] = None,
@@ -504,6 +579,9 @@ def list_runs(
                     "SELECT r.*, t.name as task_name, t.platform FROM runs r JOIN tasks t ON r.task_id = t.id ORDER BY r.id DESC LIMIT 100"
                 )
         runs = [dict(row) for row in cursor.fetchall()]
+        for r in runs:
+            if "error_detail" in r:
+                r["error_detail"] = sanitize_error_detail(r["error_detail"])
 
     if page is not None:
         return {
@@ -514,4 +592,3 @@ def list_runs(
             "items": runs
         }
     return runs
-

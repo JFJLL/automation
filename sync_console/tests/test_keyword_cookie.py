@@ -9,7 +9,10 @@ from app.config import ACCESS_TOKEN
 def test_cookie_and_search_handling():
     client = TestClient(app)
     # 登录管理员
-    client.post("/api/auth/login", json={"password": ACCESS_TOKEN})
+    r = client.post("/api/auth/login", json={"password": ACCESS_TOKEN})
+    csrf = r.json().get("csrf_token")
+    if csrf:
+        client.headers["X-CSRF-Token"] = csrf
 
     # 1. Test get cookie
     r_get = client.get("/api/keyword/cookie")

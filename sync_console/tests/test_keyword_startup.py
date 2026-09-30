@@ -32,7 +32,7 @@ class TestKeywordStartup(unittest.TestCase):
                 try:
                     with TestClient(app) as client:
                         self.assertEqual(client.get("/keyword").status_code, 200)
-                        self.assertEqual(client.get("/api/keyword/tasks").status_code, 200)
+                        self.assertEqual(client.get("/api/keyword/tasks", headers={"X-Access-Token": ACCESS_TOKEN}).status_code, 200)
                         self.assertTrue(kw_scheduler.running)
                         self.assertIsNotNone(kw_scheduler.get_job(f"kw_task_{task_id}"))
                         with closing(get_db()) as conn:

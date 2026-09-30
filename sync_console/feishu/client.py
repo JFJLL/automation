@@ -99,12 +99,45 @@ class FeishuClient:
         url = spreadsheet.get("url")
         return {"spreadsheet_token": token, "url": url}
 
-    def set_sheet_public_editable(self, spreadsheet_token: str):
-        self.request("PATCH", f"drive/v1/permissions/{spreadsheet_token}/public?type=sheet", json={
-            "link_share_entity": "tenant_editable",
-            "share_entity": "same_tenant",
-            "external_access": False
-        })
+    def set_sheet_share_permission(self, spreadsheet_token: str, mode: Optional[str] = None) -> Dict[str, Any]:
+        from app.config import FEISHU_SHEET_SHARE_MODE
+        share_mode = (mode or FEISHU_SHEET_SHARE_MODE or "private").strip().lower()
+        if share_mode == "tenant_editable":
+            payload = {
+                "link_share_entity": "tenant_editable",
+                "share_entity": "same_tenant",
+                "external_access": False
+            }
+        elif share_mode == "tenant_readable":
+            payload = {
+                "link_share_entity": "tenant_readable",
+                "share_entity": "same_tenant",
+                "external_access": False
+            }
+        else:  # private
+            payload = {
+                "link_share_entity": "closed",
+                "external_access": False
+            }
+
+        try:
+            self.request("PATCH", f"drive/v1/permissions/{spreadsheet_token}/public?type=sheet", json=payload)
+        except Exception:
+            pass
+
+        # 回读确认
+        try:
+            confirmed = self.request("GET", f"drive/v1/permissions/{spreadsheet_token}/public?type=sheet")
+            return confirmed or {}
+        except Exception:
+            return {}
+
+    def set_sheet_public_editable(self, spreadsheet_token: str) -> Dict[str, Any]:
+        return self.set_sheet_share_permission(spreadsheet_token)
+
+    def set_public_permission(self, spreadsheet_token: str, edit: bool = True) -> Dict[str, Any]:
+        mode = "tenant_editable" if edit else "tenant_readable"
+        return self.set_sheet_share_permission(spreadsheet_token, mode=mode)
 
     def get_sheets(self, spreadsheet_token: str) -> List[Dict[str, Any]]:
         res = self.request("GET", f"sheets/v3/spreadsheets/{spreadsheet_token}/sheets/query")
@@ -171,8 +204,7 @@ class FeishuClient:
             }
         })
 
-    def set_public_permission(self, spreadsheet_token: str, edit: bool = True):
-        return self.set_sheet_public_editable(spreadsheet_token)
+
 
     def clear_rows_below(self, spreadsheet_token: str, sheet_id: str, keep_header_row: int = 1, col_count: int = 50):
         last = self.find_last_row_index(spreadsheet_token, sheet_id)

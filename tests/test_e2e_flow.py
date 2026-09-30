@@ -15,7 +15,10 @@ from core.models import ProviderFetchResult, ProviderFetchStatus
 @pytest.fixture
 def client():
     with TestClient(app) as c:
-        c.post("/api/auth/login", json={"password": ACCESS_TOKEN})
+        r = c.post("/api/auth/login", json={"password": ACCESS_TOKEN})
+        csrf = r.json().get("csrf_token")
+        if csrf:
+            c.headers["X-CSRF-Token"] = csrf
         yield c
 
 def test_e2e_data_sync_and_keyword_flow(client):

@@ -13,7 +13,7 @@ class TestApiEndpoints(unittest.TestCase):
 
     def test_auth_flow(self):
         # 普通公开接口免鉴权
-        r = self.client.get("/api/platforms")
+        r = self.client.get("/api/platforms", headers=self.headers)
         self.assertEqual(r.status_code, 200)
 
         # 未授权管理接口
