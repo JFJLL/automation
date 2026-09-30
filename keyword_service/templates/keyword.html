@@ -2462,9 +2462,9 @@
       }
       setTimeout(notifyParentHeight, 50);
       if (tab === 'tasks') {
-        loadTasksList(false);
+        loadTasksList(true);
       } else if (tab === 'runs') {
-        loadRunsList(currentRunsPage, false);
+        loadRunsList(currentRunsPage, true);
       }
 
       if (updateUrl) {
@@ -2795,7 +2795,14 @@
         if (!resp.ok || !res.success) throw new Error(res.detail || '创建任务失败');
 
         closeTaskModal();
+        try { sessionStorage.removeItem('kw_tasks_cache'); } catch(e) {}
+        if (window.tabCache && window.tabCache.tasks) {
+          window.tabCache.tasks.loaded = false;
+          window.tabCache.tasks.data = null;
+        }
         tabCache.runs.loaded = false;
+        await updateKeywordTaskBadge();
+        await loadTasksList(true);
         tabCache.runs.data = null;
         try {
           for (let i = sessionStorage.length - 1; i >= 0; i--) {
@@ -3008,8 +3015,12 @@
         const res = await resp.json();
         if (!resp.ok || !res.success) throw new Error(res.detail || '删除失败');
         showAlert('🗑️ 任务 #' + id + ' 已成功删除。已停止后续调度。', 'success');
-        if (window.tabCache && window.tabCache.tasks) window.tabCache.tasks.loaded = false;
-        loadTasksList(true);
+        try { sessionStorage.removeItem('kw_tasks_cache'); } catch(e) {}
+        if (window.tabCache && window.tabCache.tasks) {
+          window.tabCache.tasks.loaded = false;
+          window.tabCache.tasks.data = null;
+        }
+        await loadTasksList(true);
       } catch (e) {
         alert('删除失败: ' + e.message);
       }
@@ -3067,36 +3078,25 @@
       if (window.lucide) window.lucide.createIcons();
     }
 
+    function notifyParentTaskCount(count) {
+      const c = Number(count) || 0;
+      const badge = document.getElementById('kwTaskCountBadge');
+      if (badge) badge.innerText = c;
+      if (window.parent && window.parent !== window) {
+        try {
+          window.parent.postMessage({ type: 'kw_tasks_count', count: c }, '*');
+        } catch (e) {}
+      }
+    }
+
     async function updateKeywordTaskBadge() {
-      try {
-        const cached = sessionStorage.getItem('kw_tasks_cache');
-        if (cached) {
-          const parsed = JSON.parse(cached);
-          if (parsed && Array.isArray(parsed.data)) {
-            const badge = document.getElementById('kwTaskCountBadge');
-            if (badge) badge.innerText = parsed.data.length;
-            if (!tabCache.tasks.loaded) {
-              tabCache.tasks.loaded = true;
-              tabCache.tasks.data = parsed.data;
-              const tasksSec = document.getElementById('section-tasks');
-              if (tasksSec && tasksSec.style.display !== 'none') {
-                renderTasksTable(parsed.data);
-              }
-            }
-          }
-        }
-      } catch (e) {}
       try {
         const resp = await keywordFetch('/api/keyword/tasks');
         if (!resp.ok) return;
         const tasks = await resp.json();
         tabCache.tasks.loaded = true;
         tabCache.tasks.data = tasks;
-        try {
-          sessionStorage.setItem('kw_tasks_cache', JSON.stringify({ data: tasks, time: Date.now() }));
-        } catch (e) {}
-        const badge = document.getElementById('kwTaskCountBadge');
-        if (badge) badge.innerText = tasks.length;
+        notifyParentTaskCount(tasks.length);
         const tasksSec = document.getElementById('section-tasks');
         if (tasksSec && tasksSec.style.display !== 'none') {
           renderTasksTable(tasks);
@@ -3113,24 +3113,9 @@
         return;
       }
       if (!force && tabCache.tasks.data) {
+        notifyParentTaskCount(tabCache.tasks.data.length);
         renderTasksTable(tabCache.tasks.data);
         return;
-      }
-      if (!force && !tabCache.tasks.data) {
-        try {
-          const cached = sessionStorage.getItem('kw_tasks_cache');
-          if (cached) {
-            const parsed = JSON.parse(cached);
-            if (parsed && Array.isArray(parsed.data)) {
-              tabCache.tasks.loaded = true;
-              tabCache.tasks.data = parsed.data;
-              const badge = document.getElementById('kwTaskCountBadge');
-              if (badge) badge.innerText = parsed.data.length;
-              renderTasksTable(parsed.data);
-              return;
-            }
-          }
-        } catch (e) {}
       }
       tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--text-muted); padding:30px;">正在加载...</td></tr>';
       try {
@@ -3139,11 +3124,7 @@
         const tasks = await resp.json();
         tabCache.tasks.loaded = true;
         tabCache.tasks.data = tasks;
-        try {
-          sessionStorage.setItem('kw_tasks_cache', JSON.stringify({ data: tasks, time: Date.now() }));
-        } catch (e) {}
-        const badge = document.getElementById('kwTaskCountBadge');
-        if (badge) badge.innerText = tasks.length;
+        notifyParentTaskCount(tasks.length);
         renderTasksTable(tasks);
       } catch (e) {
         if (tbody) tbody.innerHTML = '<tr><td colspan="9" style="text-align:center; color:var(--danger); padding:30px;">加载失败: ' + e.message + '</td></tr>';

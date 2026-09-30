@@ -45,3 +45,8 @@ feishu_three_sync/**/token.txt
 feishu_three_sync/**/adstar.txt
 feishu_three_sync/**/session_headers.json
 feishu_three_sync/**/browser_state.json
+sync_console/data/juguang_subaccounts_cache.json
+data/juguang_subaccounts_cache.json
+node_modules/
+frontend/node_modules/
+frontend/dist/

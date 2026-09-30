@@ -10,11 +10,12 @@ BACKUPS_DIR.mkdir(parents=True, exist_ok=True)
 
 load_dotenv(BASE_DIR / ".env")
 
-FEISHU_APP_ID = os.getenv("FEISHU_APP_ID", "cli_a668f3d00db9100e")
-FEISHU_APP_SECRET = os.getenv("FEISHU_APP_SECRET", "LloP4DjXfH1YqE9DL6ObwfVU5uRhI7TF")
-SHARED_FOLDER_TOKEN = os.getenv("SHARED_FOLDER_TOKEN", "")
-SHARED_FOLDER_NAME = os.getenv("SHARED_FOLDER_NAME", "数据自动同步表")
-ACCESS_TOKEN = os.getenv("ACCESS_TOKEN", "redmagic2026")
+FEISHU_APP_ID = os.getenv("FEISHU_APP_ID", "").strip()
+FEISHU_APP_SECRET = os.getenv("FEISHU_APP_SECRET", "").strip()
+SHARED_FOLDER_TOKEN = os.getenv("SHARED_FOLDER_TOKEN", "").strip()
+SHARED_FOLDER_NAME = os.getenv("SHARED_FOLDER_NAME", "数据自动同步表").strip()
+ACCESS_TOKEN = os.getenv("ACCESS_TOKEN", "").strip()
+AUTH_MODE = os.getenv("AUTH_MODE", "token").strip().lower()
 
 OSS_ENDPOINT = os.getenv("OSS_ENDPOINT", "https://oss-cn-beijing.aliyuncs.com").strip()
 OSS_BUCKET = os.getenv("OSS_BUCKET", "redmagic").strip()

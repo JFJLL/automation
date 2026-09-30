@@ -2,15 +2,16 @@ import os
 import sys
 import json
 import hmac
+import math
 from pathlib import Path
-from typing import Optional, List, Union
+from typing import Optional, List, Union, Dict, Any
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, FastAPI, Request, Response
-from fastapi.responses import HTMLResponse
-from pydantic import BaseModel
+from fastapi.responses import HTMLResponse, JSONResponse
+from pydantic import BaseModel, Field
 
 from keyword_service.client import fetch_keywords_insight, load_token
-from keyword_service.db import get_db, init_db
+from keyword_service.db import get_db
 from keyword_service.sync_engine import (
     direct_create_feishu_sheet,
     create_keyword_task,
@@ -18,17 +19,22 @@ from keyword_service.sync_engine import (
     append_keywords_to_task,
     remove_keywords_from_task
 )
-from keyword_service.scheduler import init_keyword_scheduler, reschedule_keyword_task, remove_keyword_job
+from core.scheduler_manager import SchedulerManager
+from core.security import require_admin, require_auth, create_admin_session, is_admin_authenticated
+from core.errors import (
+    AppError,
+    TaskNotFoundError,
+    TaskAlreadyRunningError,
+    DataValidationError,
+    InvalidDateRangeError
+)
 from app.config import ACCESS_TOKEN
 
 router = APIRouter()
-
 private_router = APIRouter(prefix="/api/keyword")
+
 HTML_PATH = Path(__file__).parent / "templates" / "keyword.html"
 KEYWORD_LIBRARY_PATH = Path(__file__).parent / "all_keyword_trends.json"
-
-# 初始化数据库
-init_db()
 
 class KeywordSearchRequest(BaseModel):
     keywords: Union[str, List[str]]
@@ -50,21 +56,19 @@ class CreateKeywordTaskRequest(BaseModel):
 
 class AppendKeywordsRequest(BaseModel):
     keywords: Union[str, List[str]]
-    sync_now: bool = True
+    sync_now: bool = False
 
 class RemoveKeywordsRequest(BaseModel):
     keywords: Union[str, List[str]]
-
-class KeywordLoginRequest(BaseModel):
-    password: str
 
 class CookieUpdateRequest(BaseModel):
     cookie: str
     v_seller_id: Optional[str] = "628b3a5056228a000189c0e4"
 
+class KeywordLoginRequest(BaseModel):
+    password: str
+
 _CACHED_KEYWORD_HTML: Optional[str] = None
-_CACHED_EMBED_HTML: Optional[str] = None
-_CACHED_SHELL_HTML: Optional[str] = None
 _CACHED_LIBRARY_DATA: Optional[dict] = None
 
 @router.get("/keyword", response_class=HTMLResponse)
@@ -74,202 +78,140 @@ _CACHED_LIBRARY_DATA: Optional[dict] = None
 @router.get("/keyword/runs", response_class=HTMLResponse)
 @router.get("/keyword/runs/", response_class=HTMLResponse)
 def keyword_page(request: Request):
-    global _CACHED_EMBED_HTML, _CACHED_SHELL_HTML
-    embed = request.query_params.get("embed")
-    if embed == "1":
-        if _CACHED_EMBED_HTML is None:
-            if not HTML_PATH.exists():
-                raise HTTPException(status_code=404, detail="Page template not found")
-            _CACHED_EMBED_HTML = HTML_PATH.read_text(encoding="utf-8")
-        return HTMLResponse(content=_CACHED_EMBED_HTML)
-    if _CACHED_SHELL_HTML is None:
-        candidates = [
-            Path(__file__).parent.parent / "sync_console" / "web" / "index.html",
-            Path(__file__).parent.parent / "web" / "index.html",
-            HTML_PATH
-        ]
-        target_file = next((p for p in candidates if p.exists()), HTML_PATH)
-        _CACHED_SHELL_HTML = target_file.read_text(encoding="utf-8")
-    return HTMLResponse(content=_CACHED_SHELL_HTML)
+    global _CACHED_KEYWORD_HTML
+    if not HTML_PATH.exists():
+        return HTMLResponse("<h1>Keyword module ready</h1>")
+    if _CACHED_KEYWORD_HTML is None:
+        _CACHED_KEYWORD_HTML = HTML_PATH.read_text(encoding="utf-8")
+    return HTMLResponse(_CACHED_KEYWORD_HTML)
 
 @router.get("/api/keyword/library")
 def keyword_library():
-    """Return the keyword library as a two-level taxonomy for UI filtering."""
     global _CACHED_LIBRARY_DATA
     if _CACHED_LIBRARY_DATA is not None:
         return _CACHED_LIBRARY_DATA
 
     if not KEYWORD_LIBRARY_PATH.exists():
-        return {"groups": [], "total": 0}
+        return {"categories": {}, "counts": {}, "all_keywords": []}
 
     try:
-        data = json.loads(KEYWORD_LIBRARY_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise HTTPException(status_code=500, detail=f"关键词库读取失败: {exc}")
-
-    outdoor_keywords = list(data.keys())
+        raw_data = json.loads(KEYWORD_LIBRARY_PATH.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"词库解析失败: {e}")
 
     def words(value):
-        return [item.strip() for item in value.split("|") if item.strip()]
+        return [w.strip() for w in value.split() if w.strip()]
 
     def contains_any(keyword, terms):
-        lower = keyword.lower()
-        return any(term.lower() in lower for term in terms)
+        return any(t in keyword for t in terms)
 
     def unique(items):
-        return list(dict.fromkeys(items))
+        seen = set()
+        out = []
+        for x in items:
+            if x not in seen:
+                seen.add(x)
+                out.append(x)
+        return out
 
-    curated_groups = [
-        {
-            "name": "母婴",
-            "subcategories": [
-                {"name": "奶粉喂养", "keywords": words("婴儿奶粉|新生儿奶粉|一段奶粉|二段奶粉|三段奶粉|羊奶粉|奶粉测评|奶粉怎么选|宝宝不喝奶粉|转奶攻略")},
-                {"name": "纸尿裤", "keywords": words("纸尿裤|拉拉裤|新生儿纸尿裤|纸尿裤推荐|纸尿裤测评|轻薄纸尿裤|透气纸尿裤|夜用拉拉裤|纸尿裤红屁屁|纸尿裤囤货")},
-                {"name": "辅食营养", "keywords": words("宝宝辅食|婴儿米粉|宝宝零食|婴幼儿益生菌|儿童钙铁锌|宝宝辅食机|辅食添加顺序|一岁宝宝食谱|宝宝营养餐|儿童维生素")},
-                {"name": "洗护用品", "keywords": words("婴儿面霜|宝宝洗发沐浴露|婴儿润肤乳|宝宝防晒|婴儿湿巾|宝宝护臀膏|婴儿洗衣液|宝宝驱蚊|婴儿抚触油|母婴洗护")},
-                {"name": "出行寝居", "keywords": words("婴儿车|安全座椅|婴儿床|宝宝餐椅|婴儿背带|恒温水壶|奶瓶消毒柜|婴儿睡袋|宝宝床品|母婴包")},
-                {"name": "孕产护理", "keywords": words("孕妇护肤|孕妇装|待产包|产后修复|哺乳内衣|吸奶器|储奶袋|月子用品|妊娠纹护理|孕期营养")},
-            ],
+    categorized = {}
+    rule_definitions = {
+        "防晒衣": {
+            "防晒品类": words("防晒衣 防晒服 凉感防晒衣 皮肤衣 户外防晒衣 透气防晒衣 防紫外线 UPF 原纱防晒"),
+            "人群场景": words("男士防晒衣 女士防晒衣 儿童防晒衣 户外防晒 徒步防晒 露营 钓鱼 骑行 通勤"),
+            "热门竞品": words("焦下 蕉下 伯希和 探路者 骆驼 迪卡侬 优衣库 蕉内 OhSunny 波司登 北面")
         },
-        {
-            "name": "美妆护肤",
-            "subcategories": [
-                {"name": "防晒", "keywords": words("防晒霜|防晒推荐|油皮防晒|敏感肌防晒|通勤防晒|户外防晒|防晒喷雾|防晒测评|不搓泥防晒|身体防晒")},
-                {"name": "精华面霜", "keywords": words("精华液|抗老精华|美白精华|修护精华|面霜推荐|敏感肌面霜|油皮面霜|抗老面霜|早c晚a|屏障修护")},
-                {"name": "面膜洁面", "keywords": words("面膜推荐|补水面膜|清洁面膜|睡眠面膜|敏感肌面膜|洗面奶|氨基酸洗面奶|卸妆油|卸妆膏|毛孔清洁")},
-                {"name": "彩妆", "keywords": words("粉底液|持妆粉底液|气垫推荐|口红色号|腮红推荐|眼影盘|睫毛膏|遮瑕推荐|定妆喷雾|新手化妆")},
-                {"name": "香水个护", "keywords": words("香水推荐|女生香水|男士香水|留香持久香水|洗发水推荐|护发精油|身体乳|止汗露|头皮护理|香氛沐浴露")},
-                {"name": "肤质问题", "keywords": words("油皮护肤|干皮护肤|敏感肌护肤|痘肌护肤|毛孔粗大|闭口粉刺|黑头清洁|皮肤暗沉|换季过敏|熬夜护肤")},
-            ],
+        "冲锋衣": {
+            "硬壳软壳": words("冲锋衣 硬壳 软壳 三合一 单层冲锋衣 抓绒 防水 透气 耐磨 防风 GORE-TEX 暴雨级"),
+            "场景风格": words("登山 徒步 户外 山系 露营 滑雪 骑行 战术 机能 工装 城市户外"),
+            "热门品牌": words("始祖鸟 北面 哥伦比亚 骆驼 探路者 伯希和 猛犸象 土拨鼠 迪卡侬 拓路者 牧高笛")
         },
-        {
-            "name": "户外运动",
-            "subcategories": [
-                {"name": "户外热门词", "keywords": outdoor_keywords},
-                {"name": "冲锋衣", "keywords": [kw for kw in outdoor_keywords if "冲锋衣" in kw]},
-                {"name": "户外品牌", "keywords": [kw for kw in outdoor_keywords if contains_any(kw, ["凯乐石", "kailas", "狼爪", "jackwolfskin", "北面", "thenorthface", "伯希和", "始祖鸟", "骆驼", "迪卡侬"])]},
-                {"name": "鞋服装备", "keywords": [kw for kw in outdoor_keywords if contains_any(kw, ["鞋", "背包", "登山包", "软壳", "硬壳", "羽绒服", "裤子", "帽"])]},
-                {"name": "露营徒步", "keywords": words("露营装备|露营帐篷|天幕推荐|露营桌椅|睡袋推荐|徒步装备|登山杖|户外水壶|徒步路线|轻量化露营|自驾露营|户外炉具")},
-                {"name": "跑步健身", "keywords": words("跑步鞋|越野跑鞋|跑步装备|运动手表|健身穿搭|瑜伽服|运动内衣|筋膜枪|居家健身|减脂运动|力量训练|跑步入门")},
-            ],
+        "户外鞋": {
+            "鞋款类型": words("徒步鞋 登山鞋 越野跑鞋 溯溪鞋 户外工装鞋 露营鞋 防滑 耐磨 防水 V底 Vibram"),
+            "功能场景": words("重装徒步 轻量徒步 越野 攀爬 涉水 雨天防滑 减震 支撑 护踝"),
+            "热门品牌": words("萨洛蒙 迈乐 斯卡帕 赞贝拉 迈乐 哥伦比亚 探路者 骆驼 迪卡侬 极地")
         },
-        {
-            "name": "服饰鞋包",
-            "subcategories": [
-                {"name": "女装穿搭", "keywords": words("秋冬穿搭|小个子穿搭|通勤穿搭|显瘦穿搭|法式穿搭|新中式穿搭|毛衣推荐|大衣穿搭|羽绒服穿搭|裙子推荐")},
-                {"name": "男装", "keywords": words("男生穿搭|男士外套|男士羽绒服|男士卫衣|男士衬衫|男士休闲裤|男士西装|男生通勤穿搭|男装品牌|男士基础款")},
-                {"name": "鞋靴", "keywords": words("运动鞋推荐|小白鞋|跑鞋推荐|短靴穿搭|乐福鞋|老爹鞋|通勤鞋|厚底鞋|雪地靴|鞋子测评")},
-                {"name": "箱包配饰", "keywords": words("通勤包|双肩包推荐|腋下包|托特包|旅行箱|斜挎包|帽子穿搭|围巾推荐|首饰搭配|平价包包")},
-            ],
+        "速干衣裤": {
+            "衣物类型": words("速干衣 速干裤 速干T恤 速干衬衫 运动速干 排汗 透气 凉感 轻量 耐磨 弹力"),
+            "户外运动": words("徒步 登山 越野 露营 跑步 健身 训练 骑行 马拉松"),
+            "热门品牌": words("巴塔哥尼亚 始祖鸟 探路者 伯希和 骆驼 迪卡侬 耐克 阿迪达斯 安德玛")
         },
-        {
-            "name": "食品饮料",
-            "subcategories": [
-                {"name": "休闲零食", "keywords": words("零食推荐|办公室零食|低卡零食|追剧零食|儿童零食|坚果推荐|肉脯推荐|饼干推荐|巧克力推荐|年货零食")},
-                {"name": "咖啡茶饮", "keywords": words("咖啡豆推荐|挂耳咖啡|速溶咖啡|冷萃咖啡|咖啡机|茶包推荐|养生茶|无糖饮料|气泡水|奶茶推荐")},
-                {"name": "健康轻食", "keywords": words("低脂早餐|减脂餐|全麦面包|代餐推荐|即食鸡胸肉|燕麦推荐|控糖食品|高蛋白零食|轻食沙拉|健康饮食")},
-                {"name": "地方特产", "keywords": words("地方特产|伴手礼推荐|特产零食|中秋礼盒|春节礼盒|送礼推荐|家乡美食|网红美食|老字号美食|城市伴手礼")},
-            ],
+        "羽绒服": {
+            "羽绒款式": words("羽绒服 排骨羽绒 鹅绒 鸭绒 轻薄羽绒 厚款羽绒 连帽 防风保暖 蓬松度 800蓬 700蓬 拒水羽绒"),
+            "极寒高山": words("高山攀登 极寒 户外保暖 露营防寒 滑雪 零下 防泼水 抗湿冷 极地"),
+            "热门品牌": words("大鹅 加拿大鹅 始祖鸟 北面 蒙口 波司登 高梵 黑冰 天石 迪卡侬 伯希和 探路者")
         },
-        {
-            "name": "家居生活",
-            "subcategories": [
-                {"name": "清洁收纳", "keywords": words("收纳好物|衣柜收纳|厨房收纳|小户型收纳|清洁好物|洗衣液推荐|扫地机器人|吸尘器推荐|除螨仪|卫生间清洁")},
-                {"name": "厨房用品", "keywords": words("空气炸锅|破壁机|电饭煲推荐|咖啡机推荐|不粘锅|保温杯|厨房好物|烘焙工具|净水器|洗碗机")},
-                {"name": "床品家纺", "keywords": words("四件套推荐|床垫推荐|枕头推荐|被子推荐|乳胶枕|羽绒被|儿童床品|凉席推荐|家居服|睡眠好物")},
-                {"name": "装修软装", "keywords": words("装修避坑|客厅软装|卧室改造|小户型装修|租房改造|灯具推荐|窗帘搭配|沙发推荐|餐桌推荐|家居配色")},
-            ],
-        },
-        {
-            "name": "数码家电",
-            "subcategories": [
-                {"name": "手机数码", "keywords": words("手机推荐|拍照手机|手机测评|平板电脑|智能手表|蓝牙耳机|充电宝|手机壳|数码好物|学生平板")},
-                {"name": "电脑办公", "keywords": words("笔记本电脑推荐|轻薄本|游戏本|机械键盘|显示器推荐|办公好物|打印机|人体工学椅|移动硬盘|电脑支架")},
-                {"name": "生活家电", "keywords": words("洗衣机推荐|冰箱推荐|空调推荐|电视推荐|烘干机|智能门锁|除湿机|空气净化器|电风扇|取暖器")},
-                {"name": "影音娱乐", "keywords": words("投影仪推荐|蓝牙音箱|家庭影院|游戏机|掌机推荐|麦克风|运动相机|相机推荐|拍立得|无人机")},
-            ],
-        },
-    ]
-
-    result_groups = []
-    all_keywords = []
-    for group in curated_groups:
-        subcategories = []
-        group_keywords = []
-        for subcategory in group["subcategories"]:
-            sub_keywords = unique(subcategory["keywords"])
-            if sub_keywords:
-                subcategories.append({"name": subcategory["name"], "keywords": sub_keywords})
-                group_keywords.extend(sub_keywords)
-        group_keywords = unique(group_keywords)
-        all_keywords.extend(group_keywords)
-        result_groups.append({
-            "name": group["name"],
-            "count": len(group_keywords),
-            "subcategories": subcategories,
-        })
-
-    all_keywords = unique(all_keywords)
-    _CACHED_LIBRARY_DATA = {"groups": result_groups, "all_keywords": all_keywords, "total": len(all_keywords)}
-    return _CACHED_LIBRARY_DATA
-
-@router.get("/favicon.svg")
-def keyword_favicon_svg():
-    candidates = [
-        Path(__file__).parent.parent / "sync_console" / "web" / "favicon.svg",
-        Path(__file__).parent.parent / "web" / "favicon.svg"
-    ]
-    for p in candidates:
-        if p.exists():
-            return Response(content=p.read_bytes(), media_type="image/svg+xml")
-    return Response(status_code=404)
-
-@router.get("/favicon.ico")
-def keyword_favicon_ico():
-    candidates = [
-        Path(__file__).parent.parent / "sync_console" / "web" / "favicon.ico",
-        Path(__file__).parent.parent / "web" / "favicon.ico"
-    ]
-    for p in candidates:
-        if p.exists():
-            return Response(content=p.read_bytes(), media_type="image/x-icon")
-    return keyword_favicon_svg()
-
-@private_router.post("/search")
-def search_keywords(req: KeywordSearchRequest):
-    if isinstance(req.keywords, str):
-        kw_list = [w.strip() for w in req.keywords.split() if w.strip()]
-    else:
-        kw_list = [w.strip() for w in req.keywords if w.strip()]
-        
-    if not kw_list:
-        raise HTTPException(status_code=400, detail="关键词不能为空，请至少输入一个关键词")
-        
-    try:
-        data = fetch_keywords_insight(
-            keywords=kw_list,
-            start_date=req.start_date,
-            end_date=req.end_date
-        )
-        return data
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    except PermissionError as e:
-        raise HTTPException(status_code=401, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-@private_router.get("/cookie")
-def get_current_cookie():
-    token = load_token()
-    c = token.get("cookie", "")
-    return {
-        "v_seller_id": token.get("v_seller_id", "628b3a5056228a000189c0e4"),
-        "cookie_preview": (c[:60] + "...") if len(c) > 60 else c,
-        "cookie_length": len(c)
+        "背包配件": {
+            "背包收纳": words("登山包 徒步包 冲顶包 越野跑背心 户外背包 防水袋 腰包 胸包 背负系统"),
+            "户外配件": words("登山杖 头灯 营地灯 户外水壶 护膝 手套 遮阳帽 渔夫帽 飞巾 睡袋 防潮垫"),
+            "热门品牌": words("格里高利 小鹰 多特 始祖鸟 黑钻 BD 迪卡侬 火枫 挪客 牧高笛 静态")
+        }
     }
 
-@private_router.post("/cookie")
+    all_kws = list(raw_data.keys())
+    for prime, sub_dict in rule_definitions.items():
+        categorized[prime] = {}
+        for sub_cat, terms in sub_dict.items():
+            matched = [k for k in all_kws if contains_any(k, terms)]
+            categorized[prime][sub_cat] = unique(matched)
+
+    counts = {"total": len(all_kws)}
+    for p_name, subs in categorized.items():
+        p_total = set()
+        counts[p_name] = {}
+        for s_name, k_list in subs.items():
+            counts[p_name][s_name] = len(k_list)
+            p_total.update(k_list)
+        counts[p_name]["_total"] = len(p_total)
+
+    _CACHED_LIBRARY_DATA = {
+        "categories": categorized,
+        "counts": counts,
+        "all_keywords": all_kws
+    }
+    return _CACHED_LIBRARY_DATA
+
+@private_router.post("/search")
+def search_keywords(req: KeywordSearchRequest, _=Depends(require_auth)):
+    if isinstance(req.keywords, str):
+        kws = [k.strip() for k in req.keywords.replace(",", " ").split() if k.strip()]
+    else:
+        kws = [str(k).strip() for k in req.keywords if str(k).strip()]
+        
+    if not kws:
+        raise HTTPException(status_code=400, detail="关键词不能为空")
+        
+    try:
+        res = fetch_keywords_insight(
+            keywords=kws,
+            start_date=req.start_date,
+            end_date=req.end_date,
+            strict=False
+        )
+        return res
+    except InvalidDateRangeError as de:
+        raise HTTPException(status_code=400, detail=str(de))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"查询失败: {e}")
+
+@private_router.get("/cookie", dependencies=[Depends(require_admin)])
+def get_current_cookie():
+    try:
+        token = load_token()
+        c = token.get("cookie", "")
+        return {
+            "configured": bool(c.strip()),
+            "v_seller_id": token.get("v_seller_id", "628b3a5056228a000189c0e4"),
+            "cookie_length": len(c.strip())
+        }
+    except Exception:
+        return {
+            "configured": False,
+            "v_seller_id": "628b3a5056228a000189c0e4",
+            "cookie_length": 0
+        }
+
+@private_router.post("/cookie", dependencies=[Depends(require_admin)])
 def update_keyword_cookie(req: CookieUpdateRequest):
     clean_cookie = req.cookie.strip()
     if not clean_cookie:
@@ -290,7 +232,7 @@ def update_keyword_cookie(req: CookieUpdateRequest):
         session_file.write_text(json.dumps(token_data, ensure_ascii=False, indent=2), encoding="utf-8")
     return {"success": True, "message": "小红书聚光 Cookie 更新成功！已自动生效。"}
 
-@private_router.post("/feishu/direct_create")
+@private_router.post("/feishu/direct_create", dependencies=[Depends(require_admin)])
 def create_feishu_sheet_directly(req: DirectSheetRequest):
     if not req.keywords:
         raise HTTPException(status_code=400, detail="关键词列表不能为空")
@@ -302,6 +244,8 @@ def create_feishu_sheet_directly(req: DirectSheetRequest):
             title=req.title
         )
         return res
+    except AppError as ae:
+        raise HTTPException(status_code=ae.status_code, detail=ae.message)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -312,16 +256,17 @@ def list_keyword_tasks():
         cursor.execute("SELECT * FROM keyword_tasks WHERE status != 'archived' ORDER BY id DESC")
         tasks = []
         for r in cursor.fetchall():
-            item = dict(r)
-            item["keywords"] = json.loads(item.get("keywords_json") or "[]")
-            item["removed_keywords"] = json.loads(item.get("removed_keywords_json") or "[]")
-            tasks.append(item)
-    return tasks
+            d = dict(r)
+            d["keywords"] = json.loads(d.get("keywords_json") or "[]")
+            d["removed_keywords"] = json.loads(d.get("removed_keywords_json") or "[]")
+            d["keywords_count"] = len(d["keywords"])
+            tasks.append(d)
+        return tasks
 
-@private_router.post("/tasks")
+@private_router.post("/tasks", dependencies=[Depends(require_admin)])
 def add_keyword_task(req: CreateKeywordTaskRequest):
     if not req.keywords:
-        raise HTTPException(status_code=400, detail="任务至少需要包含一个关键词")
+        raise HTTPException(status_code=400, detail="关键词列表不能为空")
     try:
         res = create_keyword_task(
             task_name=req.task_name,
@@ -330,77 +275,67 @@ def add_keyword_task(req: CreateKeywordTaskRequest):
             rrule_str=req.rrule,
             days_range=req.days_range
         )
-        reschedule_keyword_task(res["task_id"])
+        SchedulerManager.get_instance().schedule_keyword_task(res["task_id"])
         return res
+    except AppError as ae:
+        raise HTTPException(status_code=ae.status_code, detail=ae.message)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@private_router.post("/tasks/{task_id}/append_keywords")
+@private_router.post("/tasks/{task_id}/append_keywords", dependencies=[Depends(require_admin)])
 def append_words_endpoint(task_id: int, req: AppendKeywordsRequest):
     if isinstance(req.keywords, str):
-        kw_list = [w.strip() for w in req.keywords.split() if w.strip()]
+        kws = [k.strip() for k in req.keywords.replace(",", " ").split() if k.strip()]
     else:
-        kw_list = [w.strip() for w in req.keywords if w.strip()]
-        
-    if not kw_list:
-        raise HTTPException(status_code=400, detail="请至少输入一个要添加的关键词")
-        
-    try:
-        res = append_keywords_to_task(task_id, kw_list, sync_now=req.sync_now)
-        return res
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        kws = [str(k).strip() for k in req.keywords if str(k).strip()]
+    if not kws:
+        raise HTTPException(status_code=400, detail="追加的关键词不能为空")
+    return append_keywords_to_task(task_id, kws, sync_now=req.sync_now)
 
-@private_router.post("/tasks/{task_id}/remove_keywords")
+@private_router.post("/tasks/{task_id}/remove_keywords", dependencies=[Depends(require_admin)])
 def remove_words_endpoint(task_id: int, req: RemoveKeywordsRequest):
     if isinstance(req.keywords, str):
-        kw_list = [w.strip() for w in req.keywords.split() if w.strip()]
+        kws = [k.strip() for k in req.keywords.replace(",", " ").split() if k.strip()]
     else:
-        kw_list = [w.strip() for w in req.keywords if w.strip()]
-        
-    if not kw_list:
-        raise HTTPException(status_code=400, detail="请至少提供一个要减掉的关键词")
-        
-    try:
-        res = remove_keywords_from_task(task_id, kw_list)
-        return res
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        kws = [str(k).strip() for k in req.keywords if str(k).strip()]
+    if not kws:
+        raise HTTPException(status_code=400, detail="要移除的关键词不能为空")
+    return remove_keywords_from_task(task_id, kws)
 
-@private_router.post("/tasks/{task_id}/run_now")
+@private_router.post("/tasks/{task_id}/run_now", dependencies=[Depends(require_admin)])
 def run_task_immediately(task_id: int):
     try:
-        res = run_keyword_task(task_id, trigger_type="manual")
-        return res
+        return run_keyword_task(task_id, trigger_type="manual")
+    except AppError as ae:
+        raise HTTPException(status_code=ae.status_code, detail=ae.message)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@private_router.post("/tasks/{task_id}/toggle")
+@private_router.post("/tasks/{task_id}/toggle", dependencies=[Depends(require_admin)])
 def toggle_task(task_id: int):
     with get_db() as conn:
         cursor = conn.cursor()
         cursor.execute("SELECT status FROM keyword_tasks WHERE id = ?", (task_id,))
-        r = cursor.fetchone()
-        if not r:
+        row = cursor.fetchone()
+        if not row:
             raise HTTPException(status_code=404, detail="Task not found")
-        new_status = "paused" if r["status"] == "active" else "active"
-        conn.execute("UPDATE keyword_tasks SET status = ?, updated_at = ? WHERE id = ?", (new_status, datetime.now().isoformat(), task_id))
+        curr = row["status"]
+        next_s = "paused" if curr == "active" else "active"
+        conn.execute("UPDATE keyword_tasks SET status = ?, updated_at = ? WHERE id = ?", (next_s, datetime.now().isoformat(), task_id))
         conn.commit()
-        
-    reschedule_keyword_task(task_id)
-    return {"status": new_status}
+    if next_s == "active":
+        SchedulerManager.get_instance().schedule_keyword_task(task_id)
+    else:
+        SchedulerManager.get_instance().remove_keyword_task(task_id)
+    return {"status": next_s}
 
-@private_router.delete("/tasks/{task_id}")
+@private_router.delete("/tasks/{task_id}", dependencies=[Depends(require_admin)])
 def delete_task(task_id: int):
     with get_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT id FROM keyword_tasks WHERE id = ?", (task_id,))
-        if not cursor.fetchone():
-            raise HTTPException(status_code=404, detail="Task not found")
         conn.execute("UPDATE keyword_tasks SET status = 'archived', updated_at = ? WHERE id = ?", (datetime.now().isoformat(), task_id))
         conn.commit()
-    remove_keyword_job(task_id)
-    return {"success": True, "message": f"任务 #{task_id} 已成功删除"}
+    SchedulerManager.get_instance().remove_keyword_task(task_id)
+    return {"success": True}
 
 @private_router.get("/runs")
 def list_keyword_runs(task_id: Optional[int] = None, page: int = 1, page_size: int = 20):
@@ -408,45 +343,48 @@ def list_keyword_runs(task_id: Optional[int] = None, page: int = 1, page_size: i
         page = 1
     if page_size < 1:
         page_size = 20
-    offset = (page - 1) * page_size
-
+        
     with get_db() as conn:
         cursor = conn.cursor()
         if task_id:
             cursor.execute("SELECT COUNT(*) FROM keyword_runs WHERE task_id = ?", (task_id,))
             total = cursor.fetchone()[0]
-            cursor.execute("SELECT * FROM keyword_runs WHERE task_id = ? ORDER BY id DESC LIMIT ? OFFSET ?", (task_id, page_size, offset))
+            offset = (page - 1) * page_size
+            cursor.execute(
+                "SELECT * FROM keyword_runs WHERE task_id = ? ORDER BY id DESC LIMIT ? OFFSET ?",
+                (task_id, page_size, offset)
+            )
         else:
             cursor.execute("SELECT COUNT(*) FROM keyword_runs")
             total = cursor.fetchone()[0]
-            cursor.execute("SELECT * FROM keyword_runs ORDER BY id DESC LIMIT ? OFFSET ?", (page_size, offset))
-        runs = [dict(r) for r in cursor.fetchall()]
-
-    total_pages = max(1, (total + page_size - 1) // page_size)
+            offset = (page - 1) * page_size
+            cursor.execute(
+                "SELECT * FROM keyword_runs ORDER BY id DESC LIMIT ? OFFSET ?",
+                (page_size, offset)
+            )
+        items = [dict(r) for r in cursor.fetchall()]
+        
     return {
-        "items": runs,
+        "items": items,
         "total": total,
-        "total_pages": total_pages,
         "page": page,
-        "page_size": page_size
+        "page_size": page_size,
+        "total_pages": math.ceil(total / page_size) if page_size > 0 else 1
     }
 
 router.include_router(private_router)
 
-# 允许作为独立应用启动
-app = FastAPI(title="关键词搜索指数服务")
+# 独立模式下的 FastAPI 入口保持向后兼容
+app = FastAPI(title="关键词服务")
 app.include_router(router)
 
 @app.post("/api/auth/login")
 def standalone_login(req: KeywordLoginRequest, response: Response):
-    if not hmac.compare_digest(req.password, ACCESS_TOKEN):
+    if not ACCESS_TOKEN or not hmac.compare_digest(req.password, ACCESS_TOKEN):
         raise HTTPException(status_code=401, detail="密码错误")
-    response.set_cookie("access_token", ACCESS_TOKEN, max_age=86400, httponly=True, samesite="lax")
+    token = create_admin_session()
+    response.set_cookie("sync_session", token, max_age=86400 * 30, httponly=True, samesite="lax")
     return {"success": True}
-
-@app.on_event("startup")
-def on_startup():
-    init_keyword_scheduler()
 
 if __name__ == "__main__":
     import uvicorn

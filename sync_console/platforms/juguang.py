@@ -11,8 +11,9 @@ from app.config import (
     JUGUANG_OSS_OBJECT_KEY, JUGUANG_OSS_SUBACCOUNT_PREFIX, BASE_DIR,
     OSS_ENDPOINT, OSS_BUCKET, OSS_ACCESS_KEY_ID, OSS_ACCESS_KEY_SECRET
 )
+from core.models import ProviderFetchResult, ProviderFetchStatus
+from core.errors import ProviderAuthError, ProviderUpstreamError
 
-LOCAL_FALLBACK = BASE_DIR.parent / "feishu_three_sync" / "jg_sync" / "session_headers.json"
 REPORT_URL = "https://ad.xiaohongshu.com/api/leona/rtb/common/data/report"
 
 METRICS = dict(zip(
@@ -50,10 +51,9 @@ def get_juguang_headers() -> Dict[str, str]:
             data = json.loads(p.read_text(encoding="utf-8"))
             if isinstance(data, dict):
                 return data
-    raise RuntimeError("聚光 会话配置未配置或无法从 OSS 获取")
+    raise ProviderAuthError("聚光会话配置未配置或无法从 OSS 获取")
 
 def get_juguang_subaccount_headers(sub_account_id: str) -> Dict[str, str]:
-    """从 OSS (或本地缓存) 读取指定聚光子账号的 Cookie 并组装请求头"""
     cookie_text = ""
     object_key = f"{JUGUANG_OSS_SUBACCOUNT_PREFIX.rstrip('/')}/{sub_account_id.strip()}.txt"
     try:
@@ -64,7 +64,7 @@ def get_juguang_subaccount_headers(sub_account_id: str) -> Dict[str, str]:
     if not cookie_text:
         local_candidates = [
             BASE_DIR / "tokens" / f"{sub_account_id}.txt",
-            Path("D:/download/pic-vec/oss-upload/cookies") / f"{sub_account_id}.txt"
+            BASE_DIR / "data" / f"{sub_account_id}.txt"
         ]
         for p in local_candidates:
             if p.exists() and p.is_file():
@@ -72,7 +72,7 @@ def get_juguang_subaccount_headers(sub_account_id: str) -> Dict[str, str]:
                 break
                 
     if not cookie_text:
-        raise RuntimeError(f"未获取到聚光子账号 [{sub_account_id}] 的 Cookie，请检查 OSS 或 Cookie 同步状态")
+        raise ProviderAuthError(f"未获取到聚光子账号 [{sub_account_id}] 的 Cookie，请检查 OSS 或 Cookie 同步状态")
         
     return {
         "cookie": cookie_text,
@@ -86,15 +86,12 @@ def get_juguang_subaccount_headers(sub_account_id: str) -> Dict[str, str]:
 _subaccounts_cache = {"timestamp": 0.0, "data": []}
 
 def get_juguang_subaccounts_list(force_refresh: bool = False) -> List[Dict[str, str]]:
-    """动态从 OSS 获取最新的子账号元数据映射及 Token 列表，支持动态账号增减与状态识别，无需代码固化"""
     global _subaccounts_cache
     now = time.time()
     if not force_refresh and _subaccounts_cache["data"] and (now - _subaccounts_cache["timestamp"] < 60):
         return _subaccounts_cache["data"]
 
     known_meta = {}
-
-    # 1. 优先从 OSS 动态实时拉取 subaccounts_meta.json 元数据映射
     meta_key = f"{JUGUANG_OSS_SUBACCOUNT_PREFIX.rstrip('/')}/subaccounts_meta.json"
     try:
         meta_raw = fetch_oss_token(meta_key).strip()
@@ -110,7 +107,6 @@ def get_juguang_subaccounts_list(force_refresh: bool = False) -> List[Dict[str, 
     except Exception as e:
         print(f"[Juguang] Dynamic fetch OSS subaccounts_meta failed ({meta_key}): {e}")
 
-    # 2. 运行时本地动态缓存兜底（仅在 OSS 偶发网络超时时应急，不入 Git 仓库）
     cache_candidates = [
         BASE_DIR / "data" / "juguang_subaccounts_cache.json",
         BASE_DIR / "tokens" / "juguang_subaccounts.json"
@@ -158,7 +154,6 @@ def get_juguang_subaccounts_list(force_refresh: bool = False) -> List[Dict[str, 
         })
 
     if subaccounts:
-        # 仅将运行时状态保存在本地数据目录供离线兜底，不提交 Git
         try:
             cache_file = BASE_DIR / "data" / "juguang_subaccounts_cache.json"
             cache_file.parent.mkdir(parents=True, exist_ok=True)
@@ -171,13 +166,21 @@ def get_juguang_subaccounts_list(force_refresh: bool = False) -> List[Dict[str, 
 
     return _subaccounts_cache["data"]
 
-def fetch_juguang_data(entity_id: str, split_type: str, start_date: str, end_date: str, headers_override: Optional[Dict[str, str]] = None, sub_account_id: Optional[str] = None) -> List[Dict[str, Any]]:
+def fetch_juguang_data(
+    entity_id: str,
+    split_type: str,
+    start_date: str,
+    end_date: str,
+    headers_override: Optional[Dict[str, str]] = None,
+    sub_account_id: Optional[str] = None
+) -> ProviderFetchResult:
     if headers_override:
         hdrs = headers_override
     elif sub_account_id:
         hdrs = get_juguang_subaccount_headers(sub_account_id)
     else:
         hdrs = get_juguang_headers()
+        
     session = requests.Session()
     session.trust_env = False
     session.headers.update(hdrs)
@@ -188,18 +191,37 @@ def fetch_juguang_data(entity_id: str, split_type: str, start_date: str, end_dat
     columns = list(dict.fromkeys(dims + split + list(METRICS.values())))
     
     rows = []
+    pages_fetched = 0
+    expected_pages = 1
+    
     for page in range(1, 101):
+        pages_fetched = page
         payload = {
             'pageNum': page, 'pageSize': 500, 'sorts': [{'column': 'time', 'sort': 'asc'}],
             'filters': [], 'dataCaliber': 0, 'timeUnit': 'DAY', 'splitColumns': split,
             'startDate': start_date, 'endDate': end_date, 'webModule': 'base_report_page',
             'dataSource': source, 'dataPattern': 'table', 'columns': columns
         }
-        r = session.post(REPORT_URL, json=payload, timeout=60)
-        r.raise_for_status()
-        data = r.json()
-        if data.get("success") is not True:
-            break
+        try:
+            r = session.post(REPORT_URL, json=payload, timeout=60)
+            if r.status_code in (401, 403):
+                raise ProviderAuthError("聚光接口鉴权失败 (HTTP 401/403)")
+            r.raise_for_status()
+            data = r.json()
+        except requests.Timeout:
+            raise ProviderUpstreamError(f"聚光接口请求第 {page} 页超时")
+        except Exception as e:
+            if isinstance(e, (ProviderAuthError, ProviderUpstreamError)):
+                raise e
+            raise ProviderUpstreamError(f"聚光接口网络异常: {e}")
+            
+        code = data.get("code")
+        if data.get("success") is not True or code in (401, 902):
+            msg = data.get("msg") or "聚光接口调用失败"
+            if code in (401, 902) or "登录" in msg or "过期" in msg:
+                raise ProviderAuthError(f"聚光登录凭据已失效: {msg}")
+            raise ProviderUpstreamError(f"聚光报表接口错误 (code={code}): {msg}")
+            
         model = data.get("data") or {}
         batch = model.get("dataList") or []
         for item in batch:
@@ -207,7 +229,6 @@ def fetch_juguang_data(entity_id: str, split_type: str, start_date: str, end_dat
             row = {**item, **values}
             d_val = str(row.get("time", ""))[:10]
             if start_date <= d_val <= end_date:
-                # 补充中文键
                 row["时间"] = d_val
                 row["日期"] = d_val
                 if "placement" in row:
@@ -219,8 +240,19 @@ def fetch_juguang_data(entity_id: str, split_type: str, start_date: str, end_dat
                     if en in row:
                         row[cn] = row[en]
                 rows.append(row)
-        total_page = int((model.get("page") or {}).get("totalPage", 1))
+                
+        page_info = model.get("page") or {}
+        total_page = int(page_info.get("totalPage", 1))
+        expected_pages = total_page
         if page >= total_page or not batch:
             break
-        time.sleep(0.3)
-    return rows
+        time.sleep(0.15)
+        
+    status = ProviderFetchStatus.SUCCESS if rows else ProviderFetchStatus.EMPTY
+    return ProviderFetchResult(
+        status=status,
+        rows=rows,
+        pages_fetched=pages_fetched,
+        expected_pages=expected_pages
+    )
+

@@ -605,7 +605,6 @@
     </div>
     <div class="sidebar-spacer"></div>
     <button class="sidebar-link muted" type="button" onclick="openHelpDrawer()"><i data-lucide="circle-help" class="icon"></i><span class="nav-label">使用帮助</span></button>
-    <button class="sidebar-link muted" onclick="switchTab('admin')"><i data-lucide="settings" class="icon"></i><span class="nav-label">管理员设置</span></button>
   </aside>
 
   <div class="container">
@@ -1083,16 +1082,6 @@
       </div>
     </div>
 
-    <div id="tab-admin" class="tab-content" style="display: none;">
-      <div class="card">
-        <div class="card-title">系统基础配置</div>
-        <div class="form-group" style="margin-bottom: 0;">
-          <label>飞书共享文件夹 Token</label>
-          <input type="text" class="form-control" id="settingFolderToken" readonly>
-          <div style="font-size: 12px; color: var(--text-muted); margin-top: 6px;">系统自动维护在“数据自动同步表”文件夹内。新建表格自动保存在此文件夹中并开启企业内员工全员可编辑权限。</div>
-        </div>
-      </div>
-    </div>
     </div>
 
     <!-- 模块二：关键词洞察 (纯前端无缝秒切) -->
@@ -1121,22 +1110,6 @@
     </div>
   </div>
 
-  <div class="modal-overlay" id="adminAuthModal" style="display: none;" onclick="if(event.target===this) cancelAdminLogin()">
-    <div class="modal">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-        <h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">
-          <span>🔒</span> 管理员身份验证
-        </h3>
-        <button type="button" class="btn btn-outline btn-sm" style="padding: 2px 8px; border: none; font-size: 14px; cursor: pointer; color: var(--text-muted);" onclick="cancelAdminLogin()" aria-label="关闭">✕</button>
-      </div>
-      <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">此区域为系统管理后台，请输入管理密码后进入：</p>
-      <input type="password" id="adminPasswordInput" class="form-control" style="margin-bottom: 18px;" placeholder="请输入管理密码" onkeydown="if(event.key==='Enter') submitAdminLogin(); if(event.key==='Escape') cancelAdminLogin();">
-      <div style="display: flex; justify-content: flex-end; gap: 10px;">
-        <button class="btn btn-outline" onclick="cancelAdminLogin()">取消</button>
-        <button class="btn btn-primary" onclick="submitAdminLogin()">验证进入</button>
-      </div>
-    </div>
-  </div>
 
   <div class="help-backdrop" id="helpDrawer" onclick="if(event.target===this) closeHelpDrawer()">
     <aside class="help-drawer" role="dialog" aria-modal="true" aria-labelledby="helpDrawerTitle">

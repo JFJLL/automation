@@ -19,7 +19,7 @@ class TestKeywordStartup(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             console_db = Path(directory) / "console.db"
             keyword_db = Path(directory) / "keyword.db"
-            with patch("app.db.DB_PATH", console_db), patch("keyword_service.db.DB_PATH", keyword_db), patch("app.main.init_scheduler"):
+            with patch("app.db.DB_PATH", console_db), patch("keyword_service.db.DB_PATH", keyword_db):
                 init_db()
                 now = datetime.now().isoformat()
                 with closing(get_db()) as conn:

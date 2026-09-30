@@ -97,11 +97,6 @@ class FeishuClient:
         spreadsheet = res.get("spreadsheet") or {}
         token = spreadsheet.get("spreadsheet_token")
         url = spreadsheet.get("url")
-        # Set tenant editable
-        try:
-            self.set_sheet_public_editable(token)
-        except Exception as e:
-            print(f"Warning setting public permissions on {token}: {e}")
         return {"spreadsheet_token": token, "url": url}
 
     def set_sheet_public_editable(self, spreadsheet_token: str):
@@ -147,15 +142,25 @@ class FeishuClient:
             "valueRange": {"range": range_str, "values": rows}
         })
 
-    def clear_rows_below(self, spreadsheet_token: str, sheet_id: str, keep_header_row: int = 1):
+    def merge_cells(self, spreadsheet_token: str, range_str: str, merge_type: str = "MERGE_ALL") -> Dict[str, Any]:
+        return self.request("POST", f"sheets/v2/spreadsheets/{spreadsheet_token}/merge_cells", json={
+            "range": range_str,
+            "mergeType": merge_type
+        })
+
+    def clear_rows_below(self, spreadsheet_token: str, sheet_id: str, keep_header_row: int = 1, col_count: int = 50):
         last = self.find_last_row_index(spreadsheet_token, sheet_id)
         if last > keep_header_row:
-            end_col = "AZ"
-            empty_rows = [["" for _ in range(30)] for _ in range(last - keep_header_row)]
+            end_col = column_letter(max(col_count, 1))
+            num_rows = last - keep_header_row
+            empty_rows = [["" for _ in range(max(col_count, 1))] for _ in range(num_rows)]
             range_str = f"{sheet_id}!A{keep_header_row + 1}:{end_col}{last}"
-            try:
-                self.request("PUT", f"sheets/v2/spreadsheets/{spreadsheet_token}/values", json={
-                    "valueRange": {"range": range_str, "values": empty_rows}
-                })
-            except Exception as e:
-                print(f"Warning clearing rows: {e}")
+            self.request("PUT", f"sheets/v2/spreadsheets/{spreadsheet_token}/values", json={
+                "valueRange": {"range": range_str, "values": empty_rows}
+            })
+
+    def restore_sheet_values(self, spreadsheet_token: str, sheet_id: str, backup_values: List[List[Any]]):
+        """发生写入异常时，将写前备份的整表内容原子回滚覆盖写回"""
+        if not backup_values:
+            return
+        self.write_rows(spreadsheet_token, sheet_id, start_row=1, rows=backup_values)

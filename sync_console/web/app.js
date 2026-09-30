@@ -229,6 +229,7 @@ function switchToSyncSection(tab = 'import', updateUrl = true) {
 }
 
 function switchKeywordTab(tab = 'search', updateUrl = true) {
+  updateKeywordTaskBadge();
   const syncMod = document.getElementById('module-sync');
   const kwMod = document.getElementById('module-keyword');
   const syncSide = document.getElementById('sidebar-group-sync');
@@ -292,6 +293,9 @@ window.addEventListener('message', function(e) {
   if (e.data && e.data.type === 'kw_tasks_count') {
     const b = document.getElementById('kwTaskCountBadge');
     if (b) b.innerText = e.data.count;
+    try {
+      sessionStorage.setItem('kw_tasks_count', e.data.count);
+    } catch(e) {}
   }
 });
 

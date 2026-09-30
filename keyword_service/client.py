@@ -1,15 +1,22 @@
 import json
 import os
-import hashlib
 import requests
 from typing import Dict, Any, List, Optional
 from pathlib import Path
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from core.business_time import validate_keyword_date_range, now_business_tz
+from core.models import KeywordFetchStatus, KeywordItemResult, KeywordBatchResult
+from core.errors import (
+    KeywordAuthExpiredError,
+    KeywordUpstreamError,
+    KeywordTimeoutError,
+    KeywordInvalidResponseError,
+    DataValidationError,
+)
+
 DEFAULT_TOKEN_FILE = Path(__file__).parent / "token.json"
-LOCAL_TRENDS_FILE = Path(__file__).parent / "all_keyword_trends.json"
-_LOCAL_TRENDS_CACHE = None
 API_URL = "https://ad.xiaohongshu.com/api/light/ad/keyword/analysis/distribution"
 
 def sync_token_from_oss(force: bool = False) -> Optional[Dict[str, str]]:
@@ -94,32 +101,6 @@ def sync_token_from_oss(force: bool = False) -> Optional[Dict[str, str]]:
 
     return None
 
-def _get_local_keyword_trends(keyword: str) -> Dict[str, Any]:
-    global _LOCAL_TRENDS_CACHE
-    if _LOCAL_TRENDS_CACHE is None:
-        if LOCAL_TRENDS_FILE.exists():
-            try:
-                _LOCAL_TRENDS_CACHE = json.loads(LOCAL_TRENDS_FILE.read_text(encoding="utf-8"))
-            except Exception:
-                _LOCAL_TRENDS_CACHE = {}
-        else:
-            _LOCAL_TRENDS_CACHE = {}
-    
-    data = _LOCAL_TRENDS_CACHE.get(keyword.strip())
-    if not data or not isinstance(data, dict):
-        return {}
-    
-    res = {}
-    for day, num in data.items():
-        s_num = int(num or 0)
-        res[day] = {
-            "search_num": s_num,
-            "imp_num": int(s_num * 1.4),
-            "note_num": max(1, int(s_num / 60)),
-            "bid": 2.6
-        }
-    return res
-
 def load_token(token_path: Optional[Path] = None) -> Dict[str, str]:
     path = token_path or DEFAULT_TOKEN_FILE
     if not path.exists():
@@ -130,7 +111,7 @@ def load_token(token_path: Optional[Path] = None) -> Dict[str, str]:
         if fallback.exists():
             path = fallback
         else:
-            raise FileNotFoundError(f"Token file not found at {path}")
+            raise KeywordAuthExpiredError(f"未找到聚光登录凭据文件 ({path})，且 OSS 自动同步未命中")
     
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
@@ -141,8 +122,8 @@ def _fetch_single_word(
     start_date: str,
     end_date: str,
     token: Dict[str, str],
-    dates: Optional[List[str]] = None
-) -> Dict[str, Any]:
+    dates: List[str]
+) -> KeywordItemResult:
     v_seller_id = token.get("v_seller_id") or token.get("v-seller-id", "628b3a5056228a000189c0e4")
     cookie = token.get("cookie", "")
     
@@ -173,17 +154,66 @@ def _fetch_single_word(
     try:
         resp = requests.post(url, headers=headers, json=payload, timeout=20)
         if resp.status_code == 401:
-            raise PermissionError("小红书聚光登录凭据（Cookie）已过期，请点击更新Cookie。")
+            return KeywordItemResult(
+                keyword=keyword,
+                status=KeywordFetchStatus.AUTH_ERROR,
+                error_code="401",
+                error_message="小红书聚光登录凭据（Cookie）已过期"
+            )
+        if resp.status_code >= 500:
+            return KeywordItemResult(
+                keyword=keyword,
+                status=KeywordFetchStatus.UPSTREAM_ERROR,
+                error_code=str(resp.status_code),
+                error_message=f"小红书服务器返回 HTTP {resp.status_code}"
+            )
         resp.raise_for_status()
-        res_json = resp.json()
+        try:
+            res_json = resp.json()
+        except Exception as json_err:
+            return KeywordItemResult(
+                keyword=keyword,
+                status=KeywordFetchStatus.INVALID_RESPONSE,
+                error_code="JSON_PARSE_ERROR",
+                error_message=f"响应非合法 JSON: {json_err}"
+            )
         
-        if res_json.get("code") in [401, 902] or not res_json.get("success"):
+        code = res_json.get("code")
+        if code in [401, 902]:
+            msg = res_json.get("msg") or "登录凭据已过期"
+            return KeywordItemResult(
+                keyword=keyword,
+                status=KeywordFetchStatus.AUTH_ERROR,
+                error_code=str(code),
+                error_message=f"小红书聚光登录凭据已过期: {msg}"
+            )
+            
+        if not res_json.get("success"):
             msg = res_json.get("msg") or "获取关键词数据失败"
-            if "登录" in msg or "过期" in msg or res_json.get("code") in [401, 902]:
-                raise PermissionError(f"小红书聚光登录凭据已过期: {msg}")
-            raise RuntimeError(f"小红书接口错误: {msg}")
+            if "登录" in msg or "过期" in msg:
+                return KeywordItemResult(
+                    keyword=keyword,
+                    status=KeywordFetchStatus.AUTH_ERROR,
+                    error_code=str(code or 401),
+                    error_message=f"小红书聚光登录凭据已过期: {msg}"
+                )
+            return KeywordItemResult(
+                keyword=keyword,
+                status=KeywordFetchStatus.UPSTREAM_ERROR,
+                error_code=str(code or 500),
+                error_message=f"小红书接口错误: {msg}"
+            )
             
         data_list = res_json.get("data", {}).get("dataList", [])
+        if not data_list:
+            # 官方接口请求成功，但该词在该日期范围内确实没有任何数据
+            return KeywordItemResult(
+                keyword=keyword,
+                status=KeywordFetchStatus.EMPTY,
+                data={},
+                error_message=None
+            )
+            
         daily_data = {}
         for item in data_list:
             val_json = json.loads(item.get("dataValueJson") or "{}")
@@ -197,54 +227,50 @@ def _fetch_single_word(
             raw_bid = val_json.get("keywordBid")
             bid_val = float(raw_bid) if raw_bid not in (None, "", "-") else 0.0
             
-            daily_data[day] = {
+            daily_data[str(day)[:10]] = {
                 "search_num": s_num,
                 "imp_num": imp_num,
                 "note_num": note_num,
                 "bid": bid_val
             }
-        return daily_data
+            
+        return KeywordItemResult(
+            keyword=keyword,
+            status=KeywordFetchStatus.SUCCESS,
+            data=daily_data
+        )
+    except requests.Timeout:
+        return KeywordItemResult(
+            keyword=keyword,
+            status=KeywordFetchStatus.TIMEOUT,
+            error_code="TIMEOUT",
+            error_message="请求小红书聚光超时"
+        )
     except Exception as e:
-        raise e
+        return KeywordItemResult(
+            keyword=keyword,
+            status=KeywordFetchStatus.UPSTREAM_ERROR,
+            error_code="EXCEPTION",
+            error_message=str(e)
+        )
 
 def fetch_keywords_insight(
     keywords: List[str],
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     token_path: Optional[Path] = None,
-    max_workers: int = 5
+    max_workers: int = 5,
+    strict: bool = False
 ) -> Dict[str, Any]:
-    token = load_token(token_path)
+    """
+    关键词深度分析检索（多关键词并发与可靠重试）：
+    1. 通过统一 business_time.validate_keyword_date_range 验证日期范围
+    2. 严格区分 success, empty, failed 状态，失败词绝不转换/填补成 0
+    3. 遇到 401/902 自动从 OSS 刷新 Token 并重试一次，失败时抛出明确业务异常
+    4. strict=True 用于定时同步和生成飞书表：只要任意关键词获取失败，整次直接报错，禁止部分成功覆盖
+    """
+    start_date_str, end_date_str, sorted_dates = validate_keyword_date_range(start_date, end_date)
     
-    # 每天中午 12:00 前只支持到 T-2，12:00 起支持 T-1
-    now = datetime.now()
-    default_offset = 1 if now.hour >= 12 else 2
-    if not end_date:
-        end_dt = now - timedelta(days=default_offset)
-        end_date = end_dt.strftime("%Y-%m-%d")
-    else:
-        end_dt = datetime.strptime(end_date, "%Y-%m-%d")
-        
-    if not start_date:
-        start_date = (end_dt - timedelta(days=89)).strftime("%Y-%m-%d")
-    s_dt = datetime.strptime(start_date, "%Y-%m-%d")
-
-    # 严格校验：日期间隔不超过90天 (与官网保持一致)
-    days_count = (end_dt - s_dt).days + 1
-    if days_count > 90:
-        raise ValueError("查询日期间隔不超过90天")
-    if days_count < 1:
-        raise ValueError("开始日期不能大于结束日期")
-        
-    # 生成从 start_date 到 end_date 的完整连续自然日历列表
-    s_dt = datetime.strptime(start_date, "%Y-%m-%d")
-    e_dt = datetime.strptime(end_date, "%Y-%m-%d")
-    sorted_dates = []
-    curr = s_dt
-    while curr <= e_dt:
-        sorted_dates.append(curr.strftime("%Y-%m-%d"))
-        curr += timedelta(days=1)
-        
     clean_kws = []
     seen = set()
     for kw in keywords:
@@ -254,91 +280,116 @@ def fetch_keywords_insight(
             clean_kws.append(k)
             
     if not clean_kws:
-        raise ValueError("关键词列表为空")
+        raise DataValidationError("关键词列表不能为空")
         
-    raw_results = {}
-    auth_errors = []
-    other_errors = []
+    token = load_token(token_path)
     
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_map = {
-            executor.submit(_fetch_single_word, kw, start_date, end_date, token, sorted_dates): kw
-            for kw in clean_kws
-        }
-        for future in as_completed(future_map):
-            kw = future_map[future]
-            try:
-                raw_results[kw] = future.result()
-            except PermissionError as e:
-                auth_errors.append(str(e))
-                raw_results[kw] = {}
-            except Exception as e:
-                print(f"Error fetching keyword '{kw}': {e}")
-                other_errors.append(f"{kw}: {e}")
-                raw_results[kw] = {}
+    def run_batch(token_dict: Dict[str, str], targets: List[str]) -> Dict[str, KeywordItemResult]:
+        batch_res: Dict[str, KeywordItemResult] = {}
+        with ThreadPoolExecutor(max_workers=min(max_workers, len(targets))) as executor:
+            future_map = {
+                executor.submit(_fetch_single_word, kw, start_date_str, end_date_str, token_dict, sorted_dates): kw
+                for kw in targets
+            }
+            for future in as_completed(future_map):
+                kw = future_map[future]
+                batch_res[kw] = future.result()
+        return batch_res
 
-    has_valid_data = any(bool(v) for v in raw_results.values())
-    if not has_valid_data and auth_errors:
-        print("[Keyword] Auth expired, attempting auto-sync from OSS...")
+    results = run_batch(token, clean_kws)
+    
+    # 如果有认证失败，触发一次 OSS 自动恢复重试
+    auth_failed_words = [kw for kw, r in results.items() if r.status == KeywordFetchStatus.AUTH_ERROR]
+    if auth_failed_words:
+        print(f"[Keyword] Detected {len(auth_failed_words)} auth expired keywords, refreshing token from OSS...")
         new_token = sync_token_from_oss(force=True)
         if new_token:
-            raw_results = {}
-            auth_errors = []
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                retry_map = {
-                    executor.submit(_fetch_single_word, kw, start_date, end_date, new_token, sorted_dates): kw
-                    for kw in clean_kws
-                }
-                for future in as_completed(retry_map):
-                    kw = retry_map[future]
-                    try:
-                        raw_results[kw] = future.result()
-                    except PermissionError as e:
-                        auth_errors.append(str(e))
-                        raw_results[kw] = {}
-                    except Exception:
-                        raw_results[kw] = {}
-            has_valid_data = any(bool(v) for v in raw_results.values())
-
-    if not has_valid_data and auth_errors:
-        raise PermissionError(auth_errors[0])
-    if not has_valid_data and other_errors:
-        raise RuntimeError(f"关键词数据获取失败: {other_errors[0]}")
-                
-    # 补齐所有日期的空值 (无数据的日期明确填充为0，避免展示为空或破折号引起误解)
+            retry_res = run_batch(new_token, auth_failed_words)
+            for kw, r in retry_res.items():
+                results[kw] = r
+        else:
+            raise KeywordAuthExpiredError("小红书聚光登录凭据已过期，自动从 OSS 刷新失败")
+            
+    successful_kws = []
+    empty_kws = []
+    failed_kws = []
     all_data = {}
-    for kw in clean_kws:
-        kw_map = {}
-        fetched = raw_results.get(kw, {})
-        for d in sorted_dates:
-            if d in fetched:
-                kw_map[d] = fetched[d]
-            else:
-                kw_map[d] = {
-                    "search_num": 0,
-                    "imp_num": 0,
-                    "note_num": 0,
-                    "bid": 0.0
-                }
-        all_data[kw] = kw_map
     
-    return {
-        "success": True,
-        "keywords": clean_kws,
-        "start_date": start_date,
-        "end_date": end_date,
-        "dates": sorted_dates,
-        "data": all_data
+    for kw in clean_kws:
+        item = results[kw]
+        if item.status == KeywordFetchStatus.SUCCESS:
+            successful_kws.append(kw)
+            # 仅对于成功且有数据的关键词，缺失的日期填 0 (自然日补齐)
+            kw_map = {}
+            for d in sorted_dates:
+                if d in item.data:
+                    kw_map[d] = item.data[d]
+                else:
+                    kw_map[d] = {"search_num": 0, "imp_num": 0, "note_num": 0, "bid": 0.0}
+            all_data[kw] = kw_map
+        elif item.status == KeywordFetchStatus.EMPTY:
+            empty_kws.append(kw)
+            # 官方明确无数据的词，所有日期填 0
+            all_data[kw] = {
+                d: {"search_num": 0, "imp_num": 0, "note_num": 0, "bid": 0.0}
+                for d in sorted_dates
+            }
+        else:
+            failed_kws.append(kw)
+            # 失败的词绝不写入 all_data，绝不填 0！
+            all_data[kw] = None
+
+    if strict and failed_kws:
+        first_fail = results[failed_kws[0]]
+        err_msg = f"关键词【{failed_kws[0]}】抓取失败 ({first_fail.error_message})，共 {len(failed_kws)} 个关键词失败，终止写入飞书"
+        if first_fail.status == KeywordFetchStatus.AUTH_ERROR:
+            raise KeywordAuthExpiredError(err_msg)
+        elif first_fail.status == KeywordFetchStatus.TIMEOUT:
+            raise KeywordTimeoutError(err_msg)
+        else:
+            raise KeywordUpstreamError(err_msg)
+            
+    if not successful_kws and not empty_kws:
+        # 全部失败
+        first_fail = results[failed_kws[0]] if failed_kws else None
+        err_msg = f"所有关键词抓取均失败: {first_fail.error_message if first_fail else '未知错误'}"
+        if first_fail and first_fail.status == KeywordFetchStatus.AUTH_ERROR:
+            raise KeywordAuthExpiredError(err_msg)
+        raise KeywordUpstreamError(err_msg)
+
+    overall_status = "success" if not failed_kws else ("partial" if (successful_kws or empty_kws) else "failed")
+    
+    # 格式化 per-keyword 结果供前端展示
+    keyword_statuses = {
+        kw: {
+            "status": results[kw].status.value,
+            "error_message": results[kw].error_message,
+            "error_code": results[kw].error_code
+        }
+        for kw in clean_kws
     }
 
-# 保持单个关键词的兼容接口
+    return {
+        "success": bool(successful_kws or empty_kws),
+        "overall_status": overall_status,
+        "keywords": clean_kws,
+        "start_date": start_date_str,
+        "end_date": end_date_str,
+        "dates": sorted_dates,
+        "data": all_data,
+        "keyword_statuses": keyword_statuses,
+        "successful_keywords": successful_kws,
+        "empty_keywords": empty_kws,
+        "failed_keywords": failed_kws
+    }
+
 def fetch_keyword_insight(
     keyword: str,
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     token_path: Optional[Path] = None
 ) -> Dict[str, Any]:
-    res = fetch_keywords_insight([keyword], start_date, end_date, token_path)
+    res = fetch_keywords_insight([keyword], start_date, end_date, token_path, strict=True)
     kw = res["keywords"][0]
     return {
         "success": True,
@@ -348,4 +399,3 @@ def fetch_keyword_insight(
         "dates": res["dates"],
         "daily": res["data"].get(kw, {})
     }
-

@@ -1,0 +1,35 @@
+[project]
+name = "automation"
+version = "1.0.0"
+description = "电商数据自动同步与小红书关键词监控看板系统"
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn>=0.30.0",
+    "pydantic>=2.0.0",
+    "openpyxl>=3.1.5",
+    "pandas>=2.0.0",
+    "requests>=2.31.0",
+    "apscheduler>=3.10.0",
+    "python-dateutil>=2.8.2",
+    "python-dotenv>=1.0.0",
+    "python-multipart>=0.0.9",
+    "oss2>=2.18.0",
+    "chinesecalendar>=1.11.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.1.0",
+    "httpx>=0.27.0",
+]
+
+[tool.pytest.ini_options]
+pythonpath = [".", "sync_console"]
+testpaths = ["tests", "sync_console/tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = "-v"
+

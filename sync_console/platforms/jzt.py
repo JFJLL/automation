@@ -7,6 +7,8 @@ from typing import List, Dict, Any, Optional, Tuple
 from pathlib import Path
 from platforms.registry import fetch_oss_token
 from app.config import JZT_OSS_OBJECT_KEY, BASE_DIR
+from core.models import ProviderFetchResult, ProviderFetchStatus
+from core.errors import ProviderAuthError, ProviderUpstreamError
 
 REPORT_URL = "https://jzt-api.jd.com/jrw/content/outside/demand/report/downloadGrassDailyData"
 
@@ -32,7 +34,7 @@ def get_all_jzt_cookies() -> List[Tuple[str, str]]:
         except Exception as e:
             print(f"[JZT] Read OSS token failed: {e}")
 
-    # 2. 从多级本地候选路径读取
+    # 2. 从本地规范凭据目录读取
     if not cookies:
         candidates = [
             Path(os.getenv("JZT_TOKEN_PATH", "")),
@@ -57,17 +59,16 @@ def get_all_jzt_cookies() -> List[Tuple[str, str]]:
                     print(f"[JZT] Read candidate {p} failed: {e}")
 
     if not cookies:
-        raise RuntimeError("京准通 Cookie 未配置或无法从 OSS / 本地获取")
+        raise ProviderAuthError("京准通 Cookie 未配置或无法从 OSS / 本地获取")
     return cookies
 
-def fetch_jzt_data(task_id: str, start_date: str, end_date: str, cookie: Optional[str] = None) -> List[Dict[str, Any]]:
+def fetch_jzt_data(task_id: str, start_date: str, end_date: str, cookie: Optional[str] = None) -> ProviderFetchResult:
     cookie_list = [(None, cookie)] if cookie else get_all_jzt_cookies()
     
-    # 格式化日期参数为统一格式
     start_norm = normalize_date_str(start_date)
     end_norm = normalize_date_str(end_date)
     
-    last_error = None
+    last_error: Optional[Exception] = None
     for sec_name, c in cookie_list:
         session = requests.Session()
         session.trust_env = False
@@ -83,20 +84,46 @@ def fetch_jzt_data(task_id: str, start_date: str, end_date: str, cookie: Optiona
         )
         try:
             r = session.post(REPORT_URL, data=payload, timeout=(10, 60))
-            if r.status_code == 200 and r.content[:2] in (b"PK", b"\xd0\xcf"):
+            if r.status_code in (401, 403):
+                last_error = ProviderAuthError(f"京准通返回 HTTP {r.status_code}，登录凭据已失效")
+                continue
+            if r.status_code >= 500:
+                last_error = ProviderUpstreamError(f"京准通服务器返回 HTTP {r.status_code}")
+                continue
+            r.raise_for_status()
+            
+            # 判断返回内容是否为有效 Excel
+            if r.content[:2] in (b"PK", b"\xd0\xcf"):
                 df = pd.read_excel(io.BytesIO(r.content))
-                if not df.empty:
-                    # 归一化日期列
-                    records = df.to_dict(orient="records")
-                    clean_records = []
-                    for row in records:
-                        d_val = normalize_date_str(row.get("日期", ""))
-                        if start_norm <= d_val <= end_norm:
-                            row["日期"] = d_val
-                            clean_records.append(row)
-                    # 命中返回有效数据
-                    return clean_records
+                if df.empty:
+                    return ProviderFetchResult(status=ProviderFetchStatus.EMPTY, rows=[], pages_fetched=1)
+                
+                records = df.to_dict(orient="records")
+                clean_records = []
+                for row in records:
+                    d_val = normalize_date_str(row.get("日期", ""))
+                    if start_norm <= d_val <= end_norm:
+                        row["日期"] = d_val
+                        clean_records.append(row)
+                
+                if clean_records:
+                    return ProviderFetchResult(status=ProviderFetchStatus.SUCCESS, rows=clean_records, pages_fetched=1)
+                else:
+                    return ProviderFetchResult(status=ProviderFetchStatus.EMPTY, rows=[], pages_fetched=1)
+            else:
+                # 响应为 HTML 或 JSON 错误信息
+                text_prefix = r.text[:200].lower()
+                if "<html" in text_prefix or "login" in text_prefix or "passport" in text_prefix:
+                    last_error = ProviderAuthError("京准通返回登录跳转页面，Cookie 已过期")
+                else:
+                    last_error = ProviderUpstreamError(f"京准通返回非 Excel 内容: {r.text[:150]}")
         except Exception as e:
             last_error = e
 
-    return []
+    if last_error:
+        if isinstance(last_error, (ProviderAuthError, ProviderUpstreamError)):
+            raise last_error
+        raise ProviderUpstreamError(f"京准通接口请求失败: {last_error}")
+        
+    return ProviderFetchResult(status=ProviderFetchStatus.EMPTY, rows=[], pages_fetched=0)
+

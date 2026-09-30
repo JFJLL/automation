@@ -1,6 +1,7 @@
 import unittest
 import io
 import openpyxl
+from unittest.mock import MagicMock, patch
 from fastapi.testclient import TestClient
 from app.main import app
 from app.config import ACCESS_TOKEN
@@ -24,13 +25,15 @@ class TestApiEndpoints(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertTrue(r.json().get("success"))
 
-        # 校验成功访问管理接口
-        r = self.client.get("/api/settings", headers=self.headers)
-        self.assertEqual(r.status_code, 200)
-        self.assertIn("shared_folder_token", r.json())
+        # 校验成功访问管理接口 (Mock 飞书客户端避免外部请求)
+        mock_feishu = MagicMock()
+        mock_feishu.get_or_create_shared_folder.return_value = "mock_folder_token_123"
+        with patch("app.main.FeishuClient", return_value=mock_feishu):
+            r = self.client.get("/api/settings", headers=self.headers)
+            self.assertEqual(r.status_code, 200)
+            self.assertIn("shared_folder_token", r.json())
 
     def test_upload_and_preview_flow(self):
-        # 构造测试 Excel
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "测试9月数据"
@@ -40,7 +43,6 @@ class TestApiEndpoints(unittest.TestCase):
         wb.save(bio)
         bio.seek(0)
 
-        # 上传文件
         files = {"file": ("test.xlsx", bio.getvalue(), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")}
         data = {"selected_platform": "jzt"}
         r = self.client.post("/api/upload", files=files, data=data, headers=self.headers)
@@ -53,12 +55,10 @@ class TestApiEndpoints(unittest.TestCase):
         self.assertEqual(s["detected_entity_ids"], ["198973"])
 
     def test_task_management_routes(self):
-        # 检查 tasks 列表
         r = self.client.get("/api/tasks", headers=self.headers)
         self.assertEqual(r.status_code, 200)
         self.assertIsInstance(r.json(), list)
 
-        # 检查 runs 列表
         r = self.client.get("/api/runs", headers=self.headers)
         self.assertEqual(r.status_code, 200)
         self.assertIsInstance(r.json(), list)

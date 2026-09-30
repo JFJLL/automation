@@ -6,9 +6,10 @@ from urllib.parse import urlparse
 from pathlib import Path
 from platforms.registry import fetch_oss_token
 from app.config import ADSTAR_OSS_OBJECT_KEY, ADSTAR_OSS_BASE_URL, BASE_DIR
+from core.models import ProviderFetchResult, ProviderFetchStatus
+from core.errors import ProviderAuthError, ProviderUpstreamError
 
-LOCAL_FALLBACK = BASE_DIR.parent / "feishu_three_sync" / "taobao" / "adstar.txt"
-BASE_URL = "https://adstar.alimama.com"
+REPORT_BASE_URL = "https://adstar.alimama.com"
 
 EFFECT_COLUMNS = [
     ("阅读/播放UV", "readUv1d"),
@@ -77,9 +78,15 @@ def get_taobao_cookies() -> Dict[str, str]:
             parsed = parse_cookie_payload(raw)
             if parsed:
                 return parsed
-    raise RuntimeError("淘宝星河 Cookie 未配置或无法从 OSS 获取")
+    raise ProviderAuthError("淘宝星河 Cookie 未配置或无法从 OSS 获取")
 
-def fetch_taobao_data(entity_id: str, dimension: str, start_date: str, end_date: str, cookies: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
+def fetch_taobao_data(
+    entity_id: str,
+    dimension: str,
+    start_date: str,
+    end_date: str,
+    cookies: Optional[Dict[str, str]] = None
+) -> ProviderFetchResult:
     if not cookies:
         cookies = get_taobao_cookies()
     session = requests.Session()
@@ -91,7 +98,6 @@ def fetch_taobao_data(entity_id: str, dimension: str, start_date: str, end_date:
     })
     session.cookies.update(cookies)
     
-    # 构造ext请求参数
     ext = {
         "settleSeqId": int(entity_id) if str(entity_id).isdigit() else entity_id,
         "projectId": 0,
@@ -105,7 +111,11 @@ def fetch_taobao_data(entity_id: str, dimension: str, start_date: str, end_date:
     }
     
     rows = []
+    pages_fetched = 0
+    expected_pages = 1
+    
     for page in range(1, 101):
+        pages_fetched = page
         payload = {
             "bizType": "selfOfficial_orderInfo_detail",
             "dataBatch": "content" if dimension == "内容" else "order",
@@ -115,29 +125,49 @@ def fetch_taobao_data(entity_id: str, dimension: str, start_date: str, end_date:
             "pageNo": page,
             "pageSize": 100
         }
-        r = session.get(f"{BASE_URL}/api/report/multiscene/query/detail/data", params=payload, timeout=(10, 60))
-        r.raise_for_status()
-        data = r.json()
+        try:
+            r = session.get(f"{REPORT_BASE_URL}/api/report/multiscene/query/detail/data", params=payload, timeout=(10, 60))
+            if r.status_code in (401, 403):
+                raise ProviderAuthError("淘宝星河未授权或 Cookie 失效 (HTTP 401/403)")
+            r.raise_for_status()
+            data = r.json()
+        except requests.Timeout:
+            raise ProviderUpstreamError(f"淘宝星河请求第 {page} 页超时")
+        except Exception as e:
+            if isinstance(e, (ProviderAuthError, ProviderUpstreamError)):
+                raise e
+            raise ProviderUpstreamError(f"淘宝星河网络异常: {e}")
+            
         info = data.get("info") or {}
         if info.get("message") == "nologin" or data.get("code") == 601:
-            raise RuntimeError("淘宝星河登录会话已过期 (nologin)，请刷新更新 adstar.txt 或 OSS 上的凭据")
+            raise ProviderAuthError("淘宝星河登录会话已过期 (nologin)，请刷新更新凭据")
+            
         if not data.get("success"):
-            if not info.get("ok", True):
-                raise RuntimeError(f"淘宝星河接口返回异常: {data}")
-            break
+            err_msg = info.get("message") or data.get("message") or f"code={data.get('code')}"
+            raise ProviderUpstreamError(f"淘宝星河接口错误: {err_msg}")
+            
         model = data.get("model") or {}
         items = model.get("list") if isinstance(model, dict) else (model if isinstance(model, list) else [])
-        if not items:
-            break
+        if not items and page == 1:
+            return ProviderFetchResult(status=ProviderFetchStatus.EMPTY, rows=[], pages_fetched=1)
+            
         for item in items:
             d_val = str(item.get("ds") or item.get("theDate") or "").strip().replace("/", "-")[:10]
             if start_date <= d_val <= end_date:
                 item["日期"] = d_val
-                # 规范指标字段
                 for label, key in EFFECT_COLUMNS:
                     item[label] = item.get(key, "")
                 rows.append(item)
+                
         if len(items) < 100 or not model.get("hasNext"):
             break
-        time.sleep(0.2)
-    return rows
+        time.sleep(0.15)
+        
+    status = ProviderFetchStatus.SUCCESS if rows else ProviderFetchStatus.EMPTY
+    return ProviderFetchResult(
+        status=status,
+        rows=rows,
+        pages_fetched=pages_fetched,
+        expected_pages=pages_fetched
+    )
+

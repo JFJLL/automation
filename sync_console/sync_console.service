@@ -1,15 +1,17 @@
 [Unit]
-Description=Ad Data Auto Sync Console
+Description=Ad Data Auto Sync and Keyword Monitor Console
 After=network.target
 
 [Service]
 Type=simple
-User=root
-WorkingDirectory=/opt/sync_console
-ExecStart=/opt/sync_console/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8088
+User=sync-console
+Group=sync-console
+WorkingDirectory=/opt/automation
+ExecStart=/opt/automation/.venv/bin/uvicorn sync_console.app.main:app --host 127.0.0.1 --port 8088
 Restart=always
 RestartSec=5
-EnvironmentFile=/opt/sync_console/.env
+EnvironmentFile=/opt/automation/sync_console/.env
 
 [Install]
 WantedBy=multi-user.target
+
