@@ -29,14 +29,20 @@ def get_keyword_db(db_path: Optional[Path] = None) -> sqlite3.Connection:
     
     # 优先使用配置的 DATA_DIR / keyword_data.db；若不存在但旧目录存在，则迁移/复用
     if not KEYWORD_DB_PATH.exists():
-        legacy = Path(__file__).resolve().parent.parent.parent / "keyword_service" / "keyword_data.db"
-        if legacy.exists():
-            try:
-                import shutil
-                KEYWORD_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(legacy, KEYWORD_DB_PATH)
-            except Exception:
-                return get_db_connection(legacy)
+        legacies = [
+            BASE_DIR / "keyword_service" / "keyword_data.db",
+            BASE_DIR.parent / "keyword_service" / "keyword_data.db",
+            Path(__file__).resolve().parent.parent.parent / "keyword_service" / "keyword_data.db"
+        ]
+        for legacy in legacies:
+            if legacy.exists():
+                try:
+                    import shutil
+                    KEYWORD_DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(legacy, KEYWORD_DB_PATH)
+                    break
+                except Exception:
+                    return get_db_connection(legacy)
     return get_db_connection(KEYWORD_DB_PATH)
 
 def get_lingxi_db(db_path: Optional[Path] = None) -> sqlite3.Connection:
