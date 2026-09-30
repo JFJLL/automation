@@ -34,3 +34,11 @@ NOTIFICATION_POLICY = os.getenv("NOTIFICATION_POLICY", "failed_runs_only")
 TIMEZONE = os.getenv("TIMEZONE", "Asia/Shanghai")
 SYNC_DB_PATH = Path(os.getenv("SYNC_DB_PATH", str(DATA_DIR / "sync_console.db")))
 DB_PATH = SYNC_DB_PATH
+
+# Stage 1 & 2 additions
+JUGUANG_V_SELLER_ID = os.getenv("JUGUANG_V_SELLER_ID", "").strip()
+FEISHU_SHEET_SHARE_MODE = os.getenv("FEISHU_SHEET_SHARE_MODE", "private").strip().lower()
+SESSION_SECRET = os.getenv("SESSION_SECRET", "").strip()
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() in ("true", "1", "yes")
+ALLOW_INTERNAL_AUTH = os.getenv("ALLOW_INTERNAL_AUTH", "0") in ("1", "true")
+CREDENTIALS_DIR = Path(os.getenv("CREDENTIALS_DIR", str(BASE_DIR / "tokens")))

@@ -31,14 +31,10 @@ IDENTITY = {
 PLACES = {'1': '信息流推广', '2': '搜索推广', '4': '全站智投', '7': '视频流推广'}
 
 def get_juguang_headers() -> Dict[str, str]:
-    if JUGUANG_OSS_OBJECT_KEY:
-        try:
-            raw = fetch_oss_token(JUGUANG_OSS_OBJECT_KEY)
-            data = json.loads(raw)
-            if isinstance(data, dict) and "cookie" in data:
-                return data
-        except Exception as e:
-            print(f"[Juguang] Read OSS headers failed: {e}")
+    from core.credentials import default_credential_store
+    cred = default_credential_store.get("juguang")
+    if cred and cred.get("cookie"):
+        return cred
     candidates = [
         Path(os.getenv("JUGUANG_TOKEN_PATH", "")),
         BASE_DIR / "tokens" / "session_headers.json",
@@ -48,35 +44,45 @@ def get_juguang_headers() -> Dict[str, str]:
     ]
     for p in candidates:
         if p and p.exists() and p.is_file():
-            data = json.loads(p.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                return data
+            try:
+                data = json.loads(p.read_text(encoding="utf-8"))
+                if isinstance(data, dict):
+                    return data
+            except Exception:
+                pass
     raise ProviderAuthError("聚光会话配置未配置或无法从 OSS 获取")
 
 def get_juguang_subaccount_headers(sub_account_id: str) -> Dict[str, str]:
-    cookie_text = ""
-    object_key = f"{JUGUANG_OSS_SUBACCOUNT_PREFIX.rstrip('/')}/{sub_account_id.strip()}.txt"
-    try:
-        cookie_text = fetch_oss_token(object_key).strip()
-    except Exception as e:
-        print(f"[Juguang] Read OSS subaccount token failed ({object_key}): {e}")
-    
+    sub_id = sub_account_id.strip()
+    if not re.match(r"^[a-zA-Z0-9_-]{1,64}$", sub_id):
+        raise ProviderAuthError(f"非法的聚光子账号 ID: {sub_id}")
+
+    from core.credentials import default_credential_store
+    cred = default_credential_store.get(f"subaccount_{sub_id}")
+    cookie_text = cred.get("cookie") or cred.get("token") or ""
+    if not cookie_text:
+        object_key = f"{JUGUANG_OSS_SUBACCOUNT_PREFIX.rstrip('/')}/{sub_id}.txt"
+        try:
+            cookie_text = fetch_oss_token(object_key).strip()
+        except Exception as e:
+            print(f"[Juguang] Read OSS subaccount token failed ({object_key}): {e}")
+
     if not cookie_text:
         local_candidates = [
-            BASE_DIR / "tokens" / f"{sub_account_id}.txt",
-            BASE_DIR / "data" / f"{sub_account_id}.txt"
+            BASE_DIR / "tokens" / f"{sub_id}.txt",
+            BASE_DIR / "data" / f"{sub_id}.txt"
         ]
         for p in local_candidates:
             if p.exists() and p.is_file():
                 cookie_text = p.read_text(encoding="utf-8").strip()
                 break
-                
+
     if not cookie_text:
-        raise ProviderAuthError(f"未获取到聚光子账号 [{sub_account_id}] 的 Cookie，请检查 OSS 或 Cookie 同步状态")
-        
+        raise ProviderAuthError(f"未获取到聚光子账号 [{sub_id}] 的 Cookie，请检查 OSS 或 Cookie 同步状态")
+
     return {
         "cookie": cookie_text,
-        "v-seller-id": sub_account_id.strip(),
+        "v-seller-id": sub_id,
         "origin": "https://ad.xiaohongshu.com",
         "referer": "https://ad.xiaohongshu.com/aurora/ad/datareports-b",
         "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",

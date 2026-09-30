@@ -48,9 +48,16 @@ def save_cookie(category, header):
 
 
 def submit_login(page):
+    username = USERNAME
+    password = PASSWORD
+    if not username or not password:
+        from local_login import get_credentials
+        username, password = get_credentials()
+    if not username or not password:
+        raise SyncError('JZT_USERNAME and JZT_PASSWORD must be configured in environment or Credential Manager')
     page.goto(LOGIN_URL, wait_until='domcontentloaded', timeout=60000)
-    page.locator('#loginname').fill(USERNAME)
-    page.locator('#nloginpwd').fill(PASSWORD)
+    page.locator('#loginname').fill(username)
+    page.locator('#nloginpwd').fill(password)
     page.locator('#paipaiLoginSubmit').click()
     print('Login submitted once. If JD requests a puzzle/SMS, complete it in this Chrome window.', flush=True)
 

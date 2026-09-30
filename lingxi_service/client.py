@@ -10,45 +10,36 @@ DEFAULT_TOKEN_FILE = Path(__file__).parent / "token.json"
 API_URL = "https://idea.xiaohongshu.com/api/idea/audience/group/tag/search"
 
 def sync_token_from_oss(force: bool = False) -> Optional[Dict[str, str]]:
-    """从 OSS 获取最新的灵犀 Token / Cookie 并持久化到本地 token.json"""
+    """从 CredentialStore 获取最新的灵犀 Token / Cookie 并持久化到本地 token.json"""
     try:
-        from platforms.registry import fetch_oss_token
-        from app.config import JUGUANG_OSS_SUBACCOUNT_PREFIX
+        from core.credentials import default_credential_store, calc_fingerprint
     except Exception as import_err:
         print(f"[Lingxi OSS Sync] Import config error: {import_err}")
         return None
 
-    prefix = (JUGUANG_OSS_SUBACCOUNT_PREFIX or "token/").rstrip("/")
-    candidate_keys = [
-        f"{prefix}/lingxi_cookie.txt",
-        "token/lingxi_cookie.txt",
-        "lingxi_cookie.txt"
-    ]
+    data = default_credential_store.get("lingxi")
+    if not data or not data.get("cookie"):
+        return None
 
-    for key in candidate_keys:
-        try:
-            raw = fetch_oss_token(key).strip()
-            if not raw:
-                continue
-
-            token_obj = {
-                "cookie": raw,
-                "origin": "https://idea.xiaohongshu.com",
-                "referer": "https://idea.xiaohongshu.com/idea/creativity/audience/create",
-                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
-                "xsecappid": "ads-idea"
-            }
-            DEFAULT_TOKEN_FILE.write_text(json.dumps(token_obj, ensure_ascii=False, indent=2), encoding="utf-8")
-            print(f"[Lingxi OSS Sync] Successfully synced token from OSS key: {key}")
-            return token_obj
-        except Exception as e:
-            print(f"[Lingxi OSS Sync] Failed to fetch OSS key {key}: {e}")
-            continue
-    return None
+    token_obj = {
+        "cookie": data.get("cookie", ""),
+        "origin": data.get("origin", "https://idea.xiaohongshu.com"),
+        "referer": data.get("referer", "https://idea.xiaohongshu.com/idea/creativity/audience/create"),
+        "user_agent": data.get("user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"),
+        "xsecappid": data.get("xsecappid", "ads-idea")
+    }
+    try:
+        DEFAULT_TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+        DEFAULT_TOKEN_FILE.write_text(json.dumps(token_obj, ensure_ascii=False, indent=2), encoding="utf-8")
+        fp = calc_fingerprint(token_obj.get("cookie", ""))
+        print(f"[Lingxi OSS Sync] Successfully synced token (fingerprint={fp}, length={len(token_obj.get('cookie', ''))})")
+        return token_obj
+    except Exception as e:
+        print(f"[Lingxi OSS Sync] Write token error: {e}")
+        return token_obj
 
 def load_token(token_path: Optional[Path] = None) -> Dict[str, str]:
     path = token_path or DEFAULT_TOKEN_FILE
-    # 优先检查本地 token.json
     if path.exists():
         try:
             with open(path, "r", encoding="utf-8") as f:
@@ -58,26 +49,6 @@ def load_token(token_path: Optional[Path] = None) -> Dict[str, str]:
         except Exception:
             pass
 
-    # 尝试从本地 oss-upload/cookies/lingxi_cookie.txt 寻找凭据
-    local_txt = Path(r"D:downloadpic-vecoss-uploadcookieslingxi_cookie.txt")
-    if local_txt.exists():
-        try:
-            raw = local_txt.read_text(encoding="utf-8").strip()
-            if raw:
-                token_obj = {
-                    "cookie": raw,
-                    "origin": "https://idea.xiaohongshu.com",
-                    "referer": "https://idea.xiaohongshu.com/idea/creativity/audience/create",
-                    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36",
-                    "xsecappid": "ads-idea"
-                }
-                path.parent.mkdir(parents=True, exist_ok=True)
-                path.write_text(json.dumps(token_obj, ensure_ascii=False, indent=2), encoding="utf-8")
-                return token_obj
-        except Exception:
-            pass
-
-    # 若本地不存在，从 OSS 拉取
     oss_data = sync_token_from_oss()
     if oss_data and oss_data.get("cookie"):
         return oss_data

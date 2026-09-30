@@ -50,3 +50,17 @@ data/juguang_subaccounts_cache.json
 node_modules/
 frontend/node_modules/
 frontend/dist/
+
+# Stage 1: Security and credentials
+**/token.json
+**/token.txt
+**/*cookie*.txt
+**/adstar.txt
+**/session_headers.json
+**/browser_state.json
+**/.env
+.codegraph/
+**/logs/
+**/backups/*
+configs/local/
+feishu_three_sync/jzt_sync/configs/local/

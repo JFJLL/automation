@@ -12,8 +12,11 @@ from config_loader import APP_ID, APP_SECRET, FEISHU_SHEET_ZHANGXIAOYI, FEISHU_S
 
 
 def task_mappings():
-    a = json.loads((ROOT / 'configs/tasks_mapping.json').read_text(encoding='utf-8'))['zhangxiaoyi']
-    b = json.loads((ROOT / 'configs/b_sheets_tasks.json').read_text(encoding='utf-8'))
+    local_dir = ROOT / 'configs/local'
+    a_file = local_dir / 'tasks_mapping.json' if (local_dir / 'tasks_mapping.json').exists() else ROOT / 'configs/tasks_mapping.json'
+    b_file = local_dir / 'b_sheets_tasks.json' if (local_dir / 'b_sheets_tasks.json').exists() else ROOT / 'configs/b_sheets_tasks.json'
+    a = json.loads(a_file.read_text(encoding='utf-8'))['zhangxiaoyi']
+    b = json.loads(b_file.read_text(encoding='utf-8'))
     return {'zhuorui': a, 'qicui': b}
 
 

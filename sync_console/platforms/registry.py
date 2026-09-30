@@ -96,8 +96,10 @@ def find_date_column(platform_code: str, headers: List[str]) -> str:
             return h
     return headers[0]
 
-def fetch_oss_token(object_key: str, base_url: str = ADSTAR_OSS_BASE_URL) -> str:
-    url = f"{base_url.rstrip('/')}/{object_key.lstrip('/')}"
-    r = requests.get(url, timeout=15)
-    r.raise_for_status()
-    return r.text.strip()
+def fetch_oss_token(object_key: str, base_url: str = "") -> str:
+    from core.credentials import default_credential_store
+    from pathlib import Path
+    data = default_credential_store.get(Path(object_key).stem)
+    if isinstance(data, dict):
+        return data.get("cookie") or data.get("token") or json.dumps(data)
+    return str(data)

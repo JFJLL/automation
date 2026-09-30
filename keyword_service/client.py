@@ -20,86 +20,42 @@ DEFAULT_TOKEN_FILE = Path(__file__).parent / "token.json"
 API_URL = "https://ad.xiaohongshu.com/api/light/ad/keyword/analysis/distribution"
 
 def sync_token_from_oss(force: bool = False) -> Optional[Dict[str, str]]:
-    """自动从 OSS 获取最新的聚光 Token / Cookie 并持久化到本地 token.json"""
+    """通过 CredentialStore 获取最新的聚光 Token / Cookie 并持久化到本地 token.json"""
     try:
-        from platforms.registry import fetch_oss_token
-        from app.config import (
-            JUGUANG_OSS_OBJECT_KEY,
-            JUGUANG_OSS_SUBACCOUNT_PREFIX
-        )
+        from core.credentials import default_credential_store, calc_fingerprint
+        from app.config import JUGUANG_V_SELLER_ID
     except Exception as import_err:
         print(f"[Keyword OSS Sync] Import config error: {import_err}")
         return None
 
-    candidate_keys = []
-    if JUGUANG_OSS_OBJECT_KEY:
-        candidate_keys.append(JUGUANG_OSS_OBJECT_KEY)
-    prefix = (JUGUANG_OSS_SUBACCOUNT_PREFIX or "token/").rstrip("/")
-    candidate_keys.extend([
-        f"{prefix}/keyword_token.json",
-        f"{prefix}/628b3a5056228a000189c0e4.txt",
-        f"{prefix}/629dd021b276e90001fc3b8c.txt",
-        f"{prefix}/659e1399096eae00013086d6.txt",
-        f"{prefix}/634e1a1bb021a00001cdc5c3.txt",
-        "KOL/token.txt",
-        "KOL/juguang_token.txt"
-    ])
+    data = default_credential_store.get("juguang")
+    if not data or not data.get("cookie"):
+        data = default_credential_store.get("keyword_token")
 
-    for key in candidate_keys:
-        try:
-            raw = fetch_oss_token(key).strip()
-            if not raw:
-                continue
+    if not data or not data.get("cookie"):
+        return None
 
-            token_obj = None
-            if raw.startswith("{"):
-                try:
-                    data = json.loads(raw)
-                    if isinstance(data, dict):
-                        if "cookie" in data:
-                            token_obj = data
-                        else:
-                            cookie_parts = [f"{k}={v}" for k, v in data.items() if k not in ["vSellerId", "v_seller_id", "user_agent"]]
-                            v_seller_id = data.get("vSellerId") or data.get("v_seller_id") or "628b3a5056228a000189c0e4"
-                            token_obj = {
-                                "cookie": "; ".join(cookie_parts),
-                                "v_seller_id": str(v_seller_id),
-                                "origin": "https://ad.xiaohongshu.com",
-                                "referer": f"https://ad.xiaohongshu.com/aurora/ad/tools/newKeywordTool?vSellerId={v_seller_id}",
-                                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                                "xsecappid": "aurora-shell"
-                            }
-                except json.JSONDecodeError:
-                    pass
-            elif "a1=" in raw:
-                v_seller_id = "628b3a5056228a000189c0e4"
-                if key.endswith(".txt") and "/" in key:
-                    file_stem = key.rsplit("/", 1)[-1].replace(".txt", "")
-                    if len(file_stem) == 24:
-                        v_seller_id = file_stem
-                token_obj = {
-                    "cookie": raw,
-                    "v_seller_id": v_seller_id,
-                    "origin": "https://ad.xiaohongshu.com",
-                    "referer": f"https://ad.xiaohongshu.com/aurora/ad/tools/newKeywordTool?vSellerId={v_seller_id}",
-                    "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                    "xsecappid": "aurora-shell"
-                }
-
-            if token_obj and token_obj.get("cookie"):
-                try:
-                    DEFAULT_TOKEN_FILE.write_text(json.dumps(token_obj, ensure_ascii=False, indent=2), encoding="utf-8")
-                    session_file = Path(__file__).parent.parent / "sync_console" / "tokens" / "session_headers.json"
-                    if session_file.parent.exists():
-                        session_file.write_text(json.dumps(token_obj, ensure_ascii=False, indent=2), encoding="utf-8")
-                    print(f"[Keyword OSS Sync] Successfully auto-synced token from OSS key: {key}")
-                except Exception as save_err:
-                    print(f"[Keyword OSS Sync] Warning: Failed to save synced token locally: {save_err}")
-                return token_obj
-        except Exception:
-            continue
-
-    return None
+    v_seller_id = data.get("v_seller_id") or data.get("vSellerId") or JUGUANG_V_SELLER_ID or os.getenv("JUGUANG_V_SELLER_ID", "")
+    token_obj = {
+        "cookie": data.get("cookie", ""),
+        "v_seller_id": str(v_seller_id),
+        "origin": "https://ad.xiaohongshu.com",
+        "referer": f"https://ad.xiaohongshu.com/aurora/ad/tools/newKeywordTool?vSellerId={v_seller_id}",
+        "user_agent": data.get("user_agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"),
+        "xsecappid": data.get("xsecappid", "aurora-shell")
+    }
+    try:
+        DEFAULT_TOKEN_FILE.parent.mkdir(parents=True, exist_ok=True)
+        DEFAULT_TOKEN_FILE.write_text(json.dumps(token_obj, ensure_ascii=False, indent=2), encoding="utf-8")
+        session_file = Path(__file__).parent.parent / "sync_console" / "tokens" / "session_headers.json"
+        if session_file.parent.exists():
+            session_file.write_text(json.dumps(token_obj, ensure_ascii=False, indent=2), encoding="utf-8")
+        fp = calc_fingerprint(token_obj.get("cookie", ""))
+        print(f"[Keyword OSS Sync] Successfully auto-synced token (fingerprint={fp}, length={len(token_obj.get('cookie', ''))})")
+        return token_obj
+    except Exception as write_err:
+        print(f"[Keyword OSS Sync] Write token error: {write_err}")
+        return token_obj
 
 def load_token(token_path: Optional[Path] = None) -> Dict[str, str]:
     path = token_path or DEFAULT_TOKEN_FILE
@@ -124,7 +80,7 @@ def _fetch_single_word(
     token: Dict[str, str],
     dates: List[str]
 ) -> KeywordItemResult:
-    v_seller_id = token.get("v_seller_id") or token.get("v-seller-id", "628b3a5056228a000189c0e4")
+    v_seller_id = token.get("v_seller_id") or token.get("v-seller-id") or os.getenv("JUGUANG_V_SELLER_ID", "")
     cookie = token.get("cookie", "")
     
     headers = {

@@ -80,12 +80,14 @@ def search_lingxi_keywords(req: LingxiSearchRequest):
 def get_lingxi_cookie():
     token = load_token()
     cookie_val = token.get("cookie", "")
-    masked = f"{cookie_val[:10]}...{cookie_val[-10:]}" if len(cookie_val) > 20 else cookie_val
+    from core.credentials import calc_fingerprint
     return {
-        "has_cookie": bool(cookie_val),
-        "masked_cookie": masked,
-        "origin": token.get("origin"),
-        "referer": token.get("referer")
+        "code": 0,
+        "data": {
+            "has_cookie": bool(cookie_val),
+            "cookie_length": len(cookie_val.strip()),
+            "fingerprint": calc_fingerprint(cookie_val)
+        }
     }
 
 @private_router.post("/cookie")

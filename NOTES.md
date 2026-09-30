@@ -81,3 +81,38 @@ esolve_auto_range, parse_args, main。
 - eishu_three_sync/taobao/.env: 本地环境变量明文, 首次提交: 未追踪
 
 ---
+
+## 2. 阶段 1：凭据止血 (分支: fix/secrets)
+
+### 2.1 改动文件清单与对应问题
+- `lingxi_service/token.json` (git rm --cached) 及所有 `*.example` 模板 (P0-1, K-SEC-01)
+- `.gitignore`: 补充各类敏感文件、日志、备份、本地配置屏蔽规则
+- `feishu_three_sync/jzt_sync/config_loader.py`: 移除硬编码飞书 App Secret 兜底 (P0-1)
+- `feishu_three_sync/jzt_sync/local_login.py` & `refresh_login.py`: 移除明文京东账号密码，改用环境变量/Keyring (P0-1)
+- `feishu_three_sync/jzt_sync/configs/`: `all_23_accounts.json` 与 `all_tasks_merged.json` 移动至 `configs/local/` (已在 .gitignore)，仓库只保留脱敏假数据模板；`daily_sync.py` 优先读取本地目录 (P0-1)
+- `sync_console/core/credentials.py`: 全新创建统一安全凭据存储 `CredentialStore`，支持原子写入、POSIX 0600、文件锁、防路径遍历、最大 64KB 限制、sha256 8 位指纹脱敏 (P1-OSS, 后端 P0)
+- `sync_console/platforms/registry.py`: 删除匿名 GET 拉取，重定向至 `CredentialStore`
+- `sync_console/platforms/jzt.py`, `taobao.py`, `juguang.py`: 接入 `CredentialStore`
+- `keyword_service/client.py` & `lingxi_service/client.py`: 接入 `CredentialStore`，移除硬编码路径与写死 sellerId (K-AUTH-01/02)
+- `lingxi_service/router.py`: GET /cookie 接口仅返回 has_cookie、cookie_length 和 fingerprint，绝不返回明文片段
+- `.pre-commit-config.yaml`: 新增 gitleaks 与 ruff 预提交检查
+- `tests/test_credentials.py`: 新增单元测试，覆盖读取顺序、防路径遍历、原子锁写入、指纹脱敏与 OSS 回退
+
+### 2.2 验证结果
+- `tests/test_credentials.py`: 6 passed
+- `sync_console/tests/test_juguang_subaccount.py`: 4 passed
+
+### 2.3 需要人工执行的清单 (极为重要)
+1. **轮换会话与密钥**:
+   - 小红书聚光、小红书灵犀、京东京准通、淘宝星河的所有会话与登录状态全部重新登录/失效；
+   - 飞书开放平台管理后台: 重新生成并轮换 `FEISHU_APP_SECRET`；
+   - 立即修改京东账号密码；
+   - 阿里云控制台: 将 OSS Bucket (`redmagic`) 读写权限设为私有 (Private)，并轮换 `OSS_ACCESS_KEY_ID` 与 `OSS_ACCESS_KEY_SECRET`。
+2. **仓库权限设置**:
+   - 将 GitHub / Git 仓库设置为 Private 私有仓库。
+3. **Git 历史凭据清理命令 (建议在独立克隆仓库中演练后执行，切勿在此分支直接跑)**:
+   ```bash
+   git filter-repo --invert-paths --path lingxi_service/token.json --path feishu_three_sync/jzt_sync/token.txt --path feishu_three_sync/taobao/adstar.txt --path feishu_three_sync/taobao/.env --path feishu_three_sync/jg_sync/session_headers.json --path feishu_three_sync/jg_sync/browser_state.json
+   ```
+
+---

@@ -1,3 +1,4 @@
+import os
 import json
 import time
 import requests
@@ -57,14 +58,13 @@ def parse_cookie_payload(raw: str) -> Dict[str, str]:
     return cookies
 
 def get_taobao_cookies() -> Dict[str, str]:
-    if ADSTAR_OSS_OBJECT_KEY:
-        try:
-            raw = fetch_oss_token(ADSTAR_OSS_OBJECT_KEY, ADSTAR_OSS_BASE_URL)
-            parsed = parse_cookie_payload(raw)
-            if parsed:
-                return parsed
-        except Exception as e:
-            print(f"[Taobao] Read OSS cookie failed: {e}")
+    from core.credentials import default_credential_store
+    cred = default_credential_store.get("adstar")
+    if cred:
+        raw = cred.get("cookie") or cred.get("token") or ""
+        parsed = parse_cookie_payload(raw)
+        if parsed:
+            return parsed
     candidates = [
         Path(os.getenv("TAOBAO_TOKEN_PATH", "")),
         BASE_DIR / "tokens" / "adstar.txt",

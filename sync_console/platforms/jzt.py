@@ -21,18 +21,21 @@ def normalize_date_str(val: Any) -> str:
 
 def get_all_jzt_cookies() -> List[Tuple[str, str]]:
     cookies = []
-    # 1. 优先从 OSS 读取
-    if JZT_OSS_OBJECT_KEY:
-        try:
-            raw = fetch_oss_token(JZT_OSS_OBJECT_KEY)
-            cfg = configparser.RawConfigParser()
-            cfg.read_string(raw)
-            for sec in cfg.sections():
-                c = cfg.get(sec, "cookie", fallback="")
-                if c:
-                    cookies.append((sec, c))
-        except Exception as e:
-            print(f"[JZT] Read OSS token failed: {e}")
+    # 1. 优先从 CredentialStore 读取
+    from core.credentials import default_credential_store
+    cred = default_credential_store.get("jzt")
+    if cred:
+        raw = cred.get("cookie") or cred.get("token") or ""
+        if raw:
+            try:
+                cfg = configparser.RawConfigParser()
+                cfg.read_string(raw)
+                for sec in cfg.sections():
+                    c = cfg.get(sec, "cookie", fallback="")
+                    if c:
+                        cookies.append((sec, c))
+            except Exception as e:
+                print(f"[JZT] Parse credential token failed: {e}")
 
     # 2. 从本地规范凭据目录读取
     if not cookies:
