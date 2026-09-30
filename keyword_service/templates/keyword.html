@@ -1375,10 +1375,10 @@
             <button type="button" class="btn btn-outline btn-sm" id="btnSortOrder" onclick="toggleDateSortOrder()">
               <span>📅 最新在前 (降序)</span>
             </button>
-            <button type="button" class="btn btn-success" id="btnDirectFeishu" onclick="triggerDirectFeishuSheet()">
+            <button type="button" class="btn btn-success" id="btnDirectFeishu" onclick="openDirectSheetModal()">
               <span>📄 直接生成飞书表格</span>
             </button>
-            <button type="button" class="btn btn-primary" id="btnCreateTaskModal" onclick="triggerCreateTask()">
+            <button type="button" class="btn btn-primary" id="btnCreateTaskModal" onclick="openCreateTaskModal()">
               <span>⏰ 创建定时任务</span>
             </button>
           </div>
@@ -1594,6 +1594,86 @@
     </div>
   </div>
 
+  <!-- 直接生成飞书表格 Modal (轻量无遮罩浮窗) -->
+  <div class="modal-backdrop-custom" id="directSheetModal" onclick="if(event.target===this) closeDirectSheetModal()">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span style="display:flex; align-items:center; gap:8px;">📄 直接生成飞书表格</span>
+        <span style="cursor:pointer; font-size:18px; color:var(--text-muted);" onclick="closeDirectSheetModal()">✕</span>
+      </div>
+
+      <form id="directSheetForm" onsubmit="event.preventDefault(); submitDirectFeishuSheet();">
+        <div style="margin-bottom: 14px;">
+          <label style="display:block; font-size:13px; font-weight:500; margin-bottom:6px;">新飞书表格标题</label>
+          <input type="text" id="directSheetTitleInput" class="form-control-custom" style="width:100%;" required>
+        </div>
+
+        <div style="font-size:13px; color:var(--text-secondary); line-height:1.6; background:#f8fafc; padding:12px; border-radius:6px; border:1px solid var(--border);">
+          <div>✨ <strong>自动写入规则：</strong></div>
+          <div>1. 自动在共享文件夹创建电子表格。</div>
+          <div>2. 写入完整数据，并将第一行同期的四个字段单元格<strong>自动合并</strong>。</div>
+          <div>3. 自动设置为公开可读写权限，生成后可一键直达。</div>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" onclick="closeDirectSheetModal()">取消</button>
+          <button type="submit" class="btn btn-success" id="btnSubmitDirectSheet">
+            <span id="btnSubmitDirectSpinner" class="spinner" style="display:none;"></span>
+            <span>立即生成并写入</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- 创建定时任务 Modal (轻量无遮罩浮窗，支持选时间与频率) -->
+  <div class="modal-backdrop-custom" id="taskModal" onclick="if(event.target===this) closeTaskModal()">
+    <div class="modal-box">
+      <div class="modal-header">
+        <span style="display:flex; align-items:center; gap:8px;">⏰ 创建关键词定时同步任务</span>
+        <span style="cursor:pointer; font-size:18px; color:var(--text-muted);" onclick="closeTaskModal()">✕</span>
+      </div>
+
+      <form id="taskForm" onsubmit="event.preventDefault(); submitCreateTask();">
+        <div style="margin-bottom: 14px;">
+          <label style="display:block; font-size:13px; font-weight:500; margin-bottom:6px;">任务名称</label>
+          <input type="text" id="taskNameInput" class="form-control-custom" style="width:100%;" required>
+        </div>
+
+        <div style="margin-bottom: 14px;">
+          <label style="display:block; font-size:13px; font-weight:500; margin-bottom:6px;">同步关键词（空格分隔）</label>
+          <input type="text" id="taskKeywordsInput" class="form-control-custom" style="width:100%;" required>
+        </div>
+
+        <div style="margin-bottom: 14px;">
+          <label style="display:block; font-size:13px; font-weight:500; margin-bottom:6px;">数据更新方式</label>
+          <select id="taskUpdateMode" class="form-control-custom" style="width:100%;">
+            <option value="overwrite" selected>全量覆盖更新</option>
+            <option value="append">增量追加</option>
+          </select>
+        </div>
+
+        <div style="margin-bottom: 14px;">
+          <label style="display:block; font-size:13px; font-weight:500; margin-bottom:6px;">同步执行频率与时间</label>
+          <select id="taskRrule" class="form-control-custom" style="width:100%;">
+            <option value="FREQ=DAILY;BYHOUR=12;BYMINUTE=30" selected>每天 12:30 执行</option>
+            <option value="FREQ=DAILY;BYHOUR=9;BYMINUTE=0">每天 09:00 执行</option>
+            <option value="FREQ=DAILY;BYHOUR=18;BYMINUTE=0">每天 18:00 执行</option>
+            <option value="FREQ=WORKDAY;BYHOUR=10;BYMINUTE=0">法定工作日 10:00 执行</option>
+          </select>
+        </div>
+
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline" onclick="closeTaskModal()">取消</button>
+          <button type="submit" class="btn btn-primary" id="btnSubmitTask">
+            <span id="btnSubmitTaskSpinner" class="spinner" style="display:none;"></span>
+            <span>确认创建并启动</span>
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <div class="help-backdrop" id="helpDrawer" onclick="if(event.target===this) closeHelpDrawer()">
     <aside class="help-drawer" role="dialog" aria-modal="true" aria-labelledby="helpDrawerTitle">
       <div class="help-head"><h2 id="helpDrawerTitle">关键词洞察使用帮助</h2><button class="help-close" type="button" onclick="closeHelpDrawer()" aria-label="关闭">✕</button></div>
@@ -1684,6 +1764,7 @@
           return '<span class="kw-chip-select" data-word="' + escaped + '" onclick="toggleRemoveChip(this)">' + k + '</span>';
         }).join('');
       }
+      alignModalToVisibleArea('removeWordsModal');
       document.getElementById('removeWordsModal').classList.add('active');
       if (window.lucide) window.lucide.createIcons();
     }
@@ -1854,8 +1935,15 @@
       document.body.style.overflow = '';
     }
 
-    window.addEventListener('keydown', event => {
-      if (event.key === 'Escape') closeHelpDrawer();
+    window.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        closeDirectSheetModal();
+        closeTaskModal();
+        closeKeywordsViewModal();
+        closeAppendWordsModal();
+        closeRemoveWordsModal();
+        closeHelpDrawer();
+      }
     });
 
     async function keywordFetch(url, options) {
@@ -2488,22 +2576,55 @@
       }, 50);
     }
 
-    // 直接生成飞书表格 (轻量化无遮罩)
-    async function triggerDirectFeishuSheet() {
+    // 弹窗视口定位辅助（适配父页面滚动，确保浮窗永远居于用户当前屏幕可见区域）
+    function alignModalToVisibleArea(modalId) {
+      const modal = document.getElementById(modalId);
+      if (!modal) return;
+      const box = modal.querySelector('.modal-box');
+      if (!box) return;
+
+      let parentScrollY = 0;
+      try {
+        if (window.parent && window.parent !== window) {
+          parentScrollY = window.parent.pageYOffset || window.parent.document.documentElement.scrollTop || 0;
+        }
+      } catch (e) {}
+
+      if (parentScrollY > 40) {
+        box.style.marginTop = Math.max(20, parentScrollY - 20) + 'px';
+      } else {
+        box.style.marginTop = '40px';
+      }
+    }
+
+    // 直接生成飞书表格 Modal
+    function openDirectSheetModal() {
       if (!latestSearchResult) return;
       const defaultTitle = "关键词洞察_" + latestSearchResult.keywords.slice(0, 3).join("_") + "_" + formatYMD(new Date());
-      const title = prompt("请输入新飞书表格标题：", defaultTitle);
-      if (title === null) return;
-      const btn = document.getElementById("btnDirectFeishu");
-      if (btn) btn.disabled = true;
-      showAlert("正在生成飞书表格并写入数据...", "success");
+      document.getElementById('directSheetTitleInput').value = defaultTitle;
+      alignModalToVisibleArea('directSheetModal');
+      document.getElementById('directSheetModal').classList.add('active');
+    }
+
+    function closeDirectSheetModal() {
+      const m = document.getElementById('directSheetModal');
+      if (m) m.classList.remove('active');
+    }
+
+    async function submitDirectFeishuSheet() {
+      if (!latestSearchResult) return;
+      const title = document.getElementById('directSheetTitleInput').value.trim();
+      const btn = document.getElementById('btnSubmitDirectSheet');
+      const spinner = document.getElementById('btnSubmitDirectSpinner');
+      btn.disabled = true;
+      spinner.style.display = 'inline-block';
 
       try {
-        const resp = await keywordFetch("/api/keyword/feishu/direct_create", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
+        const resp = await keywordFetch('/api/keyword/feishu/direct_create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            title: title.trim() || defaultTitle,
+            title: title || ("关键词洞察_" + formatYMD(new Date())),
             keywords: latestSearchResult.keywords,
             start_date: latestSearchResult.start_date,
             end_date: latestSearchResult.end_date,
@@ -2512,43 +2633,70 @@
         });
         const res = await resp.json();
         if (!resp.ok || !res.success) {
-          throw new Error(res.detail || "生成飞书表格失败");
+          throw new Error(res.detail || '生成飞书表格失败');
         }
+        closeDirectSheetModal();
         showAlert('🎉 飞书表格创建并填充成功！已合并第一行日期表头单元格。<a href="' + res.spreadsheet_url + '" target="_blank" style="color:var(--primary); font-weight:600; text-decoration:underline; margin-left:8px;">点击立即打开飞书表格 ↗</a>', 'success');
       } catch (err) {
         alert('飞书表格创建失败: ' + err.message);
       } finally {
-        if (btn) btn.disabled = false;
+        btn.disabled = false;
+        spinner.style.display = 'none';
       }
     }
 
-    async function triggerCreateTask() {
+    // 定时任务 Modal 操作 (可配置执行时间、频率、更新模式)
+    function openCreateTaskModal() {
       if (!latestSearchResult) return;
-      const defaultName = latestSearchResult.keywords[0] + "等关键词同步任务";
-      const taskName = prompt("请输入定时同步任务名称：", defaultName);
-      if (taskName === null) return;
-      const kws = latestSearchResult.keywords;
-      showAlert("正在创建定时同步任务...", "success");
+      const kws = latestSearchResult.keywords.join(' ');
+      document.getElementById('taskKeywordsInput').value = kws;
+      document.getElementById('taskNameInput').value = latestSearchResult.keywords[0] + '等关键词同步任务';
+      alignModalToVisibleArea('taskModal');
+      document.getElementById('taskModal').classList.add('active');
+    }
+
+    function closeTaskModal() {
+      const m = document.getElementById('taskModal');
+      if (m) m.classList.remove('active');
+    }
+
+    async function submitCreateTask() {
+      const taskName = document.getElementById('taskNameInput').value.trim();
+      const kwStr = document.getElementById('taskKeywordsInput').value.trim();
+      const updateMode = document.getElementById('taskUpdateMode').value;
+      const rrule = document.getElementById('taskRrule').value;
+
+      const kws = kwStr.split(/\s+/).filter(Boolean);
+      if (!kws.length) return alert('请至少填写一个关键词');
+
+      const btn = document.getElementById('btnSubmitTask');
+      const spinner = document.getElementById('btnSubmitTaskSpinner');
+      btn.disabled = true;
+      spinner.style.display = 'inline-block';
 
       try {
-        const resp = await keywordFetch("/api/keyword/tasks", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
+        const resp = await keywordFetch('/api/keyword/tasks', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            task_name: taskName.trim() || defaultName,
+            task_name: taskName,
             keywords: kws,
-            update_mode: "overwrite",
-            rrule: "FREQ=DAILY;BYHOUR=12;BYMINUTE=30",
+            update_mode: updateMode,
+            rrule: rrule,
             days_range: 90
           })
         });
         const res = await resp.json();
-        if (!resp.ok || !res.success) throw new Error(res.detail || "创建任务失败");
+        if (!resp.ok || !res.success) throw new Error(res.detail || '创建任务失败');
 
+        closeTaskModal();
         showAlert('✅ 定时同步任务创建成功！已建立飞书表格并录入调度。<a href="' + res.spreadsheet_url + '" target="_blank" style="color:var(--primary); font-weight:600; text-decoration:underline; margin-left:8px;">打开飞书表格 ↗</a>', 'success');
-        switchMainTab("tasks");
+        switchMainTab('tasks');
       } catch (e) {
         alert('创建任务失败: ' + e.message);
+      } finally {
+        btn.disabled = false;
+        spinner.style.display = 'none';
       }
     }
 
@@ -2568,6 +2716,7 @@
         h += '</div>';
       }
       container.innerHTML = h;
+      alignModalToVisibleArea('keywordsViewModal');
       document.getElementById('keywordsViewModal').classList.add('active');
     }
 
@@ -2667,6 +2816,7 @@
       appendKeywords = [];
       renderAppendKeywords();
       setAppendWordsFeedback();
+      alignModalToVisibleArea('appendWordsModal');
       document.getElementById('appendWordsModal').classList.add('active');
       requestAnimationFrame(() => document.getElementById('appendWordsInput').focus());
     }
