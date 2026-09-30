@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Sparkles, Calendar, Search, X, Clock, Tags } from 'lucide-react';
+import { Sparkles, Calendar, Search, X, Clock, Tags, Copy } from 'lucide-react';
 import { fetchJson } from '@/shared/api/client';
 import { Dialog } from '@/shared/components/Dialog';
 import { useToast } from '@/shared/components/Toast';
@@ -282,6 +282,54 @@ export const KeywordInsightPage: React.FC = () => {
     }
   };
 
+  // 严格限制日期间隔不超过90天并弹出Toast提示与自动纠偏
+  const validateAndSetDateRange = (newStart: string, newEnd: string, changedField: 'start' | 'end') => {
+    if (!newStart || !newEnd) {
+      if (changedField === 'start') setStartDate(newStart);
+      else setEndDate(newEnd);
+      return false;
+    }
+    const s = new Date(newStart);
+    const e = new Date(newEnd);
+    const maxE = new Date(maxEndDate);
+
+    if (e > maxE) {
+      showError(`中午12:00前最多支持查询至 ${maxEndDate} (T-2)`);
+      setEndDate(maxEndDate);
+      return false;
+    }
+    if (s > e) {
+      showError('开始日期不能大于结束日期');
+      if (changedField === 'start') {
+        setStartDate(newEnd);
+      } else {
+        setEndDate(newStart);
+      }
+      return false;
+    }
+    const daysDiff = Math.round((e.getTime() - s.getTime()) / (1000 * 3600 * 24)) + 1;
+    if (daysDiff > 90) {
+      showError('查询日期间隔不超过90天');
+      if (changedField === 'start') {
+        const clampedStart = new Date(e.getTime() - 89 * 86400 * 1000);
+        setStartDate(clampedStart.toISOString().split('T')[0]);
+      } else {
+        const clampedEnd = new Date(s.getTime() + 89 * 86400 * 1000);
+        const finalEnd = clampedEnd > maxE ? maxE : clampedEnd;
+        setEndDate(finalEnd.toISOString().split('T')[0]);
+      }
+      return false;
+    }
+
+    setStartDate(newStart);
+    setEndDate(newEnd);
+    if (daysDiff === 7) setActivePresetPill(7);
+    else if (daysDiff === 30) setActivePresetPill(30);
+    else if (daysDiff === 90) setActivePresetPill(90);
+    else setActivePresetPill(0);
+    return true;
+  };
+
   const handlePresetDays = (days: number) => {
     setActivePresetPill(days);
     const end = new Date(maxEndDate);
@@ -325,6 +373,54 @@ export const KeywordInsightPage: React.FC = () => {
   }, [queryResult?.dates, isDescending]);
 
   const hasFailedKeywords = Boolean(queryResult && queryResult.failed_keywords?.length > 0);
+
+  // 复制表格数据到剪贴板 (TSV格式直接无缝粘贴到 Excel)
+  const handleCopyTableData = () => {
+    if (!queryResult || !queryResult.keywords?.length) return;
+    const row1 = ['关键词', '状态'];
+    sortedDates.forEach((d: string) => {
+      row1.push(d, '', '', '');
+    });
+    const row2 = ['', ''];
+    sortedDates.forEach(() => {
+      row2.push('搜索指数', '广告曝光量', '广告笔记数', '平均市场出价');
+    });
+
+    const lines: string[] = [row1.join('\t'), row2.join('\t')];
+
+    queryResult.keywords.forEach((kw: string) => {
+      const statusInfo = queryResult.keyword_statuses[kw] || { status: 'success' };
+      const kwStatus = statusInfo.status === 'success' ? '成功' : statusInfo.status === 'empty' ? '暂无数据' : '获取失败';
+      const kwData = queryResult.data[kw];
+      const isFailed = statusInfo.status !== 'success' && statusInfo.status !== 'empty';
+
+      const row = [kw, kwStatus];
+      sortedDates.forEach((d: string) => {
+        const item = kwData ? kwData[d] : null;
+        if (isFailed) {
+          row.push('-', '-', '-', '-');
+        } else {
+          row.push(
+            item ? String(item.search_num ?? 0) : '0',
+            item ? String(item.imp_num ?? 0) : '0',
+            item ? String(item.note_num ?? 0) : '0',
+            item && item.bid !== undefined ? String(Number(item.bid).toFixed(2)) : '0.00'
+          );
+        }
+      });
+      lines.push(row.join('\t'));
+    });
+
+    const tsvContent = lines.join('\r\n');
+    navigator.clipboard
+      .writeText(tsvContent)
+      .then(() => {
+        showSuccess('📋 表格内容已复制到剪贴板，可直接在 Excel 中粘贴 (Ctrl+V)！');
+      })
+      .catch((err) => {
+        showError('复制失败，请手动复制: ' + err.message);
+      });
+  };
 
   return (
     <>
@@ -387,7 +483,7 @@ export const KeywordInsightPage: React.FC = () => {
                       className="date-input"
                       value={startDate}
                       max={endDate}
-                      onChange={(e) => setStartDate(e.target.value)}
+                      onChange={(e) => validateAndSetDateRange(e.target.value, endDate, 'start')}
                     />
                     <span className="date-separator">至</span>
                     <input
@@ -396,7 +492,7 @@ export const KeywordInsightPage: React.FC = () => {
                       className="date-input"
                       value={endDate}
                       max={maxEndDate}
-                      onChange={(e) => setEndDate(e.target.value)}
+                      onChange={(e) => validateAndSetDateRange(startDate, e.target.value, 'end')}
                     />
                   </div>
                   <div className="pill-segmented ms-1">
@@ -663,6 +759,14 @@ export const KeywordInsightPage: React.FC = () => {
               </h3>
             </div>
             <div style={{ display: 'flex', gap: '8px' }}>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={handleCopyTableData}
+                title="复制表格内容，可直接在 Excel 中按 Ctrl+V 粘贴"
+              >
+                <Copy size={13} style={{ marginRight: '4px' }} /> 复制表格数据
+              </button>
               <button
                 type="button"
                 className="btn btn-outline btn-sm"
