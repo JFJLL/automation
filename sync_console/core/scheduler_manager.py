@@ -9,6 +9,7 @@ from apscheduler.jobstores.base import JobLookupError
 from app.config import TIMEZONE
 from app.db import get_db
 from keyword_service.db import get_db as get_kw_db
+from lingxi_service.db import get_db as get_lingxi_db
 from core.workdays import is_china_workday
 
 tz = gettz(TIMEZONE)
@@ -170,6 +171,44 @@ class SchedulerManager:
         except JobLookupError:
             pass
 
+    def schedule_lingxi_task(self, task_id: int):
+        with get_lingxi_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, rrule, status FROM lingxi_tasks WHERE id = ?", (task_id,))
+            task = cursor.fetchone()
+            if not task or task["status"] != "active":
+                self.remove_lingxi_task(task_id)
+                return
+                
+            now = datetime.now(tz)
+            next_dt = self.parse_kw_next_run(task["rrule"], now)
+            next_iso = next_dt.isoformat()
+            
+            cursor.execute("UPDATE lingxi_tasks SET next_run_at = ?, updated_at = ? WHERE id = ?", (next_iso, now.isoformat(), task_id))
+            conn.commit()
+            
+            job_id = f"lingxi_task_{task_id}"
+            try:
+                self.scheduler.remove_job(job_id)
+            except JobLookupError:
+                pass
+                
+            self.scheduler.add_job(
+                _run_lingxi_task_job,
+                trigger="date",
+                run_date=next_dt,
+                args=[task_id],
+                id=job_id,
+                replace_existing=True
+            )
+
+    def remove_lingxi_task(self, task_id: int):
+        job_id = f"lingxi_task_{task_id}"
+        try:
+            self.scheduler.remove_job(job_id)
+        except JobLookupError:
+            pass
+
     def restore_all_tasks(self):
         # 1. 恢复主数据同步任务
         with get_db() as conn:
@@ -190,6 +229,16 @@ class SchedulerManager:
                     self.schedule_keyword_task(r["id"])
                 except Exception as e:
                     print(f"[SchedulerManager] Schedule kw task {r['id']} error: {e}")
+
+        # 3. 恢复灵犀关键词同步任务
+        with get_lingxi_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM lingxi_tasks WHERE status = 'active'")
+            for r in cursor.fetchall():
+                try:
+                    self.schedule_lingxi_task(r['id'])
+                except Exception as e:
+                    print(f"[SchedulerManager] Schedule lingxi task {r['id']} error: {e}")
 
 def _run_sync_task_job(task_id: int):
     from core.sync import execute_task_sync
@@ -215,4 +264,19 @@ def _run_keyword_task_job(task_id: int):
         print(f"[Scheduler] Run scheduled kw task {task_id} error: {e}")
     finally:
         mgr.schedule_keyword_task(task_id)
+
+def _run_lingxi_task_job(task_id: int):
+    from lingxi_service.sync_engine import run_lingxi_task
+    from lingxi_service.client import sync_token_from_oss
+    mgr = SchedulerManager.get_instance()
+    try:
+        sync_token_from_oss()
+    except Exception:
+        pass
+    try:
+        run_lingxi_task(task_id, trigger_type="scheduled")
+    except Exception as e:
+        print(f"[Scheduler] Run scheduled lingxi task {task_id} error: {e}")
+    finally:
+        mgr.schedule_lingxi_task(task_id)
 

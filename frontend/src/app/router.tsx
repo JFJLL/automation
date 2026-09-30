@@ -7,6 +7,9 @@ import { RunsPage } from '@/features/sync/pages/RunsPage';
 import { KeywordInsightPage } from '@/features/keywords/pages/KeywordInsightPage';
 import { KeywordTasksPage } from '@/features/keywords/pages/KeywordTasksPage';
 import { KeywordRunsPage } from '@/features/keywords/pages/KeywordRunsPage';
+import { LingxiInsightPage } from '@/features/lingxi/pages/LingxiInsightPage';
+import { LingxiTasksPage } from '@/features/lingxi/pages/LingxiTasksPage';
+import { LingxiRunsPage } from '@/features/lingxi/pages/LingxiRunsPage';
 import { SettingsPage } from '@/features/settings/pages/SettingsPage';
 
 export const router = createBrowserRouter([
@@ -41,6 +44,18 @@ export const router = createBrowserRouter([
       {
         path: 'keyword/runs',
         element: <KeywordRunsPage />,
+      },
+      {
+        path: 'lingxi',
+        element: <LingxiInsightPage />,
+      },
+      {
+        path: 'lingxi/tasks',
+        element: <LingxiTasksPage />,
+      },
+      {
+        path: 'lingxi/runs',
+        element: <LingxiRunsPage />,
       },
       {
         path: 'settings',

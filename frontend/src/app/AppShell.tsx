@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   Search,
   CircleHelp,
+  Sparkles,
   X
 } from 'lucide-react';
 import { fetchJson } from '@/shared/api/client';
@@ -19,6 +20,7 @@ export const AppShell: React.FC = () => {
   const [helpDrawerOpen, setHelpDrawerOpen] = useState(false);
 
   const isKeywordSection = location.pathname.startsWith('/keyword');
+  const isLingxiSection = location.pathname.startsWith('/lingxi');
 
   // 获取同步任务数量徽标
   const { data: syncTasks = [] } = useQuery<any[]>({
@@ -30,6 +32,12 @@ export const AppShell: React.FC = () => {
   const { data: keywordTasks = [] } = useQuery<any[]>({
     queryKey: ['keywordTasks'],
     queryFn: () => fetchJson('/api/keyword/tasks'),
+  });
+
+  // 获取灵犀任务数量徽标
+  const { data: lingxiTasks = [] } = useQuery<any[]>({
+    queryKey: ['lingxiTasks'],
+    queryFn: () => fetchJson('/api/lingxi/tasks'),
   });
 
   return (
@@ -44,7 +52,99 @@ export const AppShell: React.FC = () => {
 
       {/* 原版左侧导航栏 */}
       <aside className="sidebar" aria-label="主导航">
-        {!isKeywordSection ? (
+        {isLingxiSection ? (
+          /* 灵犀关键词 导航组 */
+          <div id="sidebar-group-lingxi" className="sidebar-nav">
+            <button
+              className="sidebar-link"
+              type="button"
+              onClick={() => navigate('/import')}
+            >
+              <LayoutDashboard className="icon" size={16} />
+              <span className="nav-label">数据同步中心</span>
+            </button>
+            <button
+              className="sidebar-link"
+              type="button"
+              onClick={() => navigate('/keyword')}
+            >
+              <BarChart3 className="icon" size={16} />
+              <span className="nav-label">聚光关键词</span>
+            </button>
+            <div className="sidebar-divider" />
+            <NavLink
+              to="/lingxi"
+              end
+              className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
+            >
+              <Search className="icon" size={16} />
+              <span className="nav-label">查询与概览</span>
+            </NavLink>
+            <NavLink
+              to="/lingxi/tasks"
+              className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
+            >
+              <ClipboardList className="icon" size={16} />
+              <span className="nav-label">同步任务列表</span>
+              <span id="lingxiTaskCountBadge" className="badge badge-gray" style={{ marginLeft: 'auto' }}>
+                {lingxiTasks.length}
+              </span>
+            </NavLink>
+            <NavLink
+              to="/lingxi/runs"
+              className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
+            >
+              <Clock3 className="icon" size={16} />
+              <span className="nav-label">运行记录</span>
+            </NavLink>
+          </div>
+        ) : isKeywordSection ? (
+          /* 聚光关键词 导航组 */
+          <div id="sidebar-group-keyword" className="sidebar-nav">
+            <button
+              className="sidebar-link"
+              type="button"
+              onClick={() => navigate('/import')}
+            >
+              <LayoutDashboard className="icon" size={16} />
+              <span className="nav-label">数据同步中心</span>
+            </button>
+            <button
+              className="sidebar-link"
+              type="button"
+              onClick={() => navigate('/lingxi')}
+            >
+              <Sparkles className="icon" size={16} />
+              <span className="nav-label">灵犀关键词</span>
+            </button>
+            <div className="sidebar-divider" />
+            <NavLink
+              to="/keyword"
+              end
+              className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
+            >
+              <Search className="icon" size={16} />
+              <span className="nav-label">查询与概览</span>
+            </NavLink>
+            <NavLink
+              to="/keyword/tasks"
+              className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
+            >
+              <ClipboardList className="icon" size={16} />
+              <span className="nav-label">同步任务列表</span>
+              <span id="kwTaskCountBadge" className="badge badge-gray" style={{ marginLeft: 'auto' }}>
+                {keywordTasks.length}
+              </span>
+            </NavLink>
+            <NavLink
+              to="/keyword/runs"
+              className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
+            >
+              <Clock3 className="icon" size={16} />
+              <span className="nav-label">运行记录</span>
+            </NavLink>
+          </div>
+        ) : (
           /* 数据同步中心 导航组 */
           <div id="sidebar-group-sync" className="sidebar-nav">
             <NavLink
@@ -78,46 +178,16 @@ export const AppShell: React.FC = () => {
               onClick={() => navigate('/keyword')}
             >
               <BarChart3 className="icon" size={16} />
-              <span className="nav-label">关键词洞察</span>
+              <span className="nav-label">聚光关键词</span>
             </button>
-          </div>
-        ) : (
-          /* 关键词洞察 导航组 (原版秒切，无刷新) */
-          <div id="sidebar-group-keyword" className="sidebar-nav">
             <button
               className="sidebar-link"
               type="button"
-              onClick={() => navigate('/import')}
+              onClick={() => navigate('/lingxi')}
             >
-              <LayoutDashboard className="icon" size={16} />
-              <span className="nav-label">数据同步中心</span>
+              <Sparkles className="icon" size={16} />
+              <span className="nav-label">灵犀关键词</span>
             </button>
-            <div className="sidebar-divider" />
-            <NavLink
-              to="/keyword"
-              end
-              className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
-            >
-              <Search className="icon" size={16} />
-              <span className="nav-label">查询与概览</span>
-            </NavLink>
-            <NavLink
-              to="/keyword/tasks"
-              className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
-            >
-              <ClipboardList className="icon" size={16} />
-              <span className="nav-label">同步任务列表</span>
-              <span id="kwTaskCountBadge" className="badge badge-gray" style={{ marginLeft: 'auto' }}>
-                {keywordTasks.length}
-              </span>
-            </NavLink>
-            <NavLink
-              to="/keyword/runs"
-              className={({ isActive }) => `sidebar-link ${isActive ? 'active' : ''}`}
-            >
-              <Clock3 className="icon" size={16} />
-              <span className="nav-label">运行记录</span>
-            </NavLink>
           </div>
         )}
 
