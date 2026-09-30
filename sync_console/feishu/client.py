@@ -159,8 +159,28 @@ class FeishuClient:
                 "valueRange": {"range": range_str, "values": empty_rows}
             })
 
-    def restore_sheet_values(self, spreadsheet_token: str, sheet_id: str, backup_values: List[List[Any]]):
-        """发生写入异常时，将写前备份的整表内容原子回滚覆盖写回"""
-        if not backup_values:
-            return
-        self.write_rows(spreadsheet_token, sheet_id, start_row=1, rows=backup_values)
+    def restore_sheet_values(self, spreadsheet_token: str, sheet_id: str, backup_values: List[List[Any]]) -> bool:
+        """发生写入异常时，彻底清空已扩展的脏数据行与列，完整写回备份快照并回读校验"""
+        last_row = self.find_last_row_index(spreadsheet_token, sheet_id)
+        backup_rows = len(backup_values) if backup_values else 0
+        backup_cols = max((len(r) for r in backup_values), default=20)
+        max_rows = max(last_row, backup_rows, 1)
+        max_cols = max(backup_cols, 35)
+
+        # 1. 彻底清空所有已有/追加的行与列
+        empty_rows = [["" for _ in range(max_cols)] for _ in range(max_rows)]
+        range_str = f"{sheet_id}!A1:{column_letter(max_cols)}{max_rows}"
+        self.request("PUT", f"sheets/v2/spreadsheets/{spreadsheet_token}/values", json={
+            "valueRange": {"range": range_str, "values": empty_rows}
+        })
+
+        # 2. 完整写回原快照
+        if backup_values:
+            self.write_rows(spreadsheet_token, sheet_id, start_row=1, rows=backup_values)
+
+        # 3. 回读验证
+        verify_range = f"A1:{column_letter(max(backup_cols, 1))}{max(backup_rows, 1)}"
+        verify_data = self.read_values(spreadsheet_token, sheet_id, verify_range) or []
+        if len(verify_data) != backup_rows:
+            raise FeishuError(f"回滚校验失败：预期 {backup_rows} 行，实际回读 {len(verify_data)} 行")
+        return True

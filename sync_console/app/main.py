@@ -3,7 +3,8 @@ import os
 import sys
 import math
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Literal
+from pydantic import BaseModel, Field
 from contextlib import asynccontextmanager
 from pathlib import Path
 from pydantic import BaseModel
@@ -33,7 +34,7 @@ from core.security import (
     create_admin_session,
     SESSION_COOKIE_NAME
 )
-from core.business_time import now_business_tz
+from core.business_time import now_business_tz, latest_keyword_available_date
 from core.errors import (
     AppError,
     AuthenticationError,
@@ -47,7 +48,9 @@ from core.errors import (
 )
 
 # 确保根目录在 sys.path
-automation_root = str(BASE_DIR.parent)
+PROJECT_ROOT = BASE_DIR.parent
+FRONTEND_DIST = PROJECT_ROOT / "frontend" / "dist"
+automation_root = str(PROJECT_ROOT)
 if automation_root not in sys.path:
     sys.path.insert(0, automation_root)
 
@@ -82,14 +85,28 @@ async def http_error_handler(request: Request, exc: HTTPException):
         content={"error": {"code": f"HTTP_{exc.status_code}", "message": msg}}
     )
 
-# 挂载旧静态文件以兼容开发环境
-app.mount("/static", StaticFiles(directory=str(BASE_DIR / "web")), name="static")
+# 挂载前端 React SPA 生产构建静态产物
+if FRONTEND_DIST.exists() and (FRONTEND_DIST / "assets").exists():
+    app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST / "assets")), name="assets")
+if (BASE_DIR / "web").exists():
+    app.mount("/static", StaticFiles(directory=str(BASE_DIR / "web")), name="static")
 
 
 # 注册关键词路由
 app.include_router(keyword_router)
 
 # ---------------- 健康检查与就绪检查 (Section 六十一) ----------------
+@app.get("/api/business-time")
+def get_business_time():
+    now_dt = now_business_tz()
+    latest_dt = latest_keyword_available_date(now_dt)
+    return {
+        "timezone": "Asia/Shanghai",
+        "now": now_dt.isoformat(),
+        "latest_keyword_date": latest_dt.isoformat(),
+        "is_after_noon": now_dt.hour >= 12
+    }
+
 @app.get("/api/health")
 def health_check():
     """轻量存活检查，不访问任何外部服务"""
@@ -116,24 +133,34 @@ def readiness_check():
         "timestamp": now_business_tz().isoformat()
     }
 
-# ---------------- 页面入口 (兼容 React SPA 与旧页面) ----------------
-def render_index():
+def render_spa_index():
+    if FRONTEND_DIST.exists() and (FRONTEND_DIST / "index.html").exists():
+        return HTMLResponse((FRONTEND_DIST / "index.html").read_text(encoding="utf-8"))
     html_path = BASE_DIR / "web" / "index.html"
-    return HTMLResponse(content=html_path.read_text(encoding="utf-8"))
+    if html_path.exists():
+        return HTMLResponse(html_path.read_text(encoding="utf-8"))
+    return HTMLResponse("<h1>自动化中心前端构建未就绪，请在 frontend 目录执行 npm run build</h1>", status_code=503)
 
 @app.get("/", response_class=HTMLResponse)
 @app.get("/import", response_class=HTMLResponse)
 @app.get("/tasks", response_class=HTMLResponse)
 @app.get("/runs", response_class=HTMLResponse)
-@app.get("/admin", response_class=HTMLResponse)
+@app.get("/keyword", response_class=HTMLResponse)
+@app.get("/keyword/", response_class=HTMLResponse)
+@app.get("/keyword/tasks", response_class=HTMLResponse)
+@app.get("/keyword/tasks/", response_class=HTMLResponse)
+@app.get("/keyword/runs", response_class=HTMLResponse)
+@app.get("/keyword/runs/", response_class=HTMLResponse)
 @app.get("/settings", response_class=HTMLResponse)
+@app.get("/admin", response_class=HTMLResponse)
 def index_page():
-    return render_index()
+    return render_spa_index()
 
 @app.get("/favicon.svg")
 def favicon_svg():
     candidates = [
-        frontend_dist / "favicon.svg",
+        FRONTEND_DIST / "favicon.svg",
+        FRONTEND_DIST / "public" / "favicon.svg",
         BASE_DIR / "web" / "favicon.svg",
         BASE_DIR / "sync_console" / "web" / "favicon.svg"
     ]
@@ -145,7 +172,8 @@ def favicon_svg():
 @app.get("/favicon.ico")
 def favicon_ico():
     candidates = [
-        frontend_dist / "favicon.ico",
+        FRONTEND_DIST / "favicon.ico",
+        FRONTEND_DIST / "public" / "favicon.ico",
         BASE_DIR / "web" / "favicon.ico",
         BASE_DIR / "sync_console" / "web" / "favicon.ico"
     ]
@@ -282,12 +310,12 @@ class SheetConfig(BaseModel):
     initial_rows: Optional[List[List[Any]]] = None
 
 class CreateTaskRequest(BaseModel):
-    task_name: str
-    platform: str
-    update_mode: str = "append"
-    calibration_days: int = 2
-    rrule: str
-    sheets: List[SheetConfig]
+    task_name: str = Field(..., min_length=1, max_length=120)
+    platform: Literal["jzt", "taobao", "juguang"]
+    update_mode: Literal["append", "overwrite"] = "append"
+    calibration_days: int = Field(default=2, ge=0, le=30)
+    rrule: str = Field(..., min_length=5, max_length=200)
+    sheets: List[SheetConfig] = Field(..., min_length=1)
     write_initial_data: bool = True
     sub_account_id: Optional[str] = None
     sub_account_name: Optional[str] = None
@@ -296,6 +324,10 @@ class CreateTaskRequest(BaseModel):
 def create_task(req: CreateTaskRequest):
     if not req.sheets:
         raise HTTPException(status_code=400, detail="至少需要选择一个有效工作表")
+    try:
+        SchedulerManager.get_instance().parse_sync_next_run(req.rrule)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"非法 RRULE 调度表达式: {e}")
         
     feishu = FeishuClient()
     folder_token = feishu.get_or_create_shared_folder()
@@ -424,6 +456,8 @@ def list_runs(
         page = 1
     if page_size < 1:
         page_size = 20
+    if page_size > 100:
+        page_size = 100
 
     with get_db() as conn:
         cursor = conn.cursor()

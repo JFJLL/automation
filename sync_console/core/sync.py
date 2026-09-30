@@ -303,24 +303,20 @@ def execute_task_sync(task_id: int, trigger_type: str = "scheduled") -> Dict[str
                     total_updated += len(new_rows)
             else:
                 # 增量追加/Upsert：杜绝重复追加！
-                # 构建已有行 key map: natural_key -> row_index (1-based)
+                # 使用统一 get_item_natural_key 构建已有行与新抓取行的高可靠复合自然键
                 existing_key_map = {}
+                primary_entity_id = entity_ids[0] if entity_ids else ""
                 if len(existing_values) > 1:
-                    date_idx = headers.index(date_col) if date_col in headers else -1
-                    id_idx = headers.index(id_col) if id_col in headers else -1
                     for idx, r in enumerate(existing_values[1:], start=2):
-                        d_val = str(r[date_idx]).strip()[:10] if (date_idx >= 0 and date_idx < len(r)) else ""
-                        id_val = str(r[id_idx]).strip() if (id_idx >= 0 and id_idx < len(r)) else ""
-                        if d_val or id_val:
-                            existing_key_map[(id_val, d_val)] = idx
-                            
+                        row_dict = dict(zip(headers, r))
+                        key = get_item_natural_key(task["platform"], row_dict, primary_entity_id, dimension)
+                        existing_key_map[key] = idx
+
                 to_append = []
                 to_update_chunks = {} # row_idx -> mapped_row
                 for item in fetched_items:
                     mapped_row = map_item_to_row(item, headers, id_col, date_col)
-                    d_val = str(item.get("日期") or item.get("时间") or "").strip()[:10]
-                    id_val = str(item.get(id_col) or item.get("任务ID") or item.get("内容ID") or item.get("创意ID") or "").strip()
-                    key = (id_val, d_val)
+                    key = get_item_natural_key(task["platform"], item, primary_entity_id, dimension)
                     if key in existing_key_map:
                         target_row_idx = existing_key_map[key]
                         to_update_chunks[target_row_idx] = mapped_row

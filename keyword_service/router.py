@@ -4,7 +4,7 @@ import json
 import hmac
 import math
 from pathlib import Path
-from typing import Optional, List, Union, Dict, Any
+from typing import Optional, List, Union, Dict, Any, Literal
 from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, FastAPI, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -33,7 +33,6 @@ from app.config import ACCESS_TOKEN
 router = APIRouter()
 private_router = APIRouter(prefix="/api/keyword")
 
-HTML_PATH = Path(__file__).parent / "templates" / "keyword.html"
 KEYWORD_LIBRARY_PATH = Path(__file__).parent / "all_keyword_trends.json"
 
 class KeywordSearchRequest(BaseModel):
@@ -48,11 +47,11 @@ class DirectSheetRequest(BaseModel):
     end_date: Optional[str] = None
 
 class CreateKeywordTaskRequest(BaseModel):
-    task_name: str
-    keywords: List[str]
-    update_mode: str = "overwrite" # 'overwrite' 或 'append'
-    rrule: str = "FREQ=DAILY;BYHOUR=12;BYMINUTE=30"
-    days_range: int = 90
+    task_name: str = Field(..., min_length=1, max_length=120)
+    keywords: List[str] = Field(..., min_length=1, max_length=5000)
+    update_mode: Literal["overwrite", "append"] = "overwrite"
+    rrule: str = Field(default="FREQ=DAILY;BYHOUR=12;BYMINUTE=30", min_length=5, max_length=200)
+    days_range: int = Field(default=90, ge=1, le=90)
 
 class AppendKeywordsRequest(BaseModel):
     keywords: Union[str, List[str]]
@@ -68,22 +67,7 @@ class CookieUpdateRequest(BaseModel):
 class KeywordLoginRequest(BaseModel):
     password: str
 
-_CACHED_KEYWORD_HTML: Optional[str] = None
 _CACHED_LIBRARY_DATA: Optional[dict] = None
-
-@router.get("/keyword", response_class=HTMLResponse)
-@router.get("/keyword/", response_class=HTMLResponse)
-@router.get("/keyword/tasks", response_class=HTMLResponse)
-@router.get("/keyword/tasks/", response_class=HTMLResponse)
-@router.get("/keyword/runs", response_class=HTMLResponse)
-@router.get("/keyword/runs/", response_class=HTMLResponse)
-def keyword_page(request: Request):
-    global _CACHED_KEYWORD_HTML
-    if not HTML_PATH.exists():
-        return HTMLResponse("<h1>Keyword module ready</h1>")
-    if _CACHED_KEYWORD_HTML is None:
-        _CACHED_KEYWORD_HTML = HTML_PATH.read_text(encoding="utf-8")
-    return HTMLResponse(_CACHED_KEYWORD_HTML)
 
 @router.get("/api/keyword/library")
 def keyword_library():
@@ -268,6 +252,10 @@ def add_keyword_task(req: CreateKeywordTaskRequest):
     if not req.keywords:
         raise HTTPException(status_code=400, detail="关键词列表不能为空")
     try:
+        SchedulerManager.get_instance().parse_kw_next_run(req.rrule)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"非法 RRULE 调度表达式: {e}")
+    try:
         res = create_keyword_task(
             task_name=req.task_name,
             keywords=req.keywords,
@@ -343,6 +331,8 @@ def list_keyword_runs(task_id: Optional[int] = None, page: int = 1, page_size: i
         page = 1
     if page_size < 1:
         page_size = 20
+    if page_size > 100:
+        page_size = 100
         
     with get_db() as conn:
         cursor = conn.cursor()

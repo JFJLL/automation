@@ -32,4 +32,5 @@ FEISHU_CHAT_ID = os.getenv("FEISHU_CHAT_ID", "")
 NOTIFICATION_WEBHOOK = os.getenv("NOTIFICATION_WEBHOOK", "")
 NOTIFICATION_POLICY = os.getenv("NOTIFICATION_POLICY", "failed_runs_only")
 TIMEZONE = os.getenv("TIMEZONE", "Asia/Shanghai")
-DB_PATH = DATA_DIR / "sync_console.db"
+SYNC_DB_PATH = Path(os.getenv("SYNC_DB_PATH", str(DATA_DIR / "sync_console.db")))
+DB_PATH = SYNC_DB_PATH
