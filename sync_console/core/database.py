@@ -165,6 +165,15 @@ def run_migrations(conn: sqlite3.Connection, module: str = "sync"):
                     conn.execute("ALTER TABLE runs ADD COLUMN rollback_status TEXT")
                 conn.execute("INSERT INTO schema_migrations (version, module, applied_at) VALUES (3, 'sync', ?)", (datetime.now().isoformat(),))
 
+            # Migration 4: max_backfill_days in tasks table
+            if 4 not in applied:
+                cur.execute("PRAGMA table_info(tasks)")
+                cols = [r[1] for r in cur.fetchall()]
+                if "max_backfill_days" not in cols:
+                    conn.execute("ALTER TABLE tasks ADD COLUMN max_backfill_days INTEGER DEFAULT 90")
+                from core.business_time import now_business_tz
+                conn.execute("INSERT INTO schema_migrations (version, module, applied_at) VALUES (4, 'sync', ?)", (now_business_tz().isoformat(),))
+
         elif module == "keyword":
             # Migration 1: Base tables
             if 1 not in applied:
@@ -287,40 +296,50 @@ def run_migrations(conn: sqlite3.Connection, module: str = "sync"):
 
 def acquire_task_lease(conn: sqlite3.Connection, task_key: str, owner: str = "worker", lease_seconds: int = 600) -> bool:
     """
-    获取任务并发排他锁 (基于 SQLite lease 表)
-    如果锁已被其他运行占用且未过期，返回 False
-    如果锁不存在或已过期，原子性获取并返回 True
+    单条语句原子获取任务并发排他锁：
+    INSERT ... ON CONFLICT(task_key) DO UPDATE ... WHERE task_leases.expires_at < :now
+    通过 rowcount > 0 判断是否抢锁成功。
     """
-    now_dt = datetime.now()
+    from core.business_time import now_business_tz
+    now_dt = now_business_tz()
     now_str = now_dt.isoformat()
     expires_str = (now_dt + timedelta(seconds=lease_seconds)).isoformat()
     with conn:
         cur = conn.cursor()
-        cur.execute("SELECT owner, expires_at FROM task_leases WHERE task_key = ?", (task_key,))
-        row = cur.fetchone()
-        if row:
-            current_expires = row[1]
-            if current_expires > now_str:
-                return False # Still active lease
-            # Lease expired, overwrite
-            cur.execute(
-                "UPDATE task_leases SET owner = ?, acquired_at = ?, expires_at = ? WHERE task_key = ?",
-                (owner, now_str, expires_str, task_key)
-            )
-            return True
-        else:
-            try:
-                cur.execute(
-                    "INSERT INTO task_leases (task_key, owner, acquired_at, expires_at) VALUES (?, ?, ?, ?)",
-                    (task_key, owner, now_str, expires_str)
-                )
-                return True
-            except sqlite3.IntegrityError:
-                return False
+        cur.execute(
+            """
+            INSERT INTO task_leases (task_key, owner, acquired_at, expires_at)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(task_key) DO UPDATE SET
+                owner = excluded.owner,
+                acquired_at = excluded.acquired_at,
+                expires_at = excluded.expires_at
+            WHERE task_leases.expires_at < excluded.acquired_at
+            """,
+            (task_key, owner, now_str, expires_str)
+        )
+        return cur.rowcount > 0
 
-def release_task_lease(conn: sqlite3.Connection, task_key: str):
+def renew_task_lease(conn: sqlite3.Connection, task_key: str, owner: str, lease_seconds: int = 600) -> bool:
+    """续租当前持有的锁，仅在当前 owner 匹配时续租"""
+    from core.business_time import now_business_tz
+    now_dt = now_business_tz()
+    expires_str = (now_dt + timedelta(seconds=lease_seconds)).isoformat()
+    with conn:
+        cur = conn.cursor()
+        cur.execute(
+            "UPDATE task_leases SET expires_at = ? WHERE task_key = ? AND owner = ?",
+            (expires_str, task_key, owner)
+        )
+        return cur.rowcount > 0
+
+def release_task_lease(conn: sqlite3.Connection, task_key: str, owner: Optional[str] = None):
+    """释放锁，如果传入 owner 则只释放属于该 owner 的锁，防止误删新持有者的锁"""
     try:
         with conn:
-            conn.execute("DELETE FROM task_leases WHERE task_key = ?", (task_key,))
+            if owner:
+                conn.execute("DELETE FROM task_leases WHERE task_key = ? AND owner = ?", (task_key, owner))
+            else:
+                conn.execute("DELETE FROM task_leases WHERE task_key = ?", (task_key,))
     except Exception:
         pass

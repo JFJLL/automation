@@ -1,21 +1,15 @@
-import sys
-import os
 import json
-import time
-from datetime import datetime, timedelta
-from typing import List, Dict, Any, Optional, Tuple
-from pathlib import Path
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
 
+from core.business_time import now_business_tz
+from core.errors import TaskNotFoundError
+from core.sync_runner import TaskRunGuard
 from feishu.client import FeishuClient, column_letter
-from lingxi_service.client import fetch_lingxi_keywords, load_token, sync_token_from_oss
+
+from lingxi_service.client import fetch_lingxi_keywords
 from lingxi_service.db import get_db
-from core.database import acquire_task_lease, release_task_lease
-from core.errors import (
-    TaskNotFoundError,
-    TaskAlreadyRunningError,
-    DataValidationError,
-    FeishuError
-)
+
 
 def parse_existing_lingxi_sheet(existing_rows: List[List[Any]]) -> Tuple[List[str], Dict[str, Dict[str, Any]]]:
     """
@@ -183,10 +177,10 @@ def create_lingxi_task(
                 name, keywords_json, removed_keywords_json, folder_token,
                 spreadsheet_token, spreadsheet_url, update_mode,
                 rrule, status, created_at, updated_at
-            ) VALUES (?, ?, '[]', ?, ?, ?, 'append', ?, 'active', ?, ?)
+            ) VALUES (?, ?, '[]', ?, ?, ?, ?, ?, 'active', ?, ?)
         """, (
             name, kw_json, folder_token, spreadsheet_token,
-            spreadsheet_url, rrule, now_iso, now_iso
+            spreadsheet_url, update_mode, rrule, now_iso, now_iso
         ))
         task_id = cur.lastrowid
 
@@ -210,48 +204,61 @@ def run_lingxi_task(task_id: int, trigger_type: str = "manual") -> Dict[str, Any
     task_name = task_dict["name"]
     task_key = f"lingxi_task_{task_id}"
 
-    # 竞态锁防重
-    if not acquire_task_lease(conn, task_key, owner=f"run_{trigger_type}", lease_seconds=600):
-        raise TaskAlreadyRunningError(f"任务 [{task_name}] 当前正在运行中，请勿重复触发")
+    guard = TaskRunGuard(conn=conn, task_key=task_key, task_id=task_id, module="lingxi", trigger_type=trigger_type, lease_seconds=600, task_name=task_name)
 
-    keywords: List[str] = json.loads(task_dict["keywords_json"])
-    update_mode = task_dict.get("update_mode", "overwrite")
-    ss_token = task_dict["spreadsheet_token"]
-    ss_url = task_dict["spreadsheet_url"]
+    with guard:
+        keywords: List[str] = json.loads(task_dict["keywords_json"])
+        removed_kws: List[str] = json.loads(task_dict.get("removed_keywords_json") or "[]")
+        update_mode = task_dict.get("update_mode", "append")
+        ss_token = task_dict["spreadsheet_token"]
+        ss_url = task_dict["spreadsheet_url"]
 
-    start_time = datetime.now()
-    start_iso = start_time.isoformat()
+        # 过滤已被移除的词
+        active_keywords = [k for k in keywords if k not in set(removed_kws)]
+        feishu = FeishuClient()
+        fetch_res = fetch_lingxi_keywords(active_keywords)
 
-    with conn:
-        cur.execute("""
-            INSERT INTO lingxi_runs (
-                task_id, task_name, trigger_type, started_at, status, keywords_count, spreadsheet_url
-            ) VALUES (?, ?, ?, ?, 'running', ?, ?)
-        """, (task_id, task_name, trigger_type, start_iso, len(keywords), ss_url))
-        run_id = cur.lastrowid
+        # 失败词绝不写 0 (严格模式：只要有失败词，中止写表并让 run 失败)
+        failed_list = fetch_res.get("failed") or []
+        if failed_list:
+            err_msg = f"抓取失败词: {', '.join(failed_list)}，严格模式下中止写入以防止写入虚假 0 值"
+            guard.finish_run(
+                status="failed",
+                message=err_msg[:200],
+                error_detail=err_msg,
+                words_total=len(active_keywords),
+                words_succeeded=len(fetch_res.get("success", [])),
+                words_failed=len(failed_list)
+            )
+            raise RuntimeError(err_msg)
 
-    feishu = FeishuClient()
-    try:
-        fetch_res = fetch_lingxi_keywords(keywords)
-        today_str = datetime.now().strftime("%Y-%m-%d")
-
+        today_str = now_business_tz().strftime("%Y-%m-%d")
         sheets = feishu.get_sheets(ss_token)
+        if not sheets:
+            raise RuntimeError(f"Spreadsheet {ss_token} has no sheets.")
         sheet_id = sheets[0]["sheet_id"]
 
-        # 读取现有历史内容以按日期增量向右对齐
+        from core.feishu_matrix import backup_sheet_values, rollback_sheet_values, write_matrix_to_sheet
+
+        # 读取现有历史内容以按日期向右对齐
         last_row = feishu.find_last_row_index(ss_token, sheet_id)
         existing_rows = []
         if last_row >= 1:
             existing_rows = feishu.read_values(ss_token, sheet_id, f"A1:ZZ{max(2, last_row)}") or []
 
         existing_dates, old_history = parse_existing_lingxi_sheet(existing_rows)
-        if today_str not in existing_dates:
-            target_dates = existing_dates + [today_str]
-        else:
-            target_dates = existing_dates
 
-        # 保留历史表格中已有的全部关键词并与当前配置的关键词并集合并
-        all_target_keywords = list(dict.fromkeys(list(old_history.keys()) + keywords))
+        if update_mode == "overwrite":
+            # overwrite 仅保留最新抓取日期
+            target_dates = [today_str]
+        else:
+            # append 增量向右对齐
+            if today_str not in existing_dates:
+                target_dates = existing_dates + [today_str]
+            else:
+                target_dates = existing_dates
+
+        all_target_keywords = list(dict.fromkeys(list(old_history.keys()) + active_keywords))
 
         matrix = build_lingxi_date_matrix(
             keywords=all_target_keywords,
@@ -261,55 +268,36 @@ def run_lingxi_task(task_id: int, trigger_type: str = "manual") -> Dict[str, Any
             old_history=old_history
         )
 
-        write_matrix_to_sheet(feishu, ss_token, sheet_id, matrix)
+        # 写前备份
+        backup = backup_sheet_values(feishu, ss_token, sheet_id)
+        try:
+            write_matrix_to_sheet(feishu, ss_token, sheet_id, matrix)
+        except Exception as write_err:
+            rollback_sheet_values(feishu, ss_token, sheet_id, backup)
+            guard.finish_run(
+                status="failed",
+                message=f"写入飞书表格失败: {write_err}",
+                error_detail=str(write_err),
+                words_total=len(active_keywords),
+                words_succeeded=len(fetch_res.get("success", [])),
+                words_failed=0
+            )
+            raise write_err
 
-        finish_time = datetime.now()
-        duration_ms = int((finish_time - start_time).total_seconds() * 1000)
-
-        with conn:
-            cur.execute("""
-                UPDATE lingxi_runs SET
-                    finished_at = ?, status = 'success', duration_ms = ?,
-                    successful_keywords = ?, failed_keywords = ?, message = '执行完成'
-                WHERE id = ?
-            """, (
-                finish_time.isoformat(), duration_ms,
-                json.dumps(fetch_res["successful_keywords"], ensure_ascii=False),
-                json.dumps(fetch_res["failed_keywords"], ensure_ascii=False),
-                run_id
-            ))
-            cur.execute("""
-                UPDATE lingxi_tasks SET
-                    last_run_at = ?, last_status = 'success', last_error = NULL, updated_at = ?
-                WHERE id = ?
-            """, (finish_time.isoformat(), finish_time.isoformat(), task_id))
+        guard.finish_run(
+            status="success",
+            message=f"成功同步 {len(fetch_res.get('success', []))} 个关键词",
+            words_total=len(active_keywords),
+            words_succeeded=len(fetch_res.get("success", [])),
+            words_failed=0
+        )
 
         return {
-            "run_id": run_id,
-            "status": "success",
-            "duration_ms": duration_ms,
-            "successful_keywords": fetch_res["successful_keywords"],
-            "failed_keywords": fetch_res["failed_keywords"]
+            "success": True,
+            "spreadsheet_url": ss_url,
+            "words_succeeded": len(fetch_res.get("success", [])),
+            "words_failed": 0
         }
-    except Exception as e:
-        finish_time = datetime.now()
-        duration_ms = int((finish_time - start_time).total_seconds() * 1000)
-        err_msg = str(e)
-        with conn:
-            cur.execute("""
-                UPDATE lingxi_runs SET
-                    finished_at = ?, status = 'failed', duration_ms = ?,
-                    message = '执行失败', error_detail = ?
-                WHERE id = ?
-            """, (finish_time.isoformat(), duration_ms, err_msg, run_id))
-            cur.execute("""
-                UPDATE lingxi_tasks SET
-                    last_run_at = ?, last_status = 'failed', last_error = ?, updated_at = ?
-                WHERE id = ?
-            """, (finish_time.isoformat(), err_msg, finish_time.isoformat(), task_id))
-        raise e
-    finally:
-        release_task_lease(conn, task_key)
 
 def append_keywords_to_lingxi_task(task_id: int, new_keywords: List[str]) -> List[str]:
     conn = get_db()
@@ -321,7 +309,7 @@ def append_keywords_to_lingxi_task(task_id: int, new_keywords: List[str]) -> Lis
             raise TaskNotFoundError(f"未找到灵犀任务 ID={task_id}")
         existing: List[str] = json.loads(row["keywords_json"])
         merged = list(dict.fromkeys(existing + new_keywords))
-        now_iso = datetime.now().isoformat()
+        now_iso = now_business_tz().isoformat()
         cur.execute("UPDATE lingxi_tasks SET keywords_json = ?, updated_at = ? WHERE id = ?", (json.dumps(merged, ensure_ascii=False), now_iso, task_id))
     return merged
 
@@ -339,7 +327,7 @@ def remove_keywords_from_lingxi_task(task_id: int, removed_keywords: List[str]) 
         rem_set = set(removed_keywords)
         remaining = [k for k in existing if k not in rem_set]
         new_removed = list(dict.fromkeys(old_removed + removed_keywords))
-        now_iso = datetime.now().isoformat()
+        now_iso = now_business_tz().isoformat()
         cur.execute("UPDATE lingxi_tasks SET keywords_json = ?, removed_keywords_json = ?, updated_at = ? WHERE id = ?", (
             json.dumps(remaining, ensure_ascii=False),
             json.dumps(new_removed, ensure_ascii=False),

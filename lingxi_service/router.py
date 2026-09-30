@@ -191,6 +191,8 @@ def toggle_task_endpoint(task_id: int):
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="未找到任务")
+        if row["status"] == "archived":
+            raise HTTPException(status_code=409, detail="归档任务无法切换状态")
         new_status = "paused" if row["status"] == "active" else "active"
         cur.execute("UPDATE lingxi_tasks SET status = ?, updated_at = ? WHERE id = ?", (new_status, datetime.now().isoformat(), task_id))
 
@@ -207,13 +209,18 @@ def delete_task_endpoint(task_id: int):
     conn = get_db()
     with conn:
         cur = conn.cursor()
-        cur.execute("DELETE FROM lingxi_tasks WHERE id = ?", (task_id,))
+        cur.execute("SELECT id FROM lingxi_tasks WHERE id = ?", (task_id,))
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="未找到任务")
+        cur.execute("UPDATE lingxi_tasks SET status = 'archived', updated_at = ? WHERE id = ?", (now_business_tz().isoformat(), task_id))
     mgr = SchedulerManager.get_instance()
     mgr.remove_lingxi_task(task_id)
     return {"code": 0, "msg": "任务删除成功"}
 
 @private_router.get("/runs")
 def list_lingxi_runs(page: int = 1, page_size: int = 20):
+    from core.keyword_repo import validate_pagination
+    page, page_size = validate_pagination(page, page_size)
     conn = get_db()
     cur = conn.cursor()
     cur.execute("SELECT COUNT(*) FROM lingxi_runs")

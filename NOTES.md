@@ -159,3 +159,54 @@ esolve_auto_range, parse_args, main。
 - 若用户在反向代理下未配置 X-Forwarded-For，登录限速将回退到代理 IP；部署文档中需强调配置 --proxy-headers --forwarded-allow-ips=127.0.0.1。
 
 ---
+
+## 4. 阶段 3：同步引擎正确性 (分支: fix/sync-engine)
+
+### 4.1 改动文件清单与对应问题
+- `sync_console/core/database.py`:
+  - 租约改为单条 SQL 原子获取 (INSERT ... ON CONFLICT DO UPDATE WHERE expires_at < :now)，避免并发竞争漏洞 (后端 P1 lease)；
+  - 释放租约增加 owner 隔离匹配，防止旧进程误删新持锁者的租约；
+  - 新增 `renew_task_lease` 支持长任务续租；
+  - 新增 Migration 4：tasks 表增加 `max_backfill_days` 字段 (默认 90 天)。
+- `sync_console/core/sync_runner.py`:
+  - 新建统一任务运行看门狗 `TaskRunGuard`，统一管理锁生命周期、运行日志记录与状态收尾。
+- `sync_console/feishu/client.py`:
+  - 进程级全局缓存 `tenant_access_token` (按 app_id，提前 120s 自动刷新，401 自动重试一次)；
+  - 请求封装支持 429 Retry-After 避让、5xx 与 90217 指数退避加随机抖动，写操作强制间隔 >= 1.2 秒；
+  - 动态计算列字母 (不再局限于 A:Z / A:AZ 固定范围)；
+  - 新增 `write_ranges` 批量区间写入；
+  - 文件夹与工作表查询支持 page_token 全量分页。
+- `sync_console/core/sync.py`:
+  - Phase 1 实行有界并发抓取 (PROVIDER_CONCURRENCY = 3)，任意实体抓取失败直接中止写表；
+  - Overwrite 模式安全屏障：上游返回空数据时默认不清表，run 标记为 `empty_upstream`，仅在显式配置 allow_empty_overwrite 时允许清空；
+  - 自然键安全：缺失关键字段 (ID 或日期) 不参与 upsert 并计入警告；批次内发现重复键时自动暂停任务并抛出校验异常；
+  - 写后回读严格校验表头和数据行，不一致时触发快照回滚；
+  - 彻底清理原表末尾脏数据行，写回备份并按 SHA-256 内容哈希严格校验回滚有效性；回滚失败标记 needs_attention 并停用调度。
+- `sync_console/core/feishu_matrix.py`:
+  - 抽离通用表格矩阵写入工具，限制最大 5000 行、200 列，安全扩展维度，自动防范 =/@/+/- 电子表格公式注入。
+- `sync_console/core/keyword_repo.py`:
+  - 抽离公共关键词库与分页参数验证 (1<=page, 1<=page_size<=100，非法参数返回 422)。
+- `keyword_service/sync_engine.py` & `lingxi_service/sync_engine.py`:
+  - 统一接入 `TaskRunGuard`；
+  - 严格模式：上游抓取失败的词绝不写入 0，直接标记失败并中止写表，杜绝虚假数据污染；
+  - 灵犀引擎真正支持 `update_mode` (overwrite 与 append)；
+  - 支持 removed_keywords 排除。
+- `keyword_service/router.py` & `lingxi_service/router.py`:
+  - 状态机强化：已归档任务禁止切换状态 (返回 409)；删除任务改为软删除 (status='archived')；任务不存在返回 404。
+- 测试覆盖：
+  - `tests/test_lease.py`: 验证抢锁并发竞争、过期接管与 owner 隔离释放、续租；
+  - `tests/test_feishu_client.py`: 验证 429 重试、90217 避让、超过 AZ 宽表列字母；
+  - `tests/test_keyword_lingxi_engine.py`: 验证失败词不写 0、分页 422 报错、空表无越界。
+
+### 4.2 决策与选择
+- **关键词失败数据处理策略**：选用**严格模式（Strict Mode）**。当监控词在上游获取失败或失效时，不将单元格赋 0 写入，而是整次运行标记为 failed，在错误详情中明确记录失败词列表并保留飞书表格既有历史。这样避免了业务方根据报表误判“搜索量归零”。
+
+### 4.3 验证结果
+- pytest 测试摘要:
+  79 passed, 3 warnings in 5.21s
+- 前端构建与测试摘要:
+  1969 modules transformed, built in 2.65s; Tests 2 passed (2)
+- ruff 代码检查:
+  All checks passed!
+
+---

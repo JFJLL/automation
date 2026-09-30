@@ -308,6 +308,8 @@ def toggle_task(task_id: int):
         if not row:
             raise HTTPException(status_code=404, detail="Task not found")
         curr = row["status"]
+        if curr == "archived":
+            raise HTTPException(status_code=409, detail="归档任务无法切换状态")
         next_s = "paused" if curr == "active" else "active"
         conn.execute("UPDATE keyword_tasks SET status = ?, updated_at = ? WHERE id = ?", (next_s, datetime.now().isoformat(), task_id))
         conn.commit()
@@ -320,6 +322,10 @@ def toggle_task(task_id: int):
 @private_router.delete("/tasks/{task_id}")
 def delete_task(task_id: int):
     with get_db() as conn:
+        cur = conn.cursor()
+        cur.execute("SELECT id FROM keyword_tasks WHERE id = ?", (task_id,))
+        if not cur.fetchone():
+            raise HTTPException(status_code=404, detail="Task not found")
         conn.execute("UPDATE keyword_tasks SET status = 'archived', updated_at = ? WHERE id = ?", (datetime.now().isoformat(), task_id))
         conn.commit()
     SchedulerManager.get_instance().remove_keyword_task(task_id)
@@ -327,12 +333,8 @@ def delete_task(task_id: int):
 
 @private_router.get("/runs")
 def list_keyword_runs(task_id: Optional[int] = None, page: int = 1, page_size: int = 20):
-    if page < 1:
-        page = 1
-    if page_size < 1:
-        page_size = 20
-    if page_size > 100:
-        page_size = 100
+    from core.keyword_repo import validate_pagination
+    page, page_size = validate_pagination(page, page_size)
         
     with get_db() as conn:
         cursor = conn.cursor()
