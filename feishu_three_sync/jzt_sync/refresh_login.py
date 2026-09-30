@@ -3,11 +3,10 @@ import io
 import json
 import shutil
 import time
-from urllib.parse import urlparse
 
+from daily_client import ROOT, SyncError, fetch_report, identity, read_accounts
+from local_login import PASSWORD, USERNAME
 from playwright.sync_api import sync_playwright
-from daily_client import ROOT, SyncError, identity, read_accounts, fetch_report
-from local_login import USERNAME, PASSWORD
 
 LOGIN_URL = 'https://passport.jd.com/common/loginPage?from=jzt&ReturnUrl=https%3A%2F%2Fjzt.jd.com%2Fhome%2F'
 HOME_URL = 'https://jzt.jd.com/home/'

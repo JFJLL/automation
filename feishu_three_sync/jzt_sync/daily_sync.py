@@ -1,14 +1,13 @@
 """Incremental sync with backups, complete date scanning and read-back checks."""
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime
 import json
 import math
 import numbers
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
 
 import pandas as pd
-
+from config_loader import APP_ID, APP_SECRET, FEISHU_SHEET_SHENXIANSHUANG, FEISHU_SHEET_ZHANGXIAOYI
 from daily_client import ROOT, Feishu, SyncError, fetch_report, read_accounts
-from config_loader import APP_ID, APP_SECRET, FEISHU_SHEET_ZHANGXIAOYI, FEISHU_SHEET_SHENXIANSHUANG
 
 
 def task_mappings():

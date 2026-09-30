@@ -1,11 +1,10 @@
-import sqlite3
-import json
 import os
-import time
-from pathlib import Path
-from typing import Optional, Dict, Any, List
+import sqlite3
 from datetime import datetime, timedelta
-from app.config import DATA_DIR, DB_PATH
+from pathlib import Path
+from typing import Optional
+
+from app.config import BASE_DIR, DATA_DIR, DB_PATH
 
 KEYWORD_DB_PATH = Path(os.getenv("KEYWORD_DB_PATH", str(DATA_DIR / "keyword_data.db")))
 LINGXI_DB_PATH = Path(os.getenv("LINGXI_DB_PATH", str(DATA_DIR / "lingxi_data.db")))
@@ -26,7 +25,7 @@ def get_sync_db(db_path: Optional[Path] = None) -> sqlite3.Connection:
 def get_keyword_db(db_path: Optional[Path] = None) -> sqlite3.Connection:
     if db_path:
         return get_db_connection(db_path)
-    
+
     # 优先使用配置的 DATA_DIR / keyword_data.db；若不存在但旧目录存在，则迁移/复用
     if not KEYWORD_DB_PATH.exists():
         legacies = [

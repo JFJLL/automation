@@ -1,6 +1,4 @@
-import sqlite3
-from pathlib import Path
-from core.database import get_lingxi_db, run_migrations, LINGXI_DB_PATH
+from core.database import LINGXI_DB_PATH, get_lingxi_db, run_migrations
 
 DB_PATH = LINGXI_DB_PATH
 

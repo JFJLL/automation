@@ -1,13 +1,14 @@
 import json
 import tempfile
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from core.database import get_db_connection, run_migrations
+from core.errors import ProviderUpstreamError
 from core.models import ProviderFetchResult, ProviderFetchStatus
-from core.errors import ProviderUpstreamError, FeishuWriteError
 from core.sync import execute_task_sync
+
 
 def setup_test_task(conn, update_mode="append"):
     cur = conn.cursor()
@@ -18,7 +19,7 @@ def setup_test_task(conn, update_mode="append"):
         ) VALUES ('测试同步任务', 'jzt', 'fld_1', 'ss_token_123', 'https://example.com/ss', ?, 2, 'RRULE:FREQ=DAILY;BYHOUR=9', 'active', '2026-09-01T00:00:00', '2026-09-01T00:00:00')
     """, (update_mode,))
     task_id = cur.lastrowid
-    
+
     headers = ["日期", "任务ID", "成交GMV"]
     cur.execute("""
         INSERT INTO task_sheets (
@@ -35,7 +36,7 @@ def test_append_mode_idempotent_no_duplicate_rows():
         conn = get_db_connection(db_file)
         run_migrations(conn, module="sync")
         task_id = setup_test_task(conn, update_mode="append")
-        
+
         # 模拟工作体现有行：表头 + 1 行历史数据
         feishu_store = {
             "rows": [
@@ -43,7 +44,7 @@ def test_append_mode_idempotent_no_duplicate_rows():
                 ["2026-09-20", "198973", "100.0"]
             ]
         }
-        
+
         mock_feishu = MagicMock()
         def mock_read(ss, ws, rng):
             return [list(r) for r in feishu_store["rows"]]
@@ -57,14 +58,14 @@ def test_append_mode_idempotent_no_duplicate_rows():
                     feishu_store["rows"][idx] = list(r)
                 else:
                     feishu_store["rows"].append(list(r))
-                    
+
         def mock_find_last(ss, ws):
             return len(feishu_store["rows"])
-            
+
         mock_feishu.read_values.side_effect = mock_read
         mock_feishu.write_rows.side_effect = mock_write
         mock_feishu.find_last_row_index.side_effect = mock_find_last
-        
+
         mock_provider_result = ProviderFetchResult(
             status=ProviderFetchStatus.SUCCESS,
             rows=[
@@ -72,9 +73,9 @@ def test_append_mode_idempotent_no_duplicate_rows():
                 {"日期": "2026-09-21", "任务ID": "198973", "成交GMV": "200.0"}  # 新的一天数据 (append)
             ]
         )
-        
+
         with patch("core.sync.get_db", return_value=conn),              patch("core.sync.FeishuClient", return_value=mock_feishu),              patch("core.sync.Notifier"),              patch("core.sync.fetch_jzt_data", return_value=mock_provider_result):
-            
+
             # 第一次同步执行
             res1 = execute_task_sync(task_id, trigger_type="manual")
             assert res1["status"] == "success"
@@ -84,7 +85,7 @@ def test_append_mode_idempotent_no_duplicate_rows():
             assert len(feishu_store["rows"]) == 3
             assert feishu_store["rows"][1] == ["2026-09-20", "198973", "150.0"]
             assert feishu_store["rows"][2] == ["2026-09-21", "198973", "200.0"]
-            
+
             # 第二次执行完全相同的抓取 (幂等性测试：绝不追加重复行！)
             res2 = execute_task_sync(task_id, trigger_type="manual")
             assert res2["status"] == "success"
@@ -99,23 +100,23 @@ def test_phase1_fetch_failure_aborts_before_writing():
         conn = get_db_connection(db_file)
         run_migrations(conn, module="sync")
         task_id = setup_test_task(conn, update_mode="overwrite")
-        
+
         initial_sheet_content = [
             ["日期", "任务ID", "成交GMV"],
             ["2026-09-20", "198973", "5000.0"]
         ]
         mock_feishu = MagicMock()
         mock_feishu.read_values.return_value = list(initial_sheet_content)
-        
+
         with patch("core.sync.get_db", return_value=conn),              patch("core.sync.FeishuClient", return_value=mock_feishu),              patch("core.sync.Notifier"),              patch("core.sync.fetch_jzt_data", side_effect=ProviderUpstreamError("JD API 500 error")):
-            
+
             with pytest.raises(ProviderUpstreamError):
                 execute_task_sync(task_id, trigger_type="manual")
-                
+
             # 关键断言：Phase 1 抓取失败时，Phase 2 清表和写表绝对没有被调用！
             mock_feishu.clear_rows_below.assert_not_called()
             mock_feishu.write_rows.assert_not_called()
-            
+
             # 运行记录记录 failed
             cur = conn.cursor()
             cur.execute("SELECT status, message FROM runs WHERE task_id = ?", (task_id,))

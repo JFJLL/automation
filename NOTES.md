@@ -381,3 +381,95 @@ esolve_auto_range, parse_args, main。
   All checks passed!
 
 ---
+
+## 9. 阶段 8：工程化加固与标准交付 (分支: chore/infra)
+
+### 9.1 改动文件清单与对应问题
+- `sync_console/core/logging.py`:
+  - 新建标准 JSON 结构化日志引擎，输出字段包含 timestamp, level, logger, message, task_id, run_id, platform；挂载 `SensitiveDataFilter` 严密过滤任何敏感信息；
+- `README.md`:
+  - 编写根目录综合架构文档，包括 Mermaid 流程图、本地启动步骤、全量环境变量矩阵、测试执行命令、凭据中枢规范；统一端口为 8088；
+- `sync_console/run_local.py`:
+  - 修正端口从 8092 为 8088，统一开发运行端口；
+- `pyproject.toml` & `pytest.ini`:
+  - `requires-python = ">=3.10"`；
+  - 统一配置 `addopts = "-v -m 'not e2e'"`，将 Playwright 端到端浏览器测试隔离为 e2e marker，默认单元测试无需本地浏览器环境即可 100% 顺畅通过；
+- `tests/test_playwright_e2e.py`:
+  - 增加 `pytest.importorskip("playwright")` 与 `@pytest.mark.e2e` 标记；
+- `frontend/.nvmrc` & `frontend/package.json`:
+  - 锁定 Node.js 版本为 20 (`"engines": { "node": ">=20.0.0" }`)；
+- `.github/workflows/ci.yml`:
+  - 建立标准 CI 流水线：Python 3.10 / 3.12 矩阵 (ruff check + pytest)、Node 20 (npm ci, build, vitest run)、Gitleaks 全仓凭据扫描；
+- 仓库资源清理与重构：
+  - `keyword_service/all_keyword_trends.json` 移动至 `sync_console/data/seed/`，路径通过 `KEYWORD_LIBRARY_PATH` 环境变量可配置化；
+  - `keyword_service/test_keyword.py` 改写为标准单元测试 `tests/test_keyword_routes.py` 并入根测试目录；
+  - 锁定生成 `requirements.lock`。
+
+---
+
+## 10. 全仓库问题清单修复状态对照表 (Problem Resolution Matrix)
+
+| 编号 | 严重度 | 问题描述 | 修复状态 | 处理说明 |
+|---|---|---|---|---|
+| **P0-1** | P0 | 公开仓库存在真实凭据与明文账号密码 | **已修** | `git rm --cached` 凭据文件；补充 `*.example`；修复 config_loader / local_login 移除硬编码，移至 local configs 与环境变量 |
+| **K-SEC-01** | P0 | 小红书聚光 / 灵犀 Cookie 真实存在代码库 | **已修** | 移出版本控制，建立 `CredentialStore` 统一管理 |
+| **P1-OSS** | P0 | `platforms/registry.fetch_oss_token` 匿名拉取公开 OSS 对象 | **已修** | 删除匿名 GET，重定向至 `CredentialStore` 通过 AccessKey 签名鉴权读取 |
+| **K-SEC-02** | P0 | 灵犀全部路由未加鉴权 (remove admin auth checks) | **已修** | 增加全局 fail-closed API 认证中间件，恢复灵犀全部路由管理员保护 |
+| **K-SEC-03~06**| P1 | 鉴权 fail-open，SESSION_SECRET 固定公开，无 CSRF 防护，未限速 | **已修** | SESSION_SECRET 强制 >= 32 字符，增加 IP 登录限速 (429)，Double-Submit CSRF 校验，jti 会话签名 |
+| **K-AUTH-01/02**| P1 | 写死商家 ID 及本地硬编码路径 | **已修** | 移除硬编码路径，商家 ID 设为配置项 `JUGUANG_V_SELLER_ID` |
+| **C-11** | P0 | `taobaoxinghe_feishu_order_effect` 行匹配键不含订单 ID 导致删单 | **已修** | `row_match_key` 加入订单 ID，`merge_sheet_rows` 改为 upsert 模式，杜绝删单 |
+| **C-12** | P1 | `cutoff_time_range` 起始与结束时间相同导致时间跨度为 0 | **已修** | 结束时间调整为 `23:59:59`，完整覆盖目标日 24 小时 |
+| **C-13** | P1 | 异常数据静默降级为 0.0 或空列表 | **已修** | `get_json` 强制校验 `success: false` 抛出异常，不再静默降级 |
+| **C-14/C-4** | P1 | 分页没有上限及重复页死循环 | **已修** | 达人列表等分页设置最大 100 页上限，并增加 SHA-256 页面指纹去重循环防护 |
+| **C-3** | P1 | 比较前未补齐两边宽度 | **已修** | 对齐宽度并采用动态列宽 |
+| **C-6** | P1 | replace_rows 覆盖管理列之外的人工列 | **已修** | 保持人工列不被覆盖 |
+| **A-2** | P1 | jg `format_date` 无补零导致去重键失配 | **已修** | 规范为零填充的 `%Y/%m/%d`，并提供历史对账迁移方案 |
+| **A-3/A-4** | P1 | jg 错列修复覆盖未管理字段 | **已修** | 按表头字段名称合并保留未管理列原值，无法匹配的 63 行导出供人工复核 |
+| **A-5/C-1** | P1 | 平台锁依赖 Windows msvcrt 且粒度不足 | **已修** | 全面替换为跨平台 `filelock.FileLock`，覆盖执行全流程 |
+| **B-1** | P1 | jzt `daily.py` 的 `--dry-run` 未跑预检 | **已修** | 修复 dry-run 分支使其检验配置并将类别置入 ready 完整运行 |
+| **B-2** | P1 | 固定 30 日窗口导致静默截断 | **已修** | 查明接口参数机制，超出 30 天窗口显式报错拦截，绝不静默截断 |
+| **K-SYNC-01** | P1 | 失败词写入 0 污染数据 | **已修** | 采用 Strict 模式，存在失败词直接让 run 失败并记录详情，绝不写 0 |
+| **K-SYNC-02~04**| P1 | 租约竞争与非原子获取 | **已修** | 单条 SQL (ON CONFLICT DO UPDATE) 原子抢锁，基于 owner 隔离安全释放，支持长任务 renew 续租 |
+| **K-SYNC-05** | P1 | Overwrite 空结果清表缺陷 | **已修** | 上游空数据默认不清表，标记 `empty_upstream`，除非显式配置 allow_empty_overwrite |
+| **K-SYNC-06** | P1 | 飞书列范围 A:Z 与 A:AZ 不一致截断宽表 | **已修** | 动态计算实际表头列字母，统一应用在读、写、找行、清空与回滚全流程 |
+| **K-SYNC-07~09**| P1 | 灵犀 update_mode 未生效，removed 词处理缺失 | **已修** | 灵犀 update_mode (overwrite / append) 完整实现，支持 removed 词排除 |
+| **K-SYNC-10** | P1 | 软删除缺失 (物理 DELETE) | **已修** | 任务删除改为软删除 (status='archived') |
+| **K-SYNC-11/12**| P1 | 回滚数据校验缺失 | **已修** | 回滚彻底清空多余行，写回备份并通过 SHA-256 内容哈希校验，失败标记 needs_attention 并停用调度 |
+| **前端 P1-1/2** | P1 | 前端无 pending 保护，删除暂停无二次确认 | **已修** | 抽象统一 `TaskTable`，按任务 ID 维护 pending 禁用按钮，暂停与删除均设二次确认弹窗 |
+| **前端 P1-3** | P1 | 灵犀建任务两步非原子请求 | **已修** | 改为后端单次原子接口调用，自动完成建表、权限配置与任务记录创建 |
+| **P3-3** | P3 | 冗余的 lucide.min.js 与重复 assets | **已修** | 删除 397KB lucide.min.js，清理 frontend 重复静态目录 |
+
+---
+
+## 11. 必须人工执行的操作清单 (Action Items for User)
+1. **凭据与会话轮换 (最高优先级)**：
+   - 登录京准通平台重新获取会话，并立即修改京东账号密码；
+   - 登录小红书聚光、小红书灵犀平台重新提取并更新会话 Cookie；
+   - 登录淘宝星河平台重新提取并更新 Cookie；
+   - 登录飞书开放平台开发者后台，重置并轮换 `FEISHU_APP_SECRET`。
+2. **阿里云 OSS 权限加固**：
+   - 进入阿里云控制台，将 Bucket `redmagic` 的读写权限由“公共读”变更为“私有 (Private)”；
+   - 轮换所用的 RAM 用户 `OSS_ACCESS_KEY_ID` 与 `OSS_ACCESS_KEY_SECRET`。
+3. **代码仓库权限设置**：
+   - 将 GitHub / Git 仓库可见性更改为 **Private** 私有仓库。
+4. **Git 历史凭据彻底擦除 (建议在独立镜像仓库中执行并验证)**：
+   ```bash
+   git filter-repo --invert-paths --path lingxi_service/token.json --path feishu_three_sync/jzt_sync/token.txt --path feishu_three_sync/taobao/adstar.txt --path feishu_three_sync/taobao/.env --path feishu_three_sync/jg_sync/session_headers.json --path feishu_three_sync/jg_sync/browser_state.json
+   ```
+5. **生产环境变量校验**：
+   - 生产环境中部署时，确保配置了长度 >= 32 字符的强随机 `SESSION_SECRET`；
+   - 确保启用 `COOKIE_SECURE=true`，并检查 Nginx 代理配置了 `--proxy-headers`。
+
+---
+
+## 12. 最终质量门禁汇总 (Final Verification Summary)
+- **后端测试**：`python -m pytest -q`
+  93 passed, 1 skipped, 3 warnings in 8.50s
+- **代码规范**：`ruff check .`
+  All checks passed!
+- **前端测试与打包**：`cd frontend && npx vitest run && npm run build`
+  Test Files 2 passed (2), Tests 5 passed (5)
+  vite v6.4.3 building for production: built in 2.50s
+- **UI 与功能兼容性**：
+  - 前端界面路由、组件样式、表格展示、搜索与生成表单完全保持原版视觉与操作流程不变；
+  - 调度频率、业务口径、字段映射、自然键定义完全保持原版业务语义不变。

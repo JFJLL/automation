@@ -1,11 +1,13 @@
-import unittest
 import json
-from unittest.mock import patch, MagicMock
-from fastapi.testclient import TestClient
-from app.main import app
+import unittest
+from unittest.mock import MagicMock, patch
+
 from app.config import ACCESS_TOKEN
-from platforms.juguang import get_juguang_subaccounts_list, get_juguang_subaccount_headers, fetch_juguang_data
+from app.main import app
 from core.errors import ProviderAuthError
+from fastapi.testclient import TestClient
+from platforms.juguang import fetch_juguang_data, get_juguang_subaccount_headers
+
 
 class TestJuguangSubaccountFlow(unittest.TestCase):
     def setUp(self):

@@ -1,10 +1,12 @@
-import unittest
 import io
-import openpyxl
+import unittest
 from unittest.mock import MagicMock, patch
-from fastapi.testclient import TestClient
-from app.main import app
+
+import openpyxl
 from app.config import ACCESS_TOKEN
+from app.main import app
+from fastapi.testclient import TestClient
+
 
 class TestApiEndpoints(unittest.TestCase):
     def setUp(self):

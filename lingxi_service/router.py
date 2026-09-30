@@ -1,32 +1,24 @@
-import os
-import sys
 import json
-import hmac
-from pathlib import Path
-from typing import Optional, List, Union, Dict, Any, Literal
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, FastAPI, Request, Response
+from pathlib import Path
+from typing import List, Optional, Union
+
+from core.business_time import now_business_tz
+from core.errors import TaskAlreadyRunningError, TaskNotFoundError
+from core.scheduler_manager import SchedulerManager
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from lingxi_service.client import fetch_lingxi_keywords, load_token, sync_token_from_oss
 from lingxi_service.db import get_db
 from lingxi_service.sync_engine import (
-    direct_create_feishu_sheet,
-    create_lingxi_task,
-    run_lingxi_task,
     append_keywords_to_lingxi_task,
-    remove_keywords_from_lingxi_task
+    create_lingxi_task,
+    direct_create_feishu_sheet,
+    remove_keywords_from_lingxi_task,
+    run_lingxi_task,
 )
-from core.scheduler_manager import SchedulerManager
-from core.security import require_admin, require_auth, is_admin_authenticated
-from core.errors import (
-    AppError,
-    TaskNotFoundError,
-    TaskAlreadyRunningError,
-    DataValidationError
-)
-from app.config import ACCESS_TOKEN
 
 router = APIRouter()
 private_router = APIRouter(prefix="/api/lingxi")

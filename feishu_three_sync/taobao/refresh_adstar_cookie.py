@@ -26,7 +26,6 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import urlparse
 from urllib.request import urlopen
 
-
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEFAULT_URL = "https://adstar.alimama.com/"
 DEFAULT_PORTAL_URL = "https://adstar.alimama.com/portal/v2/pages/home/index.htm"

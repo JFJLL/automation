@@ -1,6 +1,6 @@
-import sqlite3
 from app.config import DB_PATH
 from core.database import get_sync_db, run_migrations
+
 
 def get_db():
     return get_sync_db(DB_PATH)

@@ -1,15 +1,15 @@
+
 from app.config import ACCESS_TOKEN
-import pytest
-import json
 from fastapi.testclient import TestClient
-from sync_console.app.main import app
-from lingxi_service.db import init_db, get_db
+
+from lingxi_service.db import init_db
 from lingxi_service.sync_engine import (
+    append_keywords_to_lingxi_task,
     build_lingxi_date_matrix,
     create_lingxi_task,
-    append_keywords_to_lingxi_task,
-    remove_keywords_from_lingxi_task
+    remove_keywords_from_lingxi_task,
 )
+from sync_console.app.main import app
 
 client = TestClient(app)
 

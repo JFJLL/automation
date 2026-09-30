@@ -1,39 +1,34 @@
-import os
-import sys
-import json
 import hmac
+import json
 import math
-from pathlib import Path
-from typing import Optional, List, Union, Dict, Any, Literal
+import os
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException, FastAPI, Request, Response
-from fastapi.responses import HTMLResponse, JSONResponse
+from pathlib import Path
+from typing import List, Literal, Optional, Union
+
+from app.config import ACCESS_TOKEN
+from core.errors import AppError, InvalidDateRangeError
+from core.scheduler_manager import SchedulerManager
+from core.security import create_admin_session
+from fastapi import APIRouter, FastAPI, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from keyword_service.client import fetch_keywords_insight, load_token
 from keyword_service.db import get_db
 from keyword_service.sync_engine import (
-    direct_create_feishu_sheet,
-    create_keyword_task,
-    run_keyword_task,
     append_keywords_to_task,
-    remove_keywords_from_task
+    create_keyword_task,
+    direct_create_feishu_sheet,
+    remove_keywords_from_task,
+    run_keyword_task,
 )
-from core.scheduler_manager import SchedulerManager
-from core.security import create_admin_session, is_admin_authenticated
-from core.errors import (
-    AppError,
-    TaskNotFoundError,
-    TaskAlreadyRunningError,
-    DataValidationError,
-    InvalidDateRangeError
-)
-from app.config import ACCESS_TOKEN
 
 router = APIRouter()
 private_router = APIRouter(prefix="/api/keyword")
 
-KEYWORD_LIBRARY_PATH = Path(__file__).parent / "all_keyword_trends.json"
+from app.config import BASE_DIR
+
+KEYWORD_LIBRARY_PATH = Path(os.getenv("KEYWORD_LIBRARY_PATH", str(BASE_DIR / "data" / "seed" / "all_keyword_trends.json")))
 
 class KeywordSearchRequest(BaseModel):
     keywords: Union[str, List[str]]
@@ -161,10 +156,10 @@ def search_keywords(req: KeywordSearchRequest):
         kws = [k.strip() for k in req.keywords.replace(",", " ").split() if k.strip()]
     else:
         kws = [str(k).strip() for k in req.keywords if str(k).strip()]
-        
+
     if not kws:
         raise HTTPException(status_code=400, detail="关键词不能为空")
-        
+
     try:
         res = fetch_keywords_insight(
             keywords=kws,
@@ -335,7 +330,7 @@ def delete_task(task_id: int):
 def list_keyword_runs(task_id: Optional[int] = None, page: int = 1, page_size: int = 20):
     from core.keyword_repo import validate_pagination
     page, page_size = validate_pagination(page, page_size)
-        
+
     with get_db() as conn:
         cursor = conn.cursor()
         if task_id:
@@ -355,7 +350,7 @@ def list_keyword_runs(task_id: Optional[int] = None, page: int = 1, page_size: i
                 (page_size, offset)
             )
         items = [dict(r) for r in cursor.fetchall()]
-        
+
     return {
         "items": items,
         "total": total,

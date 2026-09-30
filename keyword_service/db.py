@@ -1,6 +1,4 @@
-import sqlite3
-from pathlib import Path
-from core.database import get_keyword_db, run_migrations, KEYWORD_DB_PATH
+from core.database import KEYWORD_DB_PATH, get_keyword_db, run_migrations
 
 DB_PATH = KEYWORD_DB_PATH
 

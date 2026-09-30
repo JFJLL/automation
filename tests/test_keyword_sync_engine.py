@@ -1,18 +1,13 @@
-import json
 import tempfile
-import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
+import pytest
 from core.database import get_db_connection, run_migrations
-from core.errors import TaskAlreadyRunningError, KeywordUpstreamError
-from keyword_service.sync_engine import (
-    parse_existing_sheet_history,
-    build_sheet_matrix,
-    create_keyword_task,
-    run_keyword_task,
-    remove_keywords_from_task
-)
+from core.errors import KeywordUpstreamError
+
+from keyword_service.sync_engine import create_keyword_task, parse_existing_sheet_history
+
 
 def test_parse_existing_sheet_history_and_alignment():
     # Day 1: 表格有两天 2026-09-20, 2026-09-21
@@ -42,17 +37,16 @@ def test_removed_keyword_date_alignment_on_day_3():
         ["词B", 50, 80, 5, 0.8, 60, 90, 6, 0.9],
     ]
     dates, history = parse_existing_sheet_history(existing_rows)
-    
+
     new_dates = ["2026-09-21", "2026-09-22"]
     removed_kws = ["词B"]
-    active_kws = ["词A"]
     new_data = {
         "词A": {
             "2026-09-21": {"search_num": 115, "imp_num": 230, "note_num": 13, "bid": 1.7},
             "2026-09-22": {"search_num": 130, "imp_num": 250, "note_num": 14, "bid": 1.8},
         }
     }
-    
+
     # 模拟 run_keyword_task 中构建矩阵对齐
     row1 = ["关键词"]
     row2 = [""]
@@ -60,7 +54,7 @@ def test_removed_keyword_date_alignment_on_day_3():
         row1.extend([d, "", "", ""])
         row2.extend(["搜索指数", "广告曝光量", "广告笔记数", "平均市场出价"])
     matrix = [row1, row2]
-    
+
     for kw in ["词A", "词B"]:
         row = [kw]
         is_removed = kw in removed_kws
@@ -75,7 +69,7 @@ def test_removed_keyword_date_alignment_on_day_3():
             else:
                 row.extend(["", "", "", ""])
         matrix.append(row)
-        
+
     # 验证 词B 的行
     row_b = matrix[3]
     assert row_b[0] == "词B"
@@ -89,15 +83,15 @@ def test_create_task_transaction_no_orphan_sheet_on_fetch_failure():
         db_file = Path(tmp_dir) / "test_kw.db"
         conn = get_db_connection(db_file)
         run_migrations(conn, module="keyword")
-        
+
         mock_feishu = MagicMock()
         with patch("keyword_service.sync_engine.get_db", return_value=conn),              patch("keyword_service.sync_engine.FeishuClient", return_value=mock_feishu),              patch("keyword_service.sync_engine.fetch_keywords_insight", side_effect=KeywordUpstreamError("API network error")):
             with pytest.raises(KeywordUpstreamError):
                 create_keyword_task("测试任务", ["词1"])
-                
+
             # 确认在 fetch 失败时，根本没有调用 create_spreadsheet
             mock_feishu.create_spreadsheet.assert_not_called()
-            
+
             # 确认数据库里没有创建孤儿任务
             cur = conn.cursor()
             cur.execute("SELECT COUNT(*) FROM keyword_tasks")

@@ -5,10 +5,10 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
+from app.config import ACCESS_TOKEN
+from app.main import app
 from fastapi.testclient import TestClient
 
-from app.main import app
-from app.config import ACCESS_TOKEN
 from keyword_service.db import get_db, init_db
 from keyword_service.router import app as standalone_app
 from keyword_service.scheduler import kw_scheduler

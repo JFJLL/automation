@@ -1,12 +1,12 @@
-import unittest
 import io
+import unittest
+
 import openpyxl
-from datetime import datetime
-from platforms.registry import calculate_match_scores, detect_best_platform, find_id_column, find_date_column
-from core.ingest import parse_excel_sheets, analyze_sheet_for_platform
+from core.ingest import analyze_sheet_for_platform, parse_excel_sheets
 from core.scheduler import parse_next_run
 from core.sync import map_item_to_row
-from feishu.client import FeishuClient
+from platforms.registry import detect_best_platform, find_date_column, find_id_column
+
 
 class TestSyncConsole(unittest.TestCase):
 
@@ -38,7 +38,7 @@ class TestSyncConsole(unittest.TestCase):
         ws.append(["日期", "任务ID", "任务标题", "平台", "成交GMV"])
         ws.append(["2026-09-15", "198973", "测试任务A", "小红盟", "5200.5"])
         ws.append(["2026-09-16", "198973", "测试任务A", "小红盟", "6100.0"])
-        
+
         bio = io.BytesIO()
         wb.save(bio)
         bytes_data = bio.getvalue()

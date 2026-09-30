@@ -1,18 +1,23 @@
 import json
-import time
-import re
 import os
-import requests
-import oss2
-from typing import List, Dict, Any, Optional
+import re
+import time
 from pathlib import Path
-from platforms.registry import fetch_oss_token
+from typing import Dict, List, Optional
+
+import oss2
+import requests
 from app.config import (
-    JUGUANG_OSS_OBJECT_KEY, JUGUANG_OSS_SUBACCOUNT_PREFIX, BASE_DIR,
-    OSS_ENDPOINT, OSS_BUCKET, OSS_ACCESS_KEY_ID, OSS_ACCESS_KEY_SECRET
+    BASE_DIR,
+    JUGUANG_OSS_SUBACCOUNT_PREFIX,
+    OSS_ACCESS_KEY_ID,
+    OSS_ACCESS_KEY_SECRET,
+    OSS_BUCKET,
+    OSS_ENDPOINT,
 )
-from core.models import ProviderFetchResult, ProviderFetchStatus
 from core.errors import ProviderAuthError, ProviderUpstreamError
+from core.models import ProviderFetchResult, ProviderFetchStatus
+from platforms.registry import fetch_oss_token
 
 REPORT_URL = "https://ad.xiaohongshu.com/api/leona/rtb/common/data/report"
 
@@ -186,20 +191,20 @@ def fetch_juguang_data(
         hdrs = get_juguang_subaccount_headers(sub_account_id)
     else:
         hdrs = get_juguang_headers()
-        
+
     session = requests.Session()
     session.trust_env = False
     session.headers.update(hdrs)
-    
+
     source = 'account' if split_type == 'account' else 'creativity'
     split = {'placement': ['placement'], 'target': ['targetDetail'], 'keyword': ['keyword']}.get(split_type, [])
     dims = ['time', 'placement'] if source == 'account' else ['time', 'creativityId', 'creativityName', 'noteId', 'unitId', 'unitName', 'campaignId', 'campaignName']
     columns = list(dict.fromkeys(dims + split + list(METRICS.values())))
-    
+
     rows = []
     pages_fetched = 0
     expected_pages = 1
-    
+
     for page in range(1, 101):
         pages_fetched = page
         payload = {
@@ -220,14 +225,14 @@ def fetch_juguang_data(
             if isinstance(e, (ProviderAuthError, ProviderUpstreamError)):
                 raise e
             raise ProviderUpstreamError(f"聚光接口网络异常: {e}")
-            
+
         code = data.get("code")
         if data.get("success") is not True or code in (401, 902):
             msg = data.get("msg") or "聚光接口调用失败"
             if code in (401, 902) or "登录" in msg or "过期" in msg:
                 raise ProviderAuthError(f"聚光登录凭据已失效: {msg}")
             raise ProviderUpstreamError(f"聚光报表接口错误 (code={code}): {msg}")
-            
+
         model = data.get("data") or {}
         batch = model.get("dataList") or []
         for item in batch:
@@ -246,14 +251,14 @@ def fetch_juguang_data(
                     if en in row:
                         row[cn] = row[en]
                 rows.append(row)
-                
+
         page_info = model.get("page") or {}
         total_page = int(page_info.get("totalPage", 1))
         expected_pages = total_page
         if page >= total_page or not batch:
             break
         time.sleep(0.15)
-        
+
     status = ProviderFetchStatus.SUCCESS if rows else ProviderFetchStatus.EMPTY
     return ProviderFetchResult(
         status=status,

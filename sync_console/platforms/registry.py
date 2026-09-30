@@ -1,10 +1,5 @@
-from typing import List, Dict, Any, Tuple
-import requests
 import json
-from app.config import (
-    ADSTAR_OSS_BASE_URL, ADSTAR_OSS_OBJECT_KEY,
-    JZT_OSS_OBJECT_KEY, JUGUANG_OSS_OBJECT_KEY
-)
+from typing import Any, Dict, List, Tuple
 
 PLATFORMS = {
     "jzt": {
@@ -97,8 +92,9 @@ def find_date_column(platform_code: str, headers: List[str]) -> str:
     return headers[0]
 
 def fetch_oss_token(object_key: str, base_url: str = "") -> str:
-    from core.credentials import default_credential_store
     from pathlib import Path
+
+    from core.credentials import default_credential_store
     data = default_credential_store.get(Path(object_key).stem)
     if isinstance(data, dict):
         return data.get("cookie") or data.get("token") or json.dumps(data)

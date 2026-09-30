@@ -1,10 +1,9 @@
-import sys
-import os
-from pathlib import Path
-from unittest.mock import patch, MagicMock
-from fastapi.testclient import TestClient
-from app.main import app
+from unittest.mock import patch
+
 from app.config import ACCESS_TOKEN
+from app.main import app
+from fastapi.testclient import TestClient
+
 
 def test_cookie_and_search_handling():
     client = TestClient(app)

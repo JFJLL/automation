@@ -1,17 +1,15 @@
 import json
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import patch, MagicMock
 import requests
+
 from keyword_service.client import (
+    KeywordFetchStatus,
+    KeywordUpstreamError,
     _fetch_single_word,
     fetch_keywords_insight,
-    KeywordFetchStatus,
-    KeywordAuthExpiredError,
-    KeywordUpstreamError,
-    KeywordTimeoutError,
-    KeywordInvalidResponseError
 )
-from core.errors import InvalidDateRangeError
 
 FAKE_TOKEN = {
     "cookie": "test_cookie=1",
@@ -125,7 +123,7 @@ def test_partial_success_never_fills_zeros_for_failed():
             assert "成功词" in res["successful_keywords"]
             assert "空词" in res["empty_keywords"]
             assert "失败词" in res["failed_keywords"]
-            
+
             # 核心保证：失败词的 data 绝不是全 0 字典，而是 None
             assert res["data"]["失败词"] is None
             assert res["data"]["成功词"]["2026-09-25"]["search_num"] == 88

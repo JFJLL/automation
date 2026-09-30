@@ -1,9 +1,9 @@
 import os
 import sys
 import tempfile
-import sqlite3
-import pytest
 from pathlib import Path
+
+import pytest
 
 # 确保 repo root 和 sync_console 在 sys.path
 REPO_ROOT = Path(__file__).resolve().parent.parent

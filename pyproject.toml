@@ -3,7 +3,7 @@ name = "automation"
 version = "1.0.0"
 description = "电商数据自动同步与小红书关键词监控看板系统"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "fastapi>=0.115.0",
     "uvicorn>=0.30.0",
@@ -31,7 +31,8 @@ testpaths = ["tests", "sync_console/tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-addopts = "-v"
+addopts = "-v -m 'not e2e'"
+markers = ["e2e: End-to-end tests requiring browser or external systems"]
 
 [tool.ruff]
 line-length = 120
