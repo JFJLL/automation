@@ -566,8 +566,10 @@ async function apiFetch(url, options = {}) {
   }
   const res = await fetch(url, opts);
   if (res.status === 401) {
-    const modal = document.getElementById('adminAuthModal');
-    if (modal) modal.style.display = 'flex';
+    if (currentTab === 'admin') {
+      const modal = document.getElementById('adminAuthModal');
+      if (modal) modal.style.display = 'flex';
+    }
     throw new Error('未授权，需要管理员权限');
   }
   if (!res.ok) {
@@ -612,8 +614,19 @@ async function submitAdminLogin() {
 function cancelAdminLogin() {
   const modal = document.getElementById('adminAuthModal');
   if (modal) modal.style.display = 'none';
-  switchTab('import', true);
+  if (currentTab === 'admin') {
+    switchTab('import', true);
+  }
 }
+
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') {
+    const adminModal = document.getElementById('adminAuthModal');
+    if (adminModal && adminModal.style.display === 'flex') {
+      cancelAdminLogin();
+    }
+  }
+});
 
 async function handleFileSelected(event) {
   const file = event.target.files[0];

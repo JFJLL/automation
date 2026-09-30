@@ -1121,15 +1121,18 @@
     </div>
   </div>
 
-  <div class="modal-overlay" id="adminAuthModal" style="display: none;">
+  <div class="modal-overlay" id="adminAuthModal" style="display: none;" onclick="if(event.target===this) cancelAdminLogin()">
     <div class="modal">
-      <h3 style="margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-        <span>🔒</span> 管理员身份验证
-      </h3>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+        <h3 style="margin: 0; display: flex; align-items: center; gap: 8px;">
+          <span>🔒</span> 管理员身份验证
+        </h3>
+        <button type="button" class="btn btn-outline btn-sm" style="padding: 2px 8px; border: none; font-size: 14px; cursor: pointer; color: var(--text-muted);" onclick="cancelAdminLogin()" aria-label="关闭">✕</button>
+      </div>
       <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 16px;">此区域为系统管理后台，请输入管理密码后进入：</p>
-      <input type="password" id="adminPasswordInput" class="form-control" style="margin-bottom: 18px;" placeholder="请输入管理密码" onkeydown="if(event.key==='Enter') submitAdminLogin()">
+      <input type="password" id="adminPasswordInput" class="form-control" style="margin-bottom: 18px;" placeholder="请输入管理密码" onkeydown="if(event.key==='Enter') submitAdminLogin(); if(event.key==='Escape') cancelAdminLogin();">
       <div style="display: flex; justify-content: flex-end; gap: 10px;">
-        <button class="btn btn-outline" onclick="cancelAdminLogin()">返回首页</button>
+        <button class="btn btn-outline" onclick="cancelAdminLogin()">取消</button>
         <button class="btn btn-primary" onclick="submitAdminLogin()">验证进入</button>
       </div>
     </div>
