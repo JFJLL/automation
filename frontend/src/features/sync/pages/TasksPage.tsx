@@ -214,7 +214,7 @@ export const TasksPage: React.FC = () => {
         isOpen={editingTask !== null}
         onClose={() => setEditingTask(null)}
         title="编辑同步任务"
-        width="480px"
+        width="520px"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
           <div>

@@ -102,6 +102,7 @@ def preview_fetch(
     sample_ids = entity_ids[:5] if entity_ids else []
     
     for eid in sample_ids:
+        rows = []
         try:
             if platform == "jzt":
                 res = fetch_jzt_data(eid, start_date, end_date)
@@ -112,16 +113,31 @@ def preview_fetch(
             else:
                 raise ValueError(f"未知平台: {platform}")
             rows = res.rows if hasattr(res, "rows") else res
+
+            # 第四步用于核对真实数据：若按起始日期抓取为空（例如当日或离线 T+1 报表未出），
+            # 自动向前回退取最近 3 天有数据的历史区间，供用户直观核验字段映射与具体数据
+            if not rows:
+                try:
+                    d_obj = datetime.strptime(start_date[:10], "%Y-%m-%d").date()
+                    fb_end = (d_obj - timedelta(days=1)).isoformat()
+                    fb_start = (d_obj - timedelta(days=3)).isoformat()
+                    if platform == "jzt":
+                        res_fb = fetch_jzt_data(eid, fb_start, fb_end)
+                    elif platform == "taobao":
+                        res_fb = fetch_taobao_data(eid, dimension, fb_start, fb_end)
+                    elif platform == "juguang":
+                        res_fb = fetch_juguang_data(eid, dimension, fb_start, fb_end, sub_account_id=sub_account_id)
+                    rows_fb = res_fb.rows if hasattr(res_fb, "rows") else res_fb
+                    if rows_fb:
+                        rows = rows_fb
+                except Exception:
+                    pass
+
             all_raw_rows.extend(rows[:50])
         except Exception as e:
             errors.append(f"实体 {eid}: {str(e)}")
             
     merged_headers = list(headers)
-    for item in all_raw_rows:
-        for k in item.keys():
-            if k and k not in merged_headers:
-                merged_headers.append(k)
-
     preview_table_rows = []
     for item in all_raw_rows[:50]:
         row = map_item_to_row(item, merged_headers, id_col, date_col)

@@ -80,6 +80,50 @@ def get_taobao_cookies() -> Dict[str, str]:
                 return parsed
     raise ProviderAuthError("淘宝星河 Cookie 未配置或无法从 OSS 获取")
 
+def resolve_taobao_order_info(
+    entity_id: str,
+    session: requests.Session,
+    tb_token: str
+) -> Dict[str, Any]:
+    eid = str(entity_id).strip()
+    try:
+        p = {
+            "bizCode": "adstar",
+            "_tb_token_": tb_token,
+            "keyword": eid,
+            "keywordType": 101,
+            "pageNo": 1,
+            "pageSize": 10
+        }
+        r = session.get(f"{REPORT_BASE_URL}/api/one/order/list", params=p, timeout=10)
+        data = r.json()
+        model = data.get("model", {})
+        results = model.get("result", []) if isinstance(model, dict) else []
+        for o in results:
+            if (str(o.get("settleSeqId")) == eid or 
+                str(o.get("displayOrderId")) == eid or 
+                str(o.get("orderId")) == eid or
+                str(o.get("buyOrderId")) == eid):
+                return o
+    except Exception as e:
+        print(f"[Taobao] Search order list failed: {e}")
+
+    try:
+        r_get = session.get(
+            f"{REPORT_BASE_URL}/api/one/order/get",
+            params={"bizCode": "adstar", "_tb_token_": tb_token, "orderId": eid},
+            timeout=10
+        )
+        if r_get.status_code == 200 and r_get.json().get("success"):
+            m = r_get.json().get("model", {})
+            if m:
+                return m
+    except Exception as e:
+        print(f"[Taobao] Get order detail failed: {e}")
+
+    return {}
+
+
 def fetch_taobao_data(
     entity_id: str,
     dimension: str,
@@ -97,13 +141,21 @@ def fetch_taobao_data(
         "Origin": "https://adstar.alimama.com"
     })
     session.cookies.update(cookies)
-    
+    tb_token = cookies.get("_tb_token_", "")
+
+    order_info = resolve_taobao_order_info(entity_id, session, tb_token)
+    settle_seq_id = order_info.get("settleSeqId") or entity_id
+    project_id = order_info.get("projectId") or 0
+    sale_type = order_info.get("saleType") or 1
+    biz_mode = order_info.get("businessMode") or 88
+    media = order_info.get("media") or "RED_BOOK"
+
     ext = {
-        "settleSeqId": int(entity_id) if str(entity_id).isdigit() else entity_id,
-        "projectId": 0,
-        "media": "RED_BOOK",
-        "saleType": 1,
-        "businessMode": 88,
+        "settleSeqId": int(settle_seq_id) if str(settle_seq_id).isdigit() else settle_seq_id,
+        "projectId": int(project_id) if str(project_id).isdigit() else project_id,
+        "media": media,
+        "saleType": sale_type,
+        "businessMode": biz_mode,
         "deliveryMode": "cptSeedDaily",
         "dataBatch": "content" if dimension == "内容" else "order",
         "flowType": "all",
@@ -117,6 +169,8 @@ def fetch_taobao_data(
     for page in range(1, 101):
         pages_fetched = page
         payload = {
+            "bizCode": "adstar",
+            "_tb_token_": tb_token,
             "bizType": "selfOfficial_orderInfo_detail",
             "dataBatch": "content" if dimension == "内容" else "order",
             "ext": json.dumps(ext, ensure_ascii=False),
@@ -147,16 +201,35 @@ def fetch_taobao_data(
             raise ProviderUpstreamError(f"淘宝星河接口错误: {err_msg}")
             
         model = data.get("model") or {}
-        items = model.get("list") if isinstance(model, dict) else (model if isinstance(model, list) else [])
+        items = (model.get("result") or model.get("list")) if isinstance(model, dict) else (model if isinstance(model, list) else [])
         if not items and page == 1:
             return ProviderFetchResult(status=ProviderFetchStatus.EMPTY, rows=[], pages_fetched=1)
             
         for item in items:
-            d_val = str(item.get("ds") or item.get("theDate") or "").strip().replace("/", "-")[:10]
+            d_val_raw = str(item.get("ds") or item.get("theDate") or "").strip().replace("/", "-").split(" ")[0]
+            digits = "".join(c for c in d_val_raw if c.isdigit())
+            d_val = f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}" if len(digits) == 8 else d_val_raw[:10]
             if start_date <= d_val <= end_date:
                 item["日期"] = d_val
+                # 映射标识与维度列
+                if "orderId" in item:
+                    item["任务ID"] = str(item.get("orderId", "")).strip()
+                    item["订单ID"] = str(item.get("orderId", "")).strip()
+                if "contentId" in item and item["contentId"] != "NULL":
+                    item["内容ID"] = str(item.get("contentId", "")).strip()
+                if "flowType" in item:
+                    item["流量类型"] = str(item.get("flowType", "")).strip()
+                if "cycle" in item:
+                    item["归因口径"] = str(item.get("cycle", "")).strip()
+                    item["归因周期"] = str(item.get("cycle", "")).strip()
+                if "orderName" in item:
+                    item["任务组名称"] = str(item.get("orderName", "")).strip()
+                    item["任务名称"] = str(item.get("orderName", "")).strip()
+
                 for label, key in EFFECT_COLUMNS:
                     item[label] = item.get(key, "")
+                    if label == "新客进店UV":
+                        item["新客进店uv"] = item.get(key, "")
                 rows.append(item)
                 
         if len(items) < 100 or not model.get("hasNext"):
@@ -170,4 +243,3 @@ def fetch_taobao_data(
         pages_fetched=pages_fetched,
         expected_pages=pages_fetched
     )
-

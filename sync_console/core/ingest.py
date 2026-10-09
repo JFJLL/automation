@@ -1,5 +1,10 @@
 import openpyxl
 import io
+import csv
+try:
+    import xlrd
+except ImportError:
+    xlrd = None
 from typing import List, Dict, Any, Tuple, Optional
 from datetime import datetime, timedelta
 from platforms.registry import (
@@ -21,12 +26,52 @@ def normalize_date_compact(val: Any) -> str:
         return digits
     return s
 
+def _extract_sheets_raw(file_bytes: bytes) -> List[Tuple[str, List[Any]]]:
+    sheets_raw = []
+    # 1. 尝试 openpyxl (.xlsx)
+    try:
+        wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+        for title in wb.sheetnames:
+            ws = wb[title]
+            rows_iter = list(ws.iter_rows(values_only=True))
+            if rows_iter:
+                sheets_raw.append((title, rows_iter))
+    except Exception:
+        sheets_raw = []
+
+    # 2. 尝试 xlrd (.xls)
+    if not sheets_raw and xlrd is not None:
+        try:
+            book = xlrd.open_workbook(file_contents=file_bytes)
+            for sheet_name in book.sheet_names():
+                sh = book.sheet_by_name(sheet_name)
+                sheet_rows = [sh.row_values(rx) for rx in range(sh.nrows)]
+                if sheet_rows:
+                    sheets_raw.append((sheet_name, sheet_rows))
+        except Exception:
+            sheets_raw = []
+
+    # 3. 尝试作为 CSV/TSV 文本回退兼容
+    if not sheets_raw:
+        for enc in ['utf-8-sig', 'gb18030', 'utf-8', 'gbk']:
+            try:
+                text = file_bytes.decode(enc)
+                first_line = text.splitlines()[0] if text.splitlines() else ''
+                delimiter = '\t' if ('\t' in first_line and ',' not in first_line) else ','
+                reader = csv.reader(io.StringIO(text), delimiter=delimiter)
+                rows = [list(r) for r in reader if any(str(c).strip() for c in r)]
+                if rows:
+                    sheets_raw.append(('Sheet1', rows))
+                    break
+            except Exception:
+                continue
+
+    return sheets_raw
+
 def parse_excel_sheets(file_bytes: bytes, filename: str) -> List[Dict[str, Any]]:
-    wb = openpyxl.load_workbook(io.BytesIO(file_bytes), data_only=True)
+    sheets_raw = _extract_sheets_raw(file_bytes)
     sheets_info = []
-    for title in wb.sheetnames:
-        ws = wb[title]
-        rows_iter = list(ws.iter_rows(values_only=True))
+    for title, rows_iter in sheets_raw:
         if not rows_iter:
             continue
         header_row_idx = 0

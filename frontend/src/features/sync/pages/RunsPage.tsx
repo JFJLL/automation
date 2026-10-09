@@ -65,7 +65,7 @@ export const RunsPage: React.FC = () => {
                   <td>
                     拉取 {r.rows_fetched || 0} 行 / 追加 {r.rows_appended || 0} 行 / 覆写 {r.rows_updated || 0} 行
                   </td>
-                  <td style={{ maxWidth: '300px' }}>
+                  <td style={{ maxWidth: '360px', whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: 1.4 }}>
                     {r.error_detail ? (
                       <span style={{ color: 'var(--danger)', fontSize: '12px' }} title={r.error_detail}>
                         {r.error_detail}

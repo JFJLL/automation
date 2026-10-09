@@ -56,9 +56,9 @@ const CustomTimeDropdown: React.FC<{
   // 打开下拉框时自动定位滚动到当前选中的项
   useEffect(() => {
     if (isOpen && listRef.current) {
-      const selectedEl = listRef.current.querySelector('[data-selected="true"]');
+      const selectedEl = listRef.current.querySelector('[data-selected="true"]') as HTMLElement | null;
       if (selectedEl) {
-        (selectedEl as HTMLElement).scrollIntoView({ block: 'nearest' });
+        listRef.current.scrollTop = selectedEl.offsetTop - listRef.current.offsetTop;
       }
     }
   }, [isOpen]);
@@ -286,7 +286,7 @@ export const SchedulePicker: React.FC<SchedulePickerProps> = ({
         }}
       >
         {/* 顶部行：周期分段单选 + 执行时间选择器，两端对齐且排在一行 */}
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'nowrap' }}>
           {/* 分段单选控件 */}
           <div
             style={{
@@ -295,6 +295,7 @@ export const SchedulePicker: React.FC<SchedulePickerProps> = ({
               padding: '3px',
               borderRadius: '7px',
               border: '1px solid #e2e8f0',
+              flexShrink: 0,
             }}
           >
             {(
@@ -330,10 +331,10 @@ export const SchedulePicker: React.FC<SchedulePickerProps> = ({
           </div>
 
           {/* 执行时间标签 + 130px 单列长列表下拉框 (宽度 100% 严格一致) */}
-          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
               <Clock size={15} style={{ color: '#64748b' }} />
-              <span style={{ fontSize: '13px', color: '#475569', fontWeight: 500 }}>执行时间</span>
+              <span style={{ fontSize: '13px', color: '#475569', fontWeight: 500, whiteSpace: 'nowrap' }}>执行时间</span>
             </div>
             <CustomTimeDropdown value={time} onChange={handleTimeChange} />
           </div>

@@ -72,7 +72,7 @@ export const LingxiRunsPage: React.FC = () => {
                   <td>{r.keywords_count || 0} 个词</td>
                   <td>{r.duration_ms ? `${(r.duration_ms / 1000).toFixed(1)}s` : '-'}</td>
                   <td>{r.finished_at ? r.finished_at.substring(0, 16).replace('T', ' ') : '-'}</td>
-                  <td style={{ maxWidth: '280px' }}>
+                  <td style={{ maxWidth: '360px', whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: 1.4 }}>
                     {r.error_detail ? (
                       <span style={{ color: 'var(--danger)', fontSize: '12px' }} title={r.error_detail}>
                         {r.error_detail}
