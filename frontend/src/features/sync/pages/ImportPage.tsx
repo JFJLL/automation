@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Info, Check, AlertTriangle, ArrowRight, RotateCw } from 'lucide-react';
+import { Info, Check, AlertTriangle, ArrowRight, RotateCw, Layers, Calendar, Link2, Hash } from 'lucide-react';
 import { fetchJson } from '@/shared/api/client';
+import { SchedulePicker } from '@/shared/components/SchedulePicker';
 import { useToast } from '@/shared/components/Toast';
 
 export const ImportPage: React.FC = () => {
@@ -21,6 +22,13 @@ export const ImportPage: React.FC = () => {
   const [updateMode, setUpdateMode] = useState<string>('append');
   const [calibrationDays, setCalibrationDays] = useState<number>(2);
   const [rrule, setRrule] = useState<string>('RRULE:FREQ=DAILY;BYHOUR=9;BYMINUTE=0');
+  const [isMergeTasks, setIsMergeTasks] = useState(false);
+  const [customTaskIdsInput, setCustomTaskIdsInput] = useState('');
+  const [isLinkExisting, setIsLinkExisting] = useState(false);
+  const [existingUrl, setExistingUrl] = useState('');
+  const [newSheetTitle, setNewSheetTitle] = useState('');
+  const [showInstruction, setShowInstruction] = useState(false);
+  const [createErrorMsg, setCreateErrorMsg] = useState('');
 
   // 获取聚光子账号
   const { data: subaccounts = [] } = useQuery<Array<{ id: string; name: string }>>({
@@ -52,7 +60,15 @@ export const ImportPage: React.FC = () => {
       if (!taskName && res.filename) {
         setTaskName(res.filename.replace(/\.[^/.]+$/, '') + '_自动同步');
       }
+      if (res.sheets && res.sheets.length > 0) {
+        const defaultIds = res.sheets[0]?.detected_entity_ids || [];
+        setCustomTaskIdsInput(defaultIds.join(', '));
+      }
       showSuccess(`成功解析 ${res.sheets.length} 个工作表`);
+      // 上传成功后自动触发接口数据抓取预览
+      setTimeout(() => {
+        previewMutation.mutate();
+      }, 80);
     },
     onError: (err: any) => {
       showError(err.message || 'Excel 解析失败');
@@ -67,8 +83,7 @@ export const ImportPage: React.FC = () => {
 
       const today = new Date();
       const endStr = today.toISOString().split('T')[0];
-      const startDt = new Date(today.getTime() - 7 * 86400 * 1000);
-      const startStr = startDt.toISOString().split('T')[0];
+      const startStr = firstSheet.next_start_date || new Date(today.getTime() - 7 * 86400 * 1000).toISOString().split('T')[0];
 
       return fetchJson<any>('/api/preview', {
         method: 'POST',
@@ -76,7 +91,7 @@ export const ImportPage: React.FC = () => {
           platform,
           sheet_title: firstSheet.sheet_title,
           headers: firstSheet.headers || [],
-          entity_ids: firstSheet.detected_entity_ids || [],
+          entity_ids: (isMergeTasks && customTaskIdsInput.trim()) ? customTaskIdsInput.replace(/[,，\s]+/g, ' ').split(' ').filter(Boolean) : (firstSheet.detected_entity_ids || []),
           id_column: firstSheet.id_column || '',
           date_column: firstSheet.date_column || '',
           dimension: firstSheet.dimension || '',
@@ -102,8 +117,11 @@ export const ImportPage: React.FC = () => {
       }
       const previewRows = previewMutation.data?.rows || [];
 
-      const sheetsPayload = selectedSheetIndices.map((idx) => {
+      const sheetsPayload = selectedSheetIndices.map((idx, sheetIdx) => {
         const s = analyzedSheets[idx];
+        const histRows = s.uploaded_rows || [];
+        const newRows = sheetIdx === 0 && previewRows.length > 0 ? previewRows : [];
+        const combined = [...histRows, ...newRows];
         return {
           sheet_title: s.sheet_title,
           dimension: s.dimension || '',
@@ -111,8 +129,8 @@ export const ImportPage: React.FC = () => {
           date_column: s.date_column,
           headers: s.headers,
           column_mapping: s.column_mapping || [],
-          entity_ids: s.detected_entity_ids || [],
-          initial_rows: idx === 0 && previewRows.length > 0 ? previewRows : (s.sample_rows || []),
+          entity_ids: (isMergeTasks && customTaskIdsInput.trim()) ? customTaskIdsInput.replace(/[,，\s]+/g, ' ').split(' ').filter(Boolean) : (s.detected_entity_ids || []),
+          initial_rows: combined.length > 0 ? combined : (s.sample_rows || []),
         };
       });
 
@@ -125,6 +143,9 @@ export const ImportPage: React.FC = () => {
         calibration_days: calibrationDays,
         rrule,
         write_initial_data: true,
+        link_existing_spreadsheet: isLinkExisting,
+        existing_spreadsheet_url: isLinkExisting ? existingUrl.trim() : null,
+        new_sheet_title: isLinkExisting ? newSheetTitle.trim() : null,
         sheets: sheetsPayload,
       };
 
@@ -139,7 +160,9 @@ export const ImportPage: React.FC = () => {
       navigate('/tasks');
     },
     onError: (err: any) => {
-      showError(err.message || '创建任务失败');
+      const msg = err.message || '创建任务失败';
+      setCreateErrorMsg(msg);
+      showError(msg);
     },
   });
 
@@ -189,8 +212,9 @@ export const ImportPage: React.FC = () => {
         </div>
       </div>
 
-      <div className="import-dashboard-grid">
-        <div className="card workflow-primary">
+      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(460px, 1.1fr) minmax(360px, 1fr)', gap: '20px', alignItems: 'stretch', marginBottom: '20px' }}>
+        {/* 左侧主卡片：第 1 步与第 2 步 */}
+        <div className="card workflow-primary" style={{ margin: 0, height: "100%", display: "flex", flexDirection: "column" }}>
           {/* 第 1 步：选择投放平台 */}
           <section className="workflow-section">
             <div className="section-heading">
@@ -247,18 +271,16 @@ export const ImportPage: React.FC = () => {
                   className="form-control"
                   style={{ maxWidth: '400px' }}
                 >
-                  <option value="">默认主账号 / 全局凭据</option>
-                  {subaccounts.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name} ({s.id})
-                    </option>
+                  <option value="">主账号 / 默认</option>
+                  {subaccounts.map((acc) => (
+                    <option key={acc.id} value={acc.id}>{acc.name} ({acc.id})</option>
                   ))}
                 </select>
               </div>
             )}
           </section>
 
-          {/* 第 2 步：上传 Excel */}
+          {/* 第 2 步：上传 Excel 数据样本 */}
           <section className="workflow-section">
             <div className="section-heading">
               <span className="step-index">2</span>
@@ -271,128 +293,278 @@ export const ImportPage: React.FC = () => {
               className="upload-box"
               style={{ display: 'block', cursor: 'pointer' }}
             >
-              <input type="file" accept=".xlsx,.xls" style={{ display: 'none' }} onChange={handleFileChange} />
+              <input
+                type="file"
+                id="excelFileInput"
+                accept=".xlsx,.xls"
+                style={{ display: 'none' }}
+                onChange={handleFileChange}
+              />
               <div className="upload-file-icon">X</div>
               <div className="upload-title">{file ? file.name : '点击或拖拽上传 Excel 文件'}</div>
               <div className="upload-desc">支持 .xlsx、.xls 格式，建议使用近 30 行样本数据，文件不超过 50MB</div>
             </label>
             <div className="upload-note">
               <Info className="icon" size={14} />
-              <span>上传后系统将自动解析表头字段、数据类型，并进行格式校验</span>
+              <span>上传后系统将自动解析表头字段、数据类型，并自动抓取数据预览</span>
             </div>
           </section>
         </div>
 
-        {/* 右侧指引 Rail */}
-        <aside className="insight-rail">
-          <section className="rail-card">
-            <div className="rail-title">
-              <h3>最近的同步任务</h3>
-              <button className="rail-link" type="button" onClick={() => navigate('/tasks')}>
-                查看更多 ›
-              </button>
-            </div>
-            {recentTasks.length === 0 ? (
-              <div className="recent-empty">任务创建后会显示在这里<br />便于快速查看运行状态</div>
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {recentTasks.slice(0, 3).map((t) => (
-                  <div key={t.id} style={{ fontSize: '12px', padding: '6px 0', borderBottom: '1px solid #f1f5f9' }}>
-                    <div style={{ fontWeight: 600, color: 'var(--text)' }}>{t.name}</div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>{t.platform} · {t.update_mode}</div>
+        {/* 右侧卡片：未上传显示操作指引；上传后承接第 3 步与两个高级同步配置 */}
+        {analyzedSheets.length === 0 ? (
+          <aside className="import-rail" style={{ margin: 0 }}>
+            <section className="rail-card">
+              <div className="rail-title">
+                <h3>操作指引</h3>
+              </div>
+              <div className="guide-list">
+                <div className="guide-item">
+                  <span className="num">1</span>
+                  <div>
+                    <strong>选择投放平台</strong>
+                    <p>根据需要同步的数据来源，选择对应平台</p>
                   </div>
-                ))}
+                </div>
+                <div className="guide-item">
+                  <span className="num">2</span>
+                  <div>
+                    <strong>上传 Excel 样本</strong>
+                    <p>使用平台导出的报表文件，系统将自动解析字段</p>
+                  </div>
+                </div>
+                <div className="guide-item">
+                  <span className="num">3</span>
+                  <div>
+                    <strong>核验与高级配置</strong>
+                    <p>确认工作表、支持多任务合并或追加到已有表格</p>
+                  </div>
+                </div>
+                <div className="guide-item">
+                  <span className="num">4</span>
+                  <div>
+                    <strong>自动预览与创建</strong>
+                    <p>系统自动拉取接口数据并建立飞书定时同步</p>
+                  </div>
+                </div>
               </div>
-            )}
-          </section>
+            </section>
+          </aside>
+        ) : (
+          <div className="card" id="sheetAnalysisCard" style={{ margin: 0, height: "100%", display: "flex", flexDirection: "column", animation: "uiFadeUp .28s both" }}>
+            <div className="card-title" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>第三步：工作表与高级同步配置</span>
+              <span style={{ fontSize: '12px', fontWeight: 'normal', color: 'var(--text-muted)' }}>
+                已解析 {analyzedSheets.length} 个工作表
+              </span>
+            </div>
 
-          <section className="rail-card">
-            <div className="rail-title">
-              <h3>操作指引</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', flex: 1 }}>
+              {/* 1. 工作表选择区（强化徽章与结构展示） */}
+              <div>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '8px' }}>
+                  目标工作表 (Sheet)
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {analyzedSheets.map((s, idx) => {
+                    const isSelected = selectedSheetIndices.includes(idx);
+                    return (
+                      <div
+                        key={idx}
+                        className={`sheet-pill ${isSelected ? 'selected' : ''}`}
+                        onClick={() => handleToggleSheet(idx)}
+                        style={{
+                          cursor: 'pointer',
+                          padding: '12px 16px',
+                          borderRadius: '8px',
+                          border: isSelected ? '1.5px solid var(--primary)' : '1px solid #e2e8f0',
+                          background: isSelected ? 'var(--primary-subtle)' : '#ffffff',
+                          boxShadow: isSelected ? '0 2px 6px rgba(245, 63, 63, 0.08)' : 'none',
+                          transition: 'all 0.18s ease',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <Layers size={16} style={{ color: isSelected ? 'var(--primary)' : '#64748b' }} />
+                            <strong style={{ fontSize: '14px', color: isSelected ? 'var(--primary)' : '#1e293b' }}>
+                              {s.sheet_title}
+                            </strong>
+                          </div>
+                          <span style={{ fontSize: '12px', fontWeight: 600, color: isSelected ? 'var(--primary)' : '#94a3b8' }}>
+                            {isSelected ? '✓ 已选中' : '未选择'}
+                          </span>
+                        </div>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', fontSize: '12px', color: '#64748b' }}>
+                          <span>ID 列: <strong style={{ color: '#334155' }}>{s.id_column || '未识别'}</strong></span>
+                          <span>·</span>
+                          <span>日期列: <strong style={{ color: '#334155' }}>{s.date_column || '未识别'}</strong></span>
+                          <span>·</span>
+                          <span>识别实体: <strong style={{ color: '#334155' }}>{s.detected_entity_ids?.length || 0} 个</strong></span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* 2. 样本数据概览面板 (有效利用空间，呈现关键洞察) */}
+              {analyzedSheets.length > 0 && (
+                <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px 14px' }}>
+                  <div style={{ fontSize: '12px', fontWeight: 600, color: '#475569', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Hash size={14} style={{ color: 'var(--primary)' }} />
+                    <span>样本数据结构分析</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                    <div style={{ background: '#f8fafc', padding: '8px 10px', borderRadius: '6px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '11px', color: '#64748b' }}>样本历史行数</div>
+                      <div style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b', marginTop: '2px' }}>
+                        {analyzedSheets[0]?.uploaded_rows?.length || 0} 行
+                      </div>
+                    </div>
+                    <div style={{ background: '#f8fafc', padding: '8px 10px', borderRadius: '6px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '11px', color: '#64748b' }}>表头指标列数</div>
+                      <div style={{ fontSize: '14px', fontWeight: 700, color: '#1e293b', marginTop: '2px' }}>
+                        {analyzedSheets[0]?.headers?.length || 0} 列
+                      </div>
+                    </div>
+                    <div style={{ background: '#f8fafc', padding: '8px 10px', borderRadius: '6px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '11px', color: '#64748b' }}>新数据起始日</div>
+                      <div style={{ fontSize: '13px', fontWeight: 700, color: 'var(--primary)', marginTop: '3px' }}>
+                        {analyzedSheets[0]?.next_start_date ? analyzedSheets[0].next_start_date.slice(5) : '最新'}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* 3. 高级扩展选项卡片 (结构饱满精致，强化视觉层次) */}
+              <div style={{ border: '1px solid #e2e8f0', borderRadius: '8px', padding: '14px', background: '#f8fafc', display: 'flex', flexDirection: 'column', gap: '14px', flex: 1 }}>
+                <div style={{ fontSize: '13px', fontWeight: 600, color: '#1e293b', borderBottom: '1px solid #e2e8f0', paddingBottom: '8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span>⚙️ 同步模式与目标扩展配置</span>
+                </div>
+
+                {/* 选项 1：多任务合并 */}
+                <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontWeight: 600, fontSize: '13px', color: '#1e293b' }}>
+                    <input
+                      type="checkbox"
+                      checked={isMergeTasks}
+                      onChange={(e) => {
+                        setIsMergeTasks(e.target.checked);
+                        if (e.target.checked && !customTaskIdsInput) {
+                          const defaultIds = analyzedSheets[selectedSheetIndices[0] || 0]?.detected_entity_ids || [];
+                          setCustomTaskIdsInput(defaultIds.join(', '));
+                        }
+                        setTimeout(() => previewMutation.mutate(), 80);
+                      }}
+                      style={{ width: '16px', height: '16px', accentColor: '#f53f3f', cursor: 'pointer' }}
+                    />
+                    <span>⚡ 开启多任务合并为一个 Sheet</span>
+                  </label>
+                  {isMergeTasks ? (
+                    <div style={{ marginTop: '10px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      <span style={{ fontSize: '12px', color: '#64748b' }}>
+                        输入要合并的任务 ID（多个请使用英文逗号或空格分隔）：
+                      </span>
+                      <input
+                        type="text"
+                        className="form-control"
+                        placeholder="例如: 204611, 210427"
+                        value={customTaskIdsInput}
+                        onChange={(e) => setCustomTaskIdsInput(e.target.value)}
+                        onBlur={() => previewMutation.mutate()}
+                        style={{ width: '100%', fontSize: '13px', height: '36px' }}
+                      />
+                      <div style={{ fontSize: '11px', color: '#64748b', background: '#f8fafc', padding: '6px 10px', borderRadius: '4px', borderLeft: '3px solid #165dff', lineHeight: '1.5' }}>
+                        💡 若新任务包含当前表头未覆盖的列，系统将在飞书工作表右侧自动动态追加新列，其余任务留空，杜绝错位。
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '6px', paddingLeft: '26px' }}>
+                      默认按样本中提取的单一实体进行同步；勾选后可自由追加多个任务 ID 统一汇总。
+                    </div>
+                  )}
+                </div>
+
+                {/* 选项 2：链接到已有飞书表格 */}
+                <div style={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '8px', padding: '12px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', fontWeight: 600, fontSize: '13px', color: '#1e293b' }}>
+                    <input
+                      type="checkbox"
+                      checked={isLinkExisting}
+                      onChange={(e) => {
+                        setIsLinkExisting(e.target.checked);
+                        if (e.target.checked && !newSheetTitle) {
+                          setNewSheetTitle(taskName || '数据同步');
+                        }
+                      }}
+                      style={{ width: '16px', height: '16px', accentColor: '#f53f3f', cursor: 'pointer' }}
+                    />
+                    <span>🔗 链接到已有飞书表格（在已有文档末尾新增 Sheet）</span>
+                  </label>
+
+                  {isLinkExisting ? (
+                    <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                      <div>
+                        <span style={{ fontSize: '12px', fontWeight: 500, color: '#475569', display: 'block', marginBottom: '4px' }}>
+                          已有表格链接（支持普通表格或知识库 Wiki 链接）*
+                        </span>
+                        <input
+                          type="text"
+                          className="form-control"
+                          placeholder="https://yimeichuanbo.feishu.cn/wiki/... 或 /sheets/..."
+                          value={existingUrl}
+                          onChange={(e) => setExistingUrl(e.target.value)}
+                          style={{ width: '100%', fontSize: '13px', height: '36px' }}
+                        />
+                      </div>
+                      <div>
+                        <span style={{ fontSize: '12px', fontWeight: 500, color: '#475569', display: 'block', marginBottom: '4px' }}>
+                          新增子表 (Sheet) 名称*
+                        </span>
+                        <input
+                          type="text"
+                          className="form-control"
+                          placeholder="输入要在该文档中新建的 Sheet 标题"
+                          value={newSheetTitle}
+                          onChange={(e) => setNewSheetTitle(e.target.value)}
+                          style={{ width: '100%', fontSize: '13px', height: '36px' }}
+                        />
+                      </div>
+                      {/* 权限提醒指引 */}
+                      <div style={{ background: '#fffbe6', border: '1px solid #ffe58f', borderRadius: '6px', padding: '9px 12px', fontSize: '12px', color: '#d46b08', lineHeight: '1.5' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <strong>⚠️ 必须先在表格中添加「信息流自动」文档应用并设为「可编辑」</strong>
+                          <button
+                            type="button"
+                            onClick={() => setShowInstruction(!showInstruction)}
+                            style={{ background: 'none', border: 'none', color: '#165dff', cursor: 'pointer', fontSize: '12px', padding: 0 }}
+                          >
+                            {showInstruction ? '收起步骤 ▲' : '查看步骤 ▼'}
+                          </button>
+                        </div>
+                        {showInstruction && (
+                          <ol style={{ margin: '8px 0 0 16px', padding: 0, color: '#595959' }}>
+                            <li>打开目标表格，点击右上角 <strong>「···」</strong>；</li>
+                            <li>点击 <strong>「添加文档应用」</strong> 并搜索 <strong>「信息流自动」</strong>；</li>
+                            <li>权限务必选为 <strong>「可编辑」</strong>，点击确认添加；</li>
+                            <li>添加完成后方可在此点击创建任务，自动追加 Sheet 同步。</li>
+                          </ol>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={{ fontSize: '11px', color: '#94a3b8', marginTop: '6px', paddingLeft: '26px' }}>
+                      默认在飞书个人空间下自动创建新在线表格；勾选后可无缝挂载至已有团队文档。
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
-            <div className="guide-list">
-              <div className="guide-item">
-                <span className="num">1</span>
-                <div>
-                  <strong>选择投放平台</strong>
-                  <p>根据需要同步的数据来源，选择对应平台</p>
-                </div>
-              </div>
-              <div className="guide-item">
-                <span className="num">2</span>
-                <div>
-                  <strong>上传 Excel 数据样本</strong>
-                  <p>使用平台导出的报表文件，系统将自动解析字段</p>
-                </div>
-              </div>
-              <div className="guide-item">
-                <span className="num">3</span>
-                <div>
-                  <strong>核验数据</strong>
-                  <p>确认字段映射关系与数据格式是否正确</p>
-                </div>
-              </div>
-              <div className="guide-item">
-                <span className="num">4</span>
-                <div>
-                  <strong>创建同步任务</strong>
-                  <p>配置飞书表格、同步频率等信息</p>
-                </div>
-              </div>
-            </div>
-          </section>
-        </aside>
+          </div>        )}
       </div>
 
-      {/* 第 3 步：工作表分析与实体确认 */}
-      {analyzedSheets.length > 0 && (
-        <div className="card" id="sheetAnalysisCard" style={{ animation: 'uiFadeUp .28s both' }}>
-          <div className="card-title">第三步：工作表分析与实体确认</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-              已解析 {analyzedSheets.length} 个工作表，勾选需要包含进同步计划的 Sheet：
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '12px' }}>
-              {analyzedSheets.map((s, idx) => {
-                const isSelected = selectedSheetIndices.includes(idx);
-                return (
-                  <div
-                    key={s.sheet_title}
-                    onClick={() => handleToggleSheet(idx)}
-                    style={{
-                      padding: '14px 16px',
-                      borderRadius: '8px',
-                      border: '1.5px solid ' + (isSelected ? 'var(--primary)' : 'var(--border)'),
-                      background: isSelected ? 'var(--primary-light)' : '#ffffff',
-                      cursor: 'pointer',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '6px',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <strong style={{ fontSize: '14px', color: isSelected ? 'var(--primary)' : 'var(--text)' }}>
-                        {s.sheet_title}
-                      </strong>
-                      <span style={{ fontSize: '12px', color: isSelected ? 'var(--primary)' : 'var(--text-muted)' }}>
-                        {isSelected ? '✓ 已选中' : '未选择'}
-                      </span>
-                    </div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                      ID 列: <strong>{s.id_column || '未识别'}</strong> · 日期: <strong>{s.date_column || '未识别'}</strong>
-                    </div>
-                    <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                      识别到实体数: <strong>{s.detected_entity_ids?.length || 0} 个</strong>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 第 4 步：平台接口预览 */}
+      {/* 第 4 步：调取平台接口数据预览 (全宽大表格视图) */}
       {analyzedSheets.length > 0 && (
         <div className="card" id="previewCard" style={{ animation: 'uiFadeUp .28s both' }}>
           <div className="card-title">
@@ -403,12 +575,16 @@ export const ImportPage: React.FC = () => {
               onClick={() => previewMutation.mutate()}
               disabled={previewMutation.isPending}
             >
-              🔄 重新测试抓取
+              {previewMutation.isPending ? '抓取中…' : '🔄 重新测试抓取'}
             </button>
           </div>
 
-          {previewMutation.data ? (
-            <div className="table-container" style={{ maxHeight: '280px', overflowY: 'auto' }}>
+          {previewMutation.isPending ? (
+            <div style={{ padding: '36px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
+              ⏳ 正在自动调用目标平台接口抓取最新数据并校验字段映射，请稍候…
+            </div>
+          ) : previewMutation.data ? (
+            <div className="table-container" style={{ maxHeight: '320px', overflowY: 'auto' }}>
               <table>
                 <thead>
                   <tr>
@@ -418,7 +594,7 @@ export const ImportPage: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {previewMutation.data.rows.slice(0, 8).map((row: any[], rIdx: number) => (
+                  {previewMutation.data.rows.slice(0, 15).map((row: any[], rIdx: number) => (
                     <tr key={rIdx}>
                       {row.map((c: any, cIdx: number) => (
                         <td key={cIdx}>{c !== null && c !== undefined ? String(c) : '-'}</td>
@@ -429,26 +605,30 @@ export const ImportPage: React.FC = () => {
               </table>
             </div>
           ) : (
-            <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-              点击上方按钮测试调取目标平台（{platform === 'jzt' ? '京准通' : platform === 'taobao' ? '淘宝星河' : '小红书聚光'}）接口并核验字段映射。
+            <div className="empty-prompt">
+              <RotateCw size={24} style={{ animation: 'spin 1.5s linear infinite' }} />
+              <span>正在自动调取目标平台数据并核验字段映射…</span>
             </div>
           )}
         </div>
       )}
 
-      {/* 第 5 步：创建任务与定时配置 */}
+      {/* 第 5 步：创建任务与定时配置 (全宽) */}
       {analyzedSheets.length > 0 && (
         <div className="card" id="scheduleConfigCard" style={{ animation: 'uiFadeUp .28s both' }}>
           <div className="card-title">第五步：创建飞书表格并配置定时自动同步</div>
 
           <div className="form-row">
             <div className="form-group" style={{ flex: 2 }}>
-              <label>飞书表格名称</label>
+              <label>任务名称</label>
               <input
                 type="text"
                 className="form-control"
                 value={taskName}
-                onChange={(e) => setTaskName(e.target.value)}
+                onChange={(e) => {
+                  setTaskName(e.target.value);
+                  setCreateErrorMsg('');
+                }}
               />
             </div>
             <div className="form-group">
@@ -462,42 +642,44 @@ export const ImportPage: React.FC = () => {
                 <option value="overwrite">全量覆盖（滚动窗口覆写）</option>
               </select>
             </div>
-            <div className="form-group" style={{ maxWidth: '140px' }}>
-              <label>回溯校准天数</label>
-              <input
-                type="number"
-                min="0"
-                max="30"
-                className="form-control"
-                value={calibrationDays}
-                onChange={(e) => setCalibrationDays(parseInt(e.target.value) || 0)}
-              />
-            </div>
           </div>
 
           <div style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '18px', background: '#fafbfc', margin: '16px 0' }}>
-            <label style={{ fontSize: '14px', fontWeight: 600, display: 'block', marginBottom: '8px' }}>
-              ⏰ 自动化同步周期 (RRULE)
-            </label>
-            <select
-              className="form-control"
+            <SchedulePicker
+              label="⏰ 自动化同步周期 (RRULE)"
               value={rrule}
-              onChange={(e) => setRrule(e.target.value)}
-              style={{ maxWidth: '360px' }}
-            >
-              <option value="RRULE:FREQ=DAILY;BYHOUR=9;BYMINUTE=0">每天 09:00 执行</option>
-              <option value="RRULE:FREQ=DAILY;BYHOUR=12;BYMINUTE=30">每天 12:30 执行 (推荐，T-1数据)</option>
-              <option value="RRULE:FREQ=DAILY;BYHOUR=18;BYMINUTE=0">每天 18:00 执行</option>
-              <option value="RRULE:FREQ=WORKDAY;BYHOUR=9;BYMINUTE=30">法定工作日 09:30 执行</option>
-            </select>
+              onChange={setRrule}
+            />
           </div>
 
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px' }}>
+          {/* 醒目的错误警示卡片（当接口报错或缺少机器人权限时直接在此展示） */}
+          {createErrorMsg && (
+            <div
+              style={{
+                margin: '12px 0',
+                padding: '12px 16px',
+                background: '#fff2f0',
+                border: '1px solid #ffccc7',
+                borderRadius: '8px',
+                color: '#cf1322',
+                fontSize: '13px',
+                lineHeight: '1.6',
+              }}
+            >
+              <strong style={{ display: 'block', marginBottom: '4px' }}>❌ 创建任务未成功：</strong>
+              <div>{createErrorMsg}</div>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', marginTop: '12px' }}>
             <button
               type="button"
               className="btn btn-primary"
-              disabled={createTaskMutation.isPending || !taskName.trim() || selectedSheetIndices.length === 0}
-              onClick={() => createTaskMutation.mutate()}
+              disabled={createTaskMutation.isPending || !taskName.trim() || selectedSheetIndices.length === 0 || (isLinkExisting && (!existingUrl.trim() || !newSheetTitle.trim()))}
+              onClick={() => {
+                setCreateErrorMsg('');
+                createTaskMutation.mutate();
+              }}
             >
               {createTaskMutation.isPending ? '创建中…' : '🚀 立即生成飞书表格并启用定时任务'}
             </button>
@@ -507,4 +689,3 @@ export const ImportPage: React.FC = () => {
     </>
   );
 };
-

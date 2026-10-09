@@ -1,6 +1,7 @@
 import openpyxl
 import io
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
+from datetime import datetime, timedelta
 from platforms.registry import (
     calculate_match_scores, detect_best_platform,
     find_id_column, find_date_column, PLATFORMS
@@ -11,6 +12,13 @@ def normalize_date_str(val: Any) -> str:
     digits = "".join(c for c in s if c.isdigit())
     if len(digits) == 8:
         return f"{digits[:4]}-{digits[4:6]}-{digits[6:8]}"
+    return s
+
+def normalize_date_compact(val: Any) -> str:
+    s = str(val).strip().replace("/", "-").split(" ")[0]
+    digits = "".join(c for c in s if c.isdigit())
+    if len(digits) == 8:
+        return digits
     return s
 
 def parse_excel_sheets(file_bytes: bytes, filename: str) -> List[Dict[str, Any]]:
@@ -34,14 +42,15 @@ def parse_excel_sheets(file_bytes: bytes, filename: str) -> List[Dict[str, Any]]
         if not header_vals:
             continue
         
-        sample_rows = []
-        for r in rows_iter[header_row_idx + 1: header_row_idx + 31]:
+        all_data_rows = []
+        for r in rows_iter[header_row_idx + 1:]:
             row_dict = {}
             for col_name, val in zip(header_vals, r):
                 if col_name:
                     row_dict[col_name] = "" if val is None else str(val).strip()
             if any(row_dict.values()):
-                sample_rows.append(row_dict)
+                all_data_rows.append(row_dict)
+        sample_rows = all_data_rows[:30]
         
         scores = calculate_match_scores(header_vals)
         best_code, best_info = detect_best_platform(header_vals)
@@ -51,6 +60,7 @@ def parse_excel_sheets(file_bytes: bytes, filename: str) -> List[Dict[str, Any]]
             "header_row_index": header_row_idx,
             "headers": header_vals,
             "sample_rows": sample_rows,
+            "all_data_rows": all_data_rows,
             "detected_platform": best_code,
             "match_scores": scores
         })
@@ -88,7 +98,8 @@ def analyze_sheet_for_platform(sheet_info: Dict[str, Any], selected_platform: st
     entity_ids = []
     seen = set()
     dates = []
-    for r in sample_rows:
+    all_rows = sheet_info.get("all_data_rows") or sample_rows
+    for r in all_rows:
         val = str(r.get(id_col, "")).strip()
         if val and val not in seen and val != id_col:
             seen.add(val)
@@ -131,6 +142,8 @@ def analyze_sheet_for_platform(sheet_info: Dict[str, Any], selected_platform: st
         "detected_entity_ids": entity_ids,
         "min_sample_date": min(dates) if dates else None,
         "max_sample_date": max(dates) if dates else None,
+        "next_start_date": (datetime.strptime(max(dates), "%Y-%m-%d").date() + timedelta(days=1)).isoformat() if dates else None,
+        "uploaded_rows": [[normalize_date_compact(r.get(h, "")) if h == date_col else (r.get(h, "") if r.get(h) is not None else "") for h in headers] for r in (sheet_info.get("all_data_rows") or sample_rows)],
         "dimension": dimension,
         "column_mapping": column_mapping,
         "needs_confirm": needs_confirm,

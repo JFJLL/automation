@@ -31,16 +31,36 @@ def format_cell_value(val: Any) -> str:
         return str(val)
     return str(val).strip()
 
+def normalize_date_compact(val: Any) -> str:
+    s = str(val).strip().replace('/', '-').split(' ')[0]
+    digits = ''.join(c for c in s if c.isdigit())
+    if len(digits) == 8:
+        return digits
+    return s
+
+def normalize_date_str(val: Any) -> str:
+    s = str(val).strip().replace('/', '-').split(' ')[0]
+    digits = ''.join(c for c in s if c.isdigit())
+    if len(digits) == 8:
+        return digits
+    return s
+
 def map_item_to_row(item: Dict[str, Any], headers: List[str], id_col: str, date_col: str) -> List[Any]:
     row = []
     for h in headers:
         if h in item:
-            row.append(format_cell_value(item[h]))
+            val = item[h]
+            if h == date_col:
+                val = normalize_date_compact(val)
+            row.append(format_cell_value(val))
         else:
             found = False
             for k, v in item.items():
                 if str(k).strip().lower() == str(h).strip().lower():
-                    row.append(format_cell_value(v))
+                    val = v
+                    if h == date_col:
+                        val = normalize_date_compact(val)
+                    row.append(format_cell_value(val))
                     found = True
                     break
             if not found:
@@ -48,7 +68,8 @@ def map_item_to_row(item: Dict[str, Any], headers: List[str], id_col: str, date_
     return row
 
 def get_item_natural_key(platform: str, item: Dict[str, Any], entity_id: str, dimension: str) -> Tuple:
-    d_val = str(item.get("日期") or item.get("时间") or "").strip()[:10]
+    raw_date = item.get("日期") or item.get("时间") or ""
+    d_val = normalize_date_compact(raw_date)[:8]
     if platform == "jzt":
         task_id_val = str(item.get("任务ID") or entity_id or "").strip()
         channel = str(item.get("平台") or item.get("渠道") or "").strip()
@@ -95,13 +116,19 @@ def preview_fetch(
         except Exception as e:
             errors.append(f"实体 {eid}: {str(e)}")
             
+    merged_headers = list(headers)
+    for item in all_raw_rows:
+        for k in item.keys():
+            if k and k not in merged_headers:
+                merged_headers.append(k)
+
     preview_table_rows = []
     for item in all_raw_rows[:50]:
-        row = map_item_to_row(item, headers, id_col, date_col)
+        row = map_item_to_row(item, merged_headers, id_col, date_col)
         preview_table_rows.append(row)
         
     return {
-        "headers": headers,
+        "headers": merged_headers,
         "rows": preview_table_rows,
         "total_fetched": len(all_raw_rows),
         "sample_entities_checked": sample_ids,
@@ -197,9 +224,13 @@ def execute_task_sync(task_id: int, trigger_type: str = "scheduled") -> Dict[str
                 date_idx = headers.index(date_col) if (headers and date_col in headers) else 0
                 for r in existing_values[1:]:
                     if len(r) > date_idx and r[date_idx]:
-                        d_str = str(r[date_idx]).strip()[:10].replace("/", "-")
-                        if len(d_str) == 10:
-                            dates_in_sheet.append(d_str)
+                        compact = normalize_date_compact(r[date_idx])
+                        if len(compact) == 8 and compact.isdigit():
+                            dates_in_sheet.append(f"{compact[:4]}-{compact[4:6]}-{compact[6:8]}")
+                        else:
+                            d_str = str(r[date_idx]).strip()[:10].replace("/", "-")
+                            if len(d_str) == 10:
+                                dates_in_sheet.append(d_str)
                             
             if task["update_mode"] == "overwrite":
                 start_date = min(dates_in_sheet) if dates_in_sheet else (date.today() - timedelta(days=30)).isoformat()
@@ -289,6 +320,30 @@ def execute_task_sync(task_id: int, trigger_type: str = "scheduled") -> Dict[str
             clean_old_backups(task_id, worksheet_id, 30)
             sheets_written.append((worksheet_id, existing_values))
             
+            # 动态扩列：若多任务合并中新任务产生新字段，自动在飞书工作表右侧追加新列
+            extra_cols = []
+            for item in fetched_items:
+                for col in item.keys():
+                    if col and col not in headers and col not in extra_cols:
+                        extra_cols.append(col)
+
+            if extra_cols:
+                try:
+                    feishu.add_columns(task["spreadsheet_token"], worksheet_id, length=len(extra_cols))
+                except Exception as ex:
+                    print(f"[DynamicColumn] add_columns note: {ex}")
+                headers = list(headers) + extra_cols
+                try:
+                    feishu.write_rows(task["spreadsheet_token"], worksheet_id, start_row=1, rows=[headers])
+                except Exception as ex:
+                    print(f"[DynamicColumn] update header row note: {ex}")
+                with get_db() as conn:
+                    conn.execute(
+                        "UPDATE task_sheets SET header_json = ? WHERE id = ?",
+                        (json.dumps(headers, ensure_ascii=False), s["id"])
+                    )
+                    conn.commit()
+
             new_rows = [map_item_to_row(item, headers, id_col, date_col) for item in fetched_items]
             
             if task["update_mode"] == "overwrite":

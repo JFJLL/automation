@@ -4,6 +4,7 @@ import { Sparkles, Calendar, Search, X, Clock, Tags, Copy } from 'lucide-react';
 import { fetchJson } from '@/shared/api/client';
 import { Dialog } from '@/shared/components/Dialog';
 import { useToast } from '@/shared/components/Toast';
+import { SchedulePicker } from '@/shared/components/SchedulePicker';
 
 export const KeywordInsightPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -15,7 +16,7 @@ export const KeywordInsightPage: React.FC = () => {
   const [activePrimeCategory, setActivePrimeCategory] = useState<string>('全部词库');
   const [activeSubCategory, setActiveSubCategory] = useState<string>('全部');
   const [libraryFilter, setLibraryFilter] = useState('');
-  const [isDescending, setIsDescending] = useState(true);
+  const [isDescending, setIsDescending] = useState(false);
 
   // 日期范围服务 (Asia/Shanghai)
   const { data: businessTime } = useQuery<{
@@ -980,18 +981,11 @@ export const KeywordInsightPage: React.FC = () => {
           </div>
 
           <div>
-            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text)', display: 'block', marginBottom: '6px' }}>
-              调度频率 (RRULE)
-            </label>
-            <select
-              className="form-control"
+            <SchedulePicker
+              label="调度频率 (RRULE)"
               value={taskRrule}
-              onChange={(e) => setTaskRrule(e.target.value)}
-            >
-              <option value="FREQ=DAILY;BYHOUR=12;BYMINUTE=30">每天 12:30 执行 (推荐，T-1数据就绪)</option>
-              <option value="FREQ=DAILY;BYHOUR=18;BYMINUTE=0">每天 18:00 执行</option>
-              <option value="FREQ=DAILY;BYHOUR=9;BYMINUTE=0">每天 09:00 执行 (T-2数据)</option>
-            </select>
+              onChange={setTaskRrule}
+            />
           </div>
 
           <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>

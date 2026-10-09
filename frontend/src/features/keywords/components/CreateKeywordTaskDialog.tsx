@@ -2,6 +2,7 @@ import React from 'react';
 import { AlertTriangle } from 'lucide-react';
 import { Dialog } from '@/shared/components/Dialog';
 import { Button } from '@/shared/components/Button';
+import { SchedulePicker } from '@/shared/components/SchedulePicker';
 
 export interface CreateKeywordTaskDialogProps {
   isOpen: boolean;
@@ -93,24 +94,11 @@ export const CreateKeywordTaskDialog: React.FC<CreateKeywordTaskDialogProps> = (
         </div>
 
         <div>
-          <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155', display: 'block', marginBottom: '6px' }}>
-            调度频率 (RRULE)
-          </label>
-          <select
+          <SchedulePicker
+            label="调度频率 (RRULE)"
             value={rrule}
-            onChange={(e) => setRrule(e.target.value)}
-            style={{
-              width: '100%',
-              padding: '9px 12px',
-              borderRadius: '6px',
-              border: '1px solid #cbd5e1',
-              fontSize: '14px',
-            }}
-          >
-            <option value="FREQ=DAILY;BYHOUR=12;BYMINUTE=30">每天 12:30 执行 (推荐，T-1数据就绪)</option>
-            <option value="FREQ=DAILY;BYHOUR=18;BYMINUTE=0">每天 18:00 执行</option>
-            <option value="FREQ=DAILY;BYHOUR=9;BYMINUTE=0">每天 09:00 执行 (T-2数据)</option>
-          </select>
+            onChange={setRrule}
+          />
         </div>
 
         <div style={{ fontSize: '13px', color: '#64748b' }}>

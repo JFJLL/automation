@@ -317,6 +317,42 @@ def toggle_task(task_id: int):
         SchedulerManager.get_instance().remove_keyword_task(task_id)
     return {"status": next_s}
 
+class UpdateKeywordTaskRequest(BaseModel):
+    name: Optional[str] = None
+    rrule: Optional[str] = None
+    keywords: Optional[List[str]] = None
+
+@private_router.post("/tasks/{task_id}/update")
+@private_router.put("/tasks/{task_id}")
+def update_keyword_task_endpoint(task_id: int, req: UpdateKeywordTaskRequest):
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM keyword_tasks WHERE id = ?", (task_id,))
+        task = cursor.fetchone()
+        if not task:
+            raise HTTPException(status_code=404, detail="任务不存在")
+        now = datetime.now().isoformat()
+        if req.name and req.name.strip():
+            conn.execute("UPDATE keyword_tasks SET name = ?, updated_at = ? WHERE id = ?", (req.name.strip(), now, task_id))
+        if req.rrule and req.rrule.strip():
+            conn.execute("UPDATE keyword_tasks SET rrule = ?, updated_at = ? WHERE id = ?", (req.rrule.strip(), now, task_id))
+        if req.keywords is not None:
+            clean_new = []
+            seen = set()
+            for k in req.keywords:
+                s = str(k).strip()
+                if s and s not in seen:
+                    seen.add(s)
+                    clean_new.append(s)
+            conn.execute(
+                "UPDATE keyword_tasks SET keywords_json = ?, updated_at = ? WHERE id = ?",
+                (json.dumps(clean_new, ensure_ascii=False), now, task_id)
+            )
+        conn.commit()
+    if req.rrule and task["status"] == "active":
+        SchedulerManager.get_instance().schedule_keyword_task(task_id)
+    return {"success": True}
+
 @private_router.delete("/tasks/{task_id}")
 def delete_task(task_id: int):
     with get_db() as conn:

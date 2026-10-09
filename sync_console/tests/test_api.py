@@ -16,9 +16,12 @@ class TestApiEndpoints(unittest.TestCase):
         r = self.client.get("/api/platforms")
         self.assertEqual(r.status_code, 200)
 
-        # 未授权管理接口
-        r = self.client.get("/api/settings")
-        self.assertEqual(r.status_code, 401)
+        # 免鉴权访问管理接口
+        mock_feishu = MagicMock()
+        mock_feishu.get_or_create_shared_folder.return_value = "mock_folder_token_123"
+        with patch("app.main.FeishuClient", return_value=mock_feishu):
+            r = self.client.get("/api/settings")
+            self.assertEqual(r.status_code, 200)
 
         # 密码登录
         r = self.client.post("/api/auth/login", json={"password": ACCESS_TOKEN})

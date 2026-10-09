@@ -4,12 +4,32 @@ import { formatRruleText } from '@/shared/utils/formatRrule';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { fetchJson } from '@/shared/api/client';
 import { Dialog } from '@/shared/components/Dialog';
+import { SchedulePicker } from '@/shared/components/SchedulePicker';
 import { useToast } from '@/shared/components/Toast';
 
 export const TasksPage: React.FC = () => {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
   const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
+  const [editingTask, setEditingTask] = useState<any | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editRrule, setEditRrule] = useState('');
+
+  const updateTaskMutation = useMutation({
+    mutationFn: (data: { id: number; name: string; rrule: string }) =>
+      fetchJson(`/api/tasks/${data.id}/update`, {
+        method: 'POST',
+        body: JSON.stringify({ name: data.name, rrule: data.rrule }),
+      }),
+    onSuccess: () => {
+      showSuccess('任务配置已更新成功！');
+      setEditingTask(null);
+      queryClient.invalidateQueries({ queryKey: ['syncTasks'] });
+    },
+    onError: (err: any) => {
+      showError(err.message || '更新任务失败');
+    },
+  });
 
   const { data: tasks = [], isLoading, refetch } = useQuery<any[]>({
     queryKey: ['syncTasks'],
@@ -42,7 +62,7 @@ export const TasksPage: React.FC = () => {
   const deleteMutation = useMutation({
     mutationFn: (taskId: number) => fetchJson(`/api/tasks/${taskId}`, { method: 'DELETE' }),
     onSuccess: () => {
-      showSuccess('任务已成功归档删除');
+      showSuccess('任务已成功删除');
       setDeleteConfirmId(null);
       queryClient.invalidateQueries({ queryKey: ['syncTasks'] });
     },
@@ -137,10 +157,21 @@ export const TasksPage: React.FC = () => {
                       </button>
                       <button
                         type="button"
+                        className="btn btn-outline btn-sm"
+                        onClick={() => {
+                          setEditingTask(t);
+                          setEditName(t.name);
+                          setEditRrule(t.rrule);
+                        }}
+                      >
+                        ✏️ 编辑
+                      </button>
+                      <button
+                        type="button"
                         className="btn btn-danger btn-sm"
                         onClick={() => setDeleteConfirmId(t.id)}
                       >
-                        归档
+                        删除
                       </button>
                     </div>
                   </td>
@@ -155,12 +186,12 @@ export const TasksPage: React.FC = () => {
       <Dialog
         isOpen={deleteConfirmId !== null}
         onClose={() => setDeleteConfirmId(null)}
-        title="确认归档删除任务"
+        title="确认删除任务"
         width="400px"
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-            确定归档并停止此任务吗？飞书表格内容将保留，但后续将不再触发自动同步。
+            确定删除此任务吗？飞书表格内容将保留，但后续将不再触发自动同步。
           </p>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
             <button type="button" className="btn btn-outline" onClick={() => setDeleteConfirmId(null)}>
@@ -172,7 +203,58 @@ export const TasksPage: React.FC = () => {
               disabled={deleteMutation.isPending}
               onClick={() => deleteConfirmId && deleteMutation.mutate(deleteConfirmId)}
             >
-              确认归档
+              确认删除
+            </button>
+          </div>
+        </div>
+      </Dialog>
+
+      {/* 编辑任务 Dialog */}
+      <Dialog
+        isOpen={editingTask !== null}
+        onClose={() => setEditingTask(null)}
+        title="编辑同步任务"
+        width="480px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div>
+            <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155', display: 'block', marginBottom: '6px' }}>
+              任务名称
+            </label>
+            <input
+              type="text"
+              className="form-control"
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              style={{ width: '100%' }}
+            />
+          </div>
+
+          <SchedulePicker
+            label="自动化同步周期 (RRULE)"
+            value={editRrule}
+            onChange={setEditRrule}
+          />
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
+            <button type="button" className="btn btn-outline" onClick={() => setEditingTask(null)}>
+              取消
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={updateTaskMutation.isPending || !editName.trim()}
+              onClick={() => {
+                if (editingTask) {
+                  updateTaskMutation.mutate({
+                    id: editingTask.id,
+                    name: editName.trim(),
+                    rrule: editRrule,
+                  });
+                }
+              }}
+            >
+              {updateTaskMutation.isPending ? '保存中…' : '保存修改'}
             </button>
           </div>
         </div>

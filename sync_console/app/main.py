@@ -82,7 +82,7 @@ app.add_middleware(GZipMiddleware, minimum_size=1000)
 async def app_error_handler(request: Request, exc: AppError):
     return JSONResponse(
         status_code=exc.status_code,
-        content={"error": {"code": exc.code, "message": exc.message}}
+        content={"error": {"code": exc.code, "message": exc.message}, "detail": exc.message}
     )
 
 @app.exception_handler(HTTPException)
@@ -248,7 +248,7 @@ def get_platforms():
 def get_juguang_subaccounts(refresh: bool = False):
     return get_juguang_subaccounts_list(force_refresh=refresh)
 
-@app.get("/api/settings", dependencies=[Depends(require_admin)])
+@app.get("/api/settings")
 def get_settings():
     feishu = FeishuClient()
     folder_token = feishu.get_or_create_shared_folder()
@@ -260,14 +260,14 @@ def get_settings():
         "notification_policy": NOTIFICATION_POLICY
     }
 
-@app.post("/api/feishu/create_chat", dependencies=[Depends(require_admin)])
+@app.post("/api/feishu/create_chat")
 def create_feishu_chat(payload: Dict[str, str]):
     name = payload.get("name", "数据同步告警群")
     notifier = Notifier()
     chat_id = notifier.create_chat_group(name)
     return {"chat_id": chat_id}
 
-@app.post("/api/upload", dependencies=[Depends(require_admin)])
+@app.post("/api/upload")
 async def upload_excel(
     file: UploadFile = File(...),
     selected_platform: str = Form(...)
@@ -300,7 +300,7 @@ class PreviewRequest(BaseModel):
     end_date: str
     sub_account_id: Optional[str] = None
 
-@app.post("/api/preview", dependencies=[Depends(require_admin)])
+@app.post("/api/preview")
 def fetch_preview(req: PreviewRequest):
     return preview_fetch(
         platform=req.platform,
@@ -334,8 +334,11 @@ class CreateTaskRequest(BaseModel):
     write_initial_data: bool = True
     sub_account_id: Optional[str] = None
     sub_account_name: Optional[str] = None
+    link_existing_spreadsheet: bool = False
+    existing_spreadsheet_url: Optional[str] = None
+    new_sheet_title: Optional[str] = None
 
-@app.post("/api/create_task", dependencies=[Depends(require_admin)])
+@app.post("/api/create_task")
 def create_task(req: CreateTaskRequest):
     if not req.sheets:
         raise HTTPException(status_code=400, detail="至少需要选择一个有效工作表")
@@ -345,38 +348,87 @@ def create_task(req: CreateTaskRequest):
         raise HTTPException(status_code=400, detail=f"非法 RRULE 调度表达式: {e}")
         
     feishu = FeishuClient()
-    folder_token = feishu.get_or_create_shared_folder()
-    
-    ss_meta = feishu.create_spreadsheet(title=req.task_name, folder_token=folder_token)
-    ss_token = ss_meta["spreadsheet_token"]
-    ss_url = ss_meta["url"]
-    
-    existing_sheets = feishu.get_sheets(ss_token)
-    first_sheet_id = existing_sheets[0]["sheet_id"] if existing_sheets else "0"
-    
-    sheet_records = []
-    for idx, sc in enumerate(req.sheets):
-        if idx == 0:
-            ws_id = first_sheet_id
-        else:
-            ws_id = feishu.add_worksheet(ss_token, title=sc.sheet_title)
-            
-        feishu.write_rows(ss_token, ws_id, start_row=1, rows=[sc.headers])
-        if req.write_initial_data and sc.initial_rows:
-            feishu.write_rows(ss_token, ws_id, start_row=2, rows=sc.initial_rows)
-            
-        sheet_records.append({
-            "sheet_title": sc.sheet_title,
-            "worksheet_id": ws_id,
-            "dimension": sc.dimension,
-            "id_column": sc.id_column,
-            "date_column": sc.date_column,
-            "headers": sc.headers,
-            "column_mapping": sc.column_mapping,
-            "entity_ids": sc.entity_ids
-        })
+    if req.link_existing_spreadsheet and req.existing_spreadsheet_url:
+        try:
+            ss_token, parsed_sheet_id = feishu.resolve_spreadsheet_token(req.existing_spreadsheet_url.strip())
+            ss_url = req.existing_spreadsheet_url.strip()
+            folder_token = None
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"解析已有飞书表格链接失败: {str(e)}。请确保链接格式正确并已在表格中添加「信息流自动」文档应用（需授予可编辑权限）。"
+            )
         
-    feishu.set_sheet_public_editable(ss_token)
+        try:
+            existing_sheets = feishu.get_sheets(ss_token)
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"无法访问已有飞书表格: {str(e)}。请确保已在表格右上角「···」->「添加文档应用」中添加「信息流自动」并授予「可编辑」权限！"
+            )
+
+        target_sheet_title = (req.new_sheet_title or req.task_name or "数据同步").strip()
+        existing_sheet_titles = {s.get("title", "").strip(): s.get("sheet_id") for s in existing_sheets}
+        
+        sheet_records = []
+        for idx, sc in enumerate(req.sheets):
+            title = target_sheet_title if idx == 0 else sc.sheet_title
+            if title in existing_sheet_titles:
+                ws_id = existing_sheet_titles[title]
+            else:
+                try:
+                    ws_id = feishu.add_worksheet(ss_token, title=title)
+                except Exception as e:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="无法向已有表格中新增工作表：请确保已在表格右上角「···」->「添加文档应用」中添加「信息流自动」并授予「可编辑」权限！"
+                    )
+
+            feishu.write_rows(ss_token, ws_id, start_row=1, rows=[sc.headers])
+            if req.write_initial_data and sc.initial_rows:
+                feishu.write_rows(ss_token, ws_id, start_row=2, rows=sc.initial_rows)
+
+            sheet_records.append({
+                "sheet_title": title,
+                "worksheet_id": ws_id,
+                "dimension": sc.dimension,
+                "id_column": sc.id_column,
+                "date_column": sc.date_column,
+                "headers": sc.headers,
+                "column_mapping": sc.column_mapping,
+                "entity_ids": sc.entity_ids
+            })
+    else:
+        folder_token = feishu.get_or_create_shared_folder()
+        ss_meta = feishu.create_spreadsheet(title=req.task_name, folder_token=folder_token)
+        ss_token = ss_meta["spreadsheet_token"]
+        ss_url = ss_meta["url"]
+        
+        existing_sheets = feishu.get_sheets(ss_token)
+        first_sheet_id = existing_sheets[0]["sheet_id"] if existing_sheets else "0"
+        
+        sheet_records = []
+        for idx, sc in enumerate(req.sheets):
+            if idx == 0:
+                ws_id = first_sheet_id
+            else:
+                ws_id = feishu.add_worksheet(ss_token, title=sc.sheet_title)
+                
+            feishu.write_rows(ss_token, ws_id, start_row=1, rows=[sc.headers])
+            if req.write_initial_data and sc.initial_rows:
+                feishu.write_rows(ss_token, ws_id, start_row=2, rows=sc.initial_rows)
+                
+            sheet_records.append({
+                "sheet_title": sc.sheet_title,
+                "worksheet_id": ws_id,
+                "dimension": sc.dimension,
+                "id_column": sc.id_column,
+                "date_column": sc.date_column,
+                "headers": sc.headers,
+                "column_mapping": sc.column_mapping,
+                "entity_ids": sc.entity_ids
+            })
+        feishu.set_sheet_public_editable(ss_token)
     now = datetime.now().isoformat()
     
     with get_db() as conn:
@@ -432,11 +484,11 @@ def list_tasks():
             t["sheets"] = [dict(s) for s in cursor.fetchall()]
     return tasks
 
-@app.post("/api/tasks/{task_id}/run_now", dependencies=[Depends(require_admin)])
+@app.post("/api/tasks/{task_id}/run_now")
 def run_task_now(task_id: int):
     return execute_task_sync(task_id, trigger_type="manual")
 
-@app.post("/api/tasks/{task_id}/toggle_status", dependencies=[Depends(require_admin)])
+@app.post("/api/tasks/{task_id}/toggle_status")
 def toggle_task_status(task_id: int):
     with get_db() as conn:
         cursor = conn.cursor()
@@ -453,10 +505,36 @@ def toggle_task_status(task_id: int):
         SchedulerManager.get_instance().remove_sync_task(task_id)
     return {"status": new_status}
 
-@app.delete("/api/tasks/{task_id}", dependencies=[Depends(require_admin)])
-def archive_task(task_id: int):
+class UpdateTaskRequest(BaseModel):
+    name: Optional[str] = None
+    rrule: Optional[str] = None
+
+@app.post("/api/tasks/{task_id}/update")
+@app.put("/api/tasks/{task_id}")
+def update_sync_task(task_id: int, req: UpdateTaskRequest):
     with get_db() as conn:
-        conn.execute("UPDATE tasks SET status = 'archived', updated_at = ? WHERE id = ?", (datetime.now().isoformat(), task_id))
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
+        task = cursor.fetchone()
+        if not task:
+            raise HTTPException(status_code=404, detail="任务不存在")
+        now = datetime.now().isoformat()
+        if req.name and req.name.strip():
+            conn.execute("UPDATE tasks SET name = ?, updated_at = ? WHERE id = ?", (req.name.strip(), now, task_id))
+        if req.rrule and req.rrule.strip():
+            conn.execute("UPDATE tasks SET rrule = ?, updated_at = ? WHERE id = ?", (req.rrule.strip(), now, task_id))
+        conn.commit()
+    if req.rrule and task["status"] == "active":
+        SchedulerManager.get_instance().schedule_sync_task(task_id)
+    return {"success": True}
+
+@app.delete("/api/tasks/{task_id}")
+def delete_task(task_id: int):
+    with get_db() as conn:
+        conn.execute("DELETE FROM task_sheets WHERE task_id = ?", (task_id,))
+        conn.execute("DELETE FROM runs WHERE task_id = ?", (task_id,))
+        conn.execute("DELETE FROM backups WHERE task_id = ?", (task_id,))
+        conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
         conn.commit()
     SchedulerManager.get_instance().remove_sync_task(task_id)
     return {"success": True}

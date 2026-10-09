@@ -4,9 +4,7 @@ import threading
 import requests
 from typing import List, Dict, Any, Optional, Tuple
 from app.config import FEISHU_APP_ID, FEISHU_APP_SECRET, SHARED_FOLDER_TOKEN, SHARED_FOLDER_NAME
-
-class FeishuError(RuntimeError):
-    pass
+from core.errors import FeishuError
 
 def column_letter(n: int) -> str:
     result = []
@@ -64,17 +62,47 @@ class FeishuClient:
             if r.status_code >= 500 and attempt < 3:
                 time.sleep(1.5 * (attempt + 1))
                 continue
-            r.raise_for_status()
-            res = r.json()
+            try:
+                res = r.json()
+            except Exception:
+                res = {}
             code = res.get("code")
             if code == 0:
                 return res.get("data") or {}
+            # 明确的飞书权限与应用授权缺失诊断提示
+            if code == 131005:
+                raise FeishuError("飞书知识库节点未找到或未授权机器人：请确保已在文档右上角「···」->「添加文档应用」中添加「信息流自动」并授予「可编辑」权限！")
+            if code in (91403, 99991663, 99991668, 99991672, 99991677, 4):
+                raise FeishuError("飞书表格无访问或编辑权限：请确保已在目标表格右上角「···」->「添加文档应用」中添加「信息流自动」并授予「可编辑」权限！")
             # 限流重试
             if code in (90217, 99991400) and attempt < 3:
                 time.sleep(2 * (attempt + 1))
                 continue
-            raise FeishuError(f"Feishu API error {code}: {res.get('msg')}")
+            if not r.ok and not code:
+                raise FeishuError(f"飞书请求失败 ({r.status_code}): {r.text[:200]}")
+            raise FeishuError(f"飞书接口调用失败 (code: {code}): {res.get('msg')}")
         raise FeishuError(f"Feishu API retry exceeded for {path}")
+
+    def resolve_spreadsheet_token(self, url_or_token: str) -> Tuple[str, Optional[str]]:
+        from urllib.parse import urlparse, parse_qs
+        val = url_or_token.strip()
+        parsed = urlparse(val)
+        qs = parse_qs(parsed.query)
+        target_sheet_id = qs.get("sheet", [None])[0]
+
+        if "/wiki/" in val:
+            node = val.split("/wiki/")[1].split("?")[0].split("/")[0].strip()
+            res = self.request("GET", f"wiki/v2/spaces/get_node?token={node}")
+            obj_token = res.get("node", {}).get("obj_token")
+            if not obj_token:
+                raise FeishuError("无法从 Wiki 节点中获取表格底层 token")
+            return obj_token, target_sheet_id
+
+        if "/sheets/" in val:
+            token = val.split("/sheets/")[1].split("?")[0].split("/")[0].strip()
+            return token, target_sheet_id
+
+        return val, target_sheet_id
 
     def get_or_create_shared_folder(self, folder_name: str = SHARED_FOLDER_NAME) -> str:
         if SHARED_FOLDER_TOKEN:

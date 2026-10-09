@@ -200,6 +200,42 @@ def toggle_task_endpoint(task_id: int):
 
     return {"code": 0, "msg": "状态切换成功", "new_status": new_status}
 
+class UpdateLingxiTaskRequest(BaseModel):
+    name: Optional[str] = None
+    rrule: Optional[str] = None
+    keywords: Optional[List[str]] = None
+
+@private_router.post("/tasks/{task_id}/update")
+@private_router.put("/tasks/{task_id}")
+def update_lingxi_task_endpoint(task_id: int, req: UpdateLingxiTaskRequest):
+    conn = get_db()
+    with conn:
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM lingxi_tasks WHERE id = ?", (task_id,))
+        task = cur.fetchone()
+        if not task:
+            raise HTTPException(status_code=404, detail="未找到任务")
+        now = datetime.now().isoformat()
+        if req.name and req.name.strip():
+            cur.execute("UPDATE lingxi_tasks SET name = ?, updated_at = ? WHERE id = ?", (req.name.strip(), now, task_id))
+        if req.rrule and req.rrule.strip():
+            cur.execute("UPDATE lingxi_tasks SET rrule = ?, updated_at = ? WHERE id = ?", (req.rrule.strip(), now, task_id))
+        if req.keywords is not None:
+            clean_new = []
+            seen = set()
+            for k in req.keywords:
+                s = str(k).strip()
+                if s and s not in seen:
+                    seen.add(s)
+                    clean_new.append(s)
+            cur.execute(
+                "UPDATE lingxi_tasks SET keywords_json = ?, updated_at = ? WHERE id = ?",
+                (json.dumps(clean_new, ensure_ascii=False), now, task_id)
+            )
+    if req.rrule and task["status"] == "active":
+        SchedulerManager.get_instance().schedule_lingxi_task(task_id)
+    return {"code": 0, "msg": "更新成功"}
+
 @private_router.delete("/tasks/{task_id}")
 def delete_task_endpoint(task_id: int):
     conn = get_db()

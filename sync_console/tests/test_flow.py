@@ -75,7 +75,7 @@ class TestSyncConsole(unittest.TestCase):
         item = {"日期": "2026-09-18", "任务ID": "198973", "成交GMV": 99.8, "额外指标": "ok"}
         headers = ["日期", "任务ID", "成交GMV", "未映射指标"]
         row = map_item_to_row(item, headers, "任务ID", "日期")
-        self.assertEqual(row, ["2026-09-18", "198973", "99.8", ""])
+        self.assertEqual(row, ["20260918", "198973", "99.8", ""])
 
 if __name__ == "__main__":
     unittest.main()

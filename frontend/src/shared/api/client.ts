@@ -35,8 +35,20 @@ export async function fetchJson<T>(url: string, options: RequestInit = {}): Prom
   }
 
   if (!response.ok) {
-    const errorMsg = data?.error?.message || data?.detail || response.statusText || '请求异常';
-    const errorCode = data?.error?.code || `HTTP_${response.status}`;
+    let errorMsg = '请求异常';
+    if (data && typeof data === 'object') {
+      errorMsg = data.error?.message || data.detail || data.message || response.statusText || errorMsg;
+    } else if (typeof data === 'string' && data.trim()) {
+      try {
+        const parsed = JSON.parse(data);
+        errorMsg = parsed.error?.message || parsed.detail || parsed.message || data;
+      } catch {
+        errorMsg = data;
+      }
+    } else if (response.statusText) {
+      errorMsg = response.statusText;
+    }
+    const errorCode = (data && typeof data === 'object' && data.error?.code) || `HTTP_${response.status}`;
     throw new ApiError(errorMsg, errorCode, response.status);
   }
 

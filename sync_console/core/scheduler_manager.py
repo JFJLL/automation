@@ -80,20 +80,7 @@ class SchedulerManager:
         return after_dt + timedelta(days=1)
 
     def parse_kw_next_run(self, rrule_str: str, after_dt: Optional[datetime] = None) -> datetime:
-        if after_dt is None:
-            after_dt = datetime.now(tz)
-        elif after_dt.tzinfo is None:
-            after_dt = after_dt.replace(tzinfo=tz)
-            
-        clean_str = rrule_str.strip()
-        if clean_str.startswith("RRULE:"):
-            clean_str = clean_str[6:]
-
-        rule = rrule.rrulestr(clean_str, dtstart=after_dt)
-        next_dt = rule.after(after_dt)
-        if next_dt:
-            return next_dt.astimezone(tz)
-        return after_dt + timedelta(days=1)
+        return self.parse_sync_next_run(rrule_str, after_dt)
 
     def schedule_sync_task(self, task_id: int):
         with get_db() as conn:
