@@ -43,7 +43,11 @@ export async function fetchJson<T>(url: string, options: RequestInit = {}): Prom
         const parsed = JSON.parse(data);
         errorMsg = parsed.error?.message || parsed.detail || parsed.message || data;
       } catch {
-        errorMsg = data;
+        if (data.includes('<html') || data.includes('<!DOCTYPE') || data.includes('<body')) {
+          errorMsg = `网关服务响应异常 (HTTP ${response.status} ${response.statusText || 'Error'})`.trim();
+        } else {
+          errorMsg = data.slice(0, 150);
+        }
       }
     } else if (response.statusText) {
       errorMsg = response.statusText;

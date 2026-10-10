@@ -32,7 +32,7 @@ class DataValidationError(AppError):
 
 class FeishuError(AppError):
     def __init__(self, message: str, code: str = "FEISHU_ERROR"):
-        super().__init__(message, code=code, status_code=502)
+        super().__init__(message, code=code, status_code=400)
 
 class FeishuWriteError(FeishuError):
     def __init__(self, message: str):
@@ -40,7 +40,7 @@ class FeishuWriteError(FeishuError):
 
 class ProviderError(AppError):
     def __init__(self, message: str, code: str = "PROVIDER_ERROR"):
-        super().__init__(message, code=code, status_code=502)
+        super().__init__(message, code=code, status_code=400)
 
 class ProviderAuthError(ProviderError):
     def __init__(self, message: str):
@@ -56,7 +56,7 @@ class ProviderUpstreamError(ProviderError):
 
 class KeywordError(AppError):
     def __init__(self, message: str, code: str = "KEYWORD_ERROR"):
-        super().__init__(message, code=code, status_code=502)
+        super().__init__(message, code=code, status_code=400)
 
 class KeywordAuthExpiredError(KeywordError):
     def __init__(self, message: str = "小红书聚光登录凭据已过期"):

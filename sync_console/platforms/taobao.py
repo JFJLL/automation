@@ -80,12 +80,23 @@ def get_taobao_cookies() -> Dict[str, str]:
                 return parsed
     raise ProviderAuthError("淘宝星河 Cookie 未配置或无法从 OSS 获取")
 
+TAOBAO_LEGACY_ID_MAP = {
+    # 黄天鹅历史旧表任务ID -> 当前新版星河订单 settlement ID (settleSeqId / orderId)
+    "124947768": "125443771", # 6月黄天鹅x易美-外溢线种草
+    "127638704": "127793205", # 7月黄天鹅x易美-外溢线种草
+    "130657088": "130692875", # 8月黄天鹅x易美-外溢线种草
+    "122710702": "122760003", # 5月黄天鹅x易美-外溢线种草
+}
+
 def resolve_taobao_order_info(
     entity_id: str,
     session: requests.Session,
     tb_token: str
 ) -> Dict[str, Any]:
-    eid = str(entity_id).strip()
+    raw_eid = str(entity_id).strip()
+    eid = TAOBAO_LEGACY_ID_MAP.get(raw_eid, raw_eid)
+
+    # 1. 尝试以 keywordType=101 (订单号) 检索
     try:
         p = {
             "bizCode": "adstar",
@@ -103,11 +114,39 @@ def resolve_taobao_order_info(
             if (str(o.get("settleSeqId")) == eid or 
                 str(o.get("displayOrderId")) == eid or 
                 str(o.get("orderId")) == eid or
-                str(o.get("buyOrderId")) == eid):
+                str(o.get("buyOrderId")) == eid or
+                str(o.get("settleSeqId")) == raw_eid):
                 return o
     except Exception as e:
         print(f"[Taobao] Search order list failed: {e}")
 
+    # 2. 尝试不带 keywordType 或者带 saleType=4 检索 (兼容数据服务/自发自接单)
+    try:
+        for st in [None, 4]:
+            p = {
+                "bizCode": "adstar",
+                "_tb_token_": tb_token,
+                "keyword": eid,
+                "pageNo": 1,
+                "pageSize": 10
+            }
+            if st is not None:
+                p["saleType"] = st
+            r = session.get(f"{REPORT_BASE_URL}/api/one/order/list", params=p, timeout=10)
+            data = r.json()
+            model = data.get("model", {})
+            results = model.get("result", []) if isinstance(model, dict) else []
+            for o in results:
+                if (str(o.get("settleSeqId")) == eid or 
+                    str(o.get("displayOrderId")) == eid or 
+                    str(o.get("orderId")) == eid or
+                    str(o.get("buyOrderId")) == eid or
+                    str(o.get("settleSeqId")) == raw_eid):
+                    return o
+    except Exception:
+        pass
+
+    # 3. 尝试直接以 orderId 获取详情
     try:
         r_get = session.get(
             f"{REPORT_BASE_URL}/api/one/order/get",
@@ -144,6 +183,9 @@ def fetch_taobao_data(
     tb_token = cookies.get("_tb_token_", "")
 
     order_info = resolve_taobao_order_info(entity_id, session, tb_token)
+    if not order_info:
+        raise ProviderUpstreamError(f"淘宝星河未检索到任务/订单 (ID: {entity_id})，请核实该任务是否属于当前星河账号权限")
+
     settle_seq_id = order_info.get("settleSeqId") or entity_id
     project_id = order_info.get("projectId") or 0
     sale_type = order_info.get("saleType") or 1
@@ -197,7 +239,7 @@ def fetch_taobao_data(
             raise ProviderAuthError("淘宝星河登录会话已过期 (nologin)，请刷新更新凭据")
             
         if not data.get("success"):
-            err_msg = info.get("message") or data.get("message") or f"code={data.get('code')}"
+            err_msg = data.get("msgInfo") or data.get("message") or info.get("message") or f"code={data.get('msgCode') or data.get('code')}"
             raise ProviderUpstreamError(f"淘宝星河接口错误: {err_msg}")
             
         model = data.get("model") or {}
