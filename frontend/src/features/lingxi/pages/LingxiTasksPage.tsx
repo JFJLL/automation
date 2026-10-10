@@ -169,7 +169,14 @@ export const LingxiTasksPage: React.FC = () => {
                         disabled={runNowMutation.isPending && runNowMutation.variables === t.id}
                         onClick={() => runNowMutation.mutate(t.id)}
                       >
-                        ⚡ 立即同步
+                        立即同步
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-sm"
+                        onClick={() => toggleMutation.mutate(t.id)}
+                      >
+                        {t.status === 'active' ? '暂停' : '恢复'}
                       </button>
                       <button
                         type="button"
@@ -181,14 +188,7 @@ export const LingxiTasksPage: React.FC = () => {
                           setEditKeywords([...(t.keywords || [])]);
                         }}
                       >
-                        ✏️ 编辑
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-outline btn-sm"
-                        onClick={() => toggleMutation.mutate(t.id)}
-                      >
-                        {t.status === 'active' ? '暂停' : '恢复'}
+                        编辑
                       </button>
                       <button
                         type="button"

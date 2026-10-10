@@ -146,7 +146,7 @@ export const TasksPage: React.FC = () => {
                         disabled={runNowMutation.isPending && runNowMutation.variables === t.id}
                         onClick={() => runNowMutation.mutate(t.id)}
                       >
-                        ⚡ 立即同步
+                        立即同步
                       </button>
                       <button
                         type="button"
@@ -164,7 +164,7 @@ export const TasksPage: React.FC = () => {
                           setEditRrule(t.rrule);
                         }}
                       >
-                        ✏️ 编辑
+                        编辑
                       </button>
                       <button
                         type="button"
