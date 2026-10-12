@@ -105,7 +105,7 @@ def preview_fetch(
         rows = []
         try:
             if platform == "jzt":
-                res = fetch_jzt_data(eid, start_date, end_date)
+                res = fetch_jzt_data(eid, start_date, end_date, sub_account_id=sub_account_id)
             elif platform == "taobao":
                 res = fetch_taobao_data(eid, dimension, start_date, end_date)
             elif platform == "juguang":
@@ -268,7 +268,7 @@ def execute_task_sync(task_id: int, trigger_type: str = "scheduled") -> Dict[str
             sub_acc_id = task["sub_account_id"] if "sub_account_id" in task.keys() else None
             for eid in entity_ids:
                 if task["platform"] == "jzt":
-                    res = fetch_jzt_data(eid, start_date, cutoff_date)
+                    res = fetch_jzt_data(eid, start_date, cutoff_date, sub_account_id=sub_acc_id)
                 elif task["platform"] == "taobao":
                     res = fetch_taobao_data(eid, dimension, start_date, cutoff_date)
                 elif task["platform"] == "juguang":

@@ -36,6 +36,7 @@ from feishu.client import FeishuClient
 from feishu.notify import Notifier
 from platforms.registry import PLATFORMS
 from platforms.juguang import get_juguang_subaccounts_list
+from platforms.jzt import get_jzt_subaccounts_list
 from core.ingest import parse_excel_sheets, analyze_sheet_for_platform
 from core.sync import preview_fetch, execute_task_sync
 from core.scheduler_manager import SchedulerManager
@@ -247,6 +248,10 @@ def get_platforms():
 @app.get("/api/platforms/juguang/subaccounts")
 def get_juguang_subaccounts(refresh: bool = False):
     return get_juguang_subaccounts_list(force_refresh=refresh)
+
+@app.get("/api/platforms/jzt/subaccounts")
+def get_jzt_subaccounts(refresh: bool = False):
+    return get_jzt_subaccounts_list(force_refresh=refresh)
 
 @app.get("/api/settings")
 def get_settings():
