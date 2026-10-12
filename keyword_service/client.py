@@ -34,8 +34,9 @@ def sync_token_from_oss(force: bool = False) -> Optional[Dict[str, str]]:
     candidate_keys = []
     if JUGUANG_OSS_OBJECT_KEY:
         candidate_keys.append(JUGUANG_OSS_OBJECT_KEY)
-    prefix = (JUGUANG_OSS_SUBACCOUNT_PREFIX or "token/").rstrip("/")
+    prefix = (JUGUANG_OSS_SUBACCOUNT_PREFIX or "token/juguang/").rstrip("/")
     candidate_keys.extend([
+        "token/juguang/keyword_token.json",
         f"{prefix}/keyword_token.json",
         f"{prefix}/628b3a5056228a000189c0e4.txt",
         f"{prefix}/629dd021b276e90001fc3b8c.txt",

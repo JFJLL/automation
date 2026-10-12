@@ -12,6 +12,8 @@ from core.errors import ProviderAuthError, ProviderUpstreamError
 
 REPORT_URL = "https://jzt-api.jd.com/jrw/content/outside/demand/report/downloadGrassDailyData"
 
+_task_cookie_cache: Dict[str, Tuple[str, str]] = {}
+
 def normalize_date_str(val: Any) -> str:
     s = str(val).strip().replace("/", "-").split(" ")[0]
     digits = "".join(c for c in s if c.isdigit())
@@ -63,7 +65,19 @@ def get_all_jzt_cookies() -> List[Tuple[str, str]]:
     return cookies
 
 def fetch_jzt_data(task_id: str, start_date: str, end_date: str, cookie: Optional[str] = None) -> ProviderFetchResult:
-    cookie_list = [(None, cookie)] if cookie else get_all_jzt_cookies()
+    clean_task_id = str(task_id).strip()
+    if clean_task_id.endswith(".0"):
+        clean_task_id = clean_task_id[:-2]
+
+    if cookie:
+        cookie_list = [(None, cookie)]
+    else:
+        all_cookies = get_all_jzt_cookies()
+        if clean_task_id in _task_cookie_cache:
+            cached_pair = _task_cookie_cache[clean_task_id]
+            cookie_list = [cached_pair] + [c for c in all_cookies if c[0] != cached_pair[0]]
+        else:
+            cookie_list = all_cookies
     
     start_norm = normalize_date_str(start_date)
     end_norm = normalize_date_str(end_date)
@@ -77,7 +91,7 @@ def fetch_jzt_data(task_id: str, start_date: str, end_date: str, cookie: Optiona
             "Cookie": c
         })
         payload = dict(
-            taskId=str(task_id), dataCycle="30", cateId="", brandId="6731", mediaTaskId="",
+            taskId=clean_task_id, dataCycle="30", cateId="", brandId="6731", mediaTaskId="",
             mediaOrderId="", contentId="", campaignId="", unitId="", creativeId="", type="2",
             dataScope="2", dimension="2", dataCaliber="0", attributionTouchType="1",
             trafficSource="1", pageIndex="1"
@@ -107,6 +121,8 @@ def fetch_jzt_data(task_id: str, start_date: str, end_date: str, cookie: Optiona
                         clean_records.append(row)
                 
                 if clean_records:
+                    if sec_name and c:
+                        _task_cookie_cache[clean_task_id] = (sec_name, c)
                     return ProviderFetchResult(status=ProviderFetchStatus.SUCCESS, rows=clean_records, pages_fetched=1)
                 else:
                     return ProviderFetchResult(status=ProviderFetchStatus.EMPTY, rows=[], pages_fetched=1)

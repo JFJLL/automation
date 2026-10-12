@@ -146,6 +146,8 @@ def analyze_sheet_for_platform(sheet_info: Dict[str, Any], selected_platform: st
     all_rows = sheet_info.get("all_data_rows") or sample_rows
     for r in all_rows:
         val = str(r.get(id_col, "")).strip()
+        if val.endswith(".0") and val[:-2].isdigit():
+            val = val[:-2]
         if val and val not in seen and val != id_col:
             seen.add(val)
             entity_ids.append(val)

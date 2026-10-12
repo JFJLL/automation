@@ -7,6 +7,7 @@ import { Dialog } from '@/shared/components/Dialog';
 import { SchedulePicker } from '@/shared/components/SchedulePicker';
 import { KeywordEditor } from '@/shared/components/KeywordEditor';
 import { useToast } from '@/shared/components/Toast';
+import { TaskStatusBadge } from '@/shared/components/TaskStatusBadge';
 
 export const LingxiTasksPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -156,9 +157,7 @@ export const LingxiTasksPage: React.FC = () => {
                   <td>
                     <div>{t.last_run_at ? t.last_run_at.substring(0, 16).replace('T', ' ') : '-'}</div>
                     {t.last_status && (
-                      <span className={`badge ${t.last_status === 'success' ? 'badge-success' : 'badge-danger'}`} style={{ marginTop: '2px' }}>
-                        {t.last_status === 'success' ? '成功' : '失败'}
-                      </span>
+                      <TaskStatusBadge status={t.last_status} error={t.last_error} />
                     )}
                   </td>
                   <td style={{ textAlign: 'center' }}>

@@ -6,6 +6,7 @@ import { fetchJson } from '@/shared/api/client';
 import { Dialog } from '@/shared/components/Dialog';
 import { SchedulePicker } from '@/shared/components/SchedulePicker';
 import { useToast } from '@/shared/components/Toast';
+import { TaskStatusBadge } from '@/shared/components/TaskStatusBadge';
 
 export const TasksPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -44,7 +45,9 @@ export const TasksPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['syncRuns'] });
     },
     onError: (err: any) => {
-      showError(err.message || '执行同步失败');
+      queryClient.invalidateQueries({ queryKey: ['syncTasks'] });
+      queryClient.invalidateQueries({ queryKey: ['syncRuns'] });
+      showError('同步任务执行失败，详情请查看“失败”状态');
     },
   });
 
@@ -133,9 +136,7 @@ export const TasksPage: React.FC = () => {
                   <td>
                     <div>{t.last_run_at ? t.last_run_at.substring(0, 16).replace('T', ' ') : '-'}</div>
                     {t.last_status && (
-                      <span className={`badge ${t.last_status === 'success' ? 'badge-success' : 'badge-danger'}`} style={{ marginTop: '2px' }}>
-                        {t.last_status === 'success' ? '成功' : '失败'}
-                      </span>
+                      <TaskStatusBadge status={t.last_status} error={t.last_error} />
                     )}
                   </td>
                   <td style={{ textAlign: 'center' }}>

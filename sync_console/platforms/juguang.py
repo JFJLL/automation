@@ -31,14 +31,16 @@ IDENTITY = {
 PLACES = {'1': '信息流推广', '2': '搜索推广', '4': '全站智投', '7': '视频流推广'}
 
 def get_juguang_headers() -> Dict[str, str]:
-    if JUGUANG_OSS_OBJECT_KEY:
+    for key in [JUGUANG_OSS_OBJECT_KEY, "token/juguang/keyword_token.json", "token/keyword_token.json", "KOL/juguang_token.txt"]:
+        if not key:
+            continue
         try:
-            raw = fetch_oss_token(JUGUANG_OSS_OBJECT_KEY)
+            raw = fetch_oss_token(key)
             data = json.loads(raw)
             if isinstance(data, dict) and "cookie" in data:
                 return data
         except Exception as e:
-            print(f"[Juguang] Read OSS headers failed: {e}")
+            pass
     candidates = [
         Path(os.getenv("JUGUANG_TOKEN_PATH", "")),
         BASE_DIR / "tokens" / "session_headers.json",
@@ -55,11 +57,14 @@ def get_juguang_headers() -> Dict[str, str]:
 
 def get_juguang_subaccount_headers(sub_account_id: str) -> Dict[str, str]:
     cookie_text = ""
-    object_key = f"{JUGUANG_OSS_SUBACCOUNT_PREFIX.rstrip('/')}/{sub_account_id.strip()}.txt"
-    try:
-        cookie_text = fetch_oss_token(object_key).strip()
-    except Exception as e:
-        print(f"[Juguang] Read OSS subaccount token failed ({object_key}): {e}")
+    prefix = (JUGUANG_OSS_SUBACCOUNT_PREFIX or "token/juguang/").rstrip("/")
+    for object_key in [f"{prefix}/{sub_account_id.strip()}.txt", f"token/juguang/{sub_account_id.strip()}.txt", f"token/{sub_account_id.strip()}.txt"]:
+        try:
+            cookie_text = fetch_oss_token(object_key).strip()
+            if cookie_text:
+                break
+        except Exception as e:
+            pass
     
     if not cookie_text:
         local_candidates = [
@@ -92,20 +97,23 @@ def get_juguang_subaccounts_list(force_refresh: bool = False) -> List[Dict[str, 
         return _subaccounts_cache["data"]
 
     known_meta = {}
-    meta_key = f"{JUGUANG_OSS_SUBACCOUNT_PREFIX.rstrip('/')}/subaccounts_meta.json"
-    try:
-        meta_raw = fetch_oss_token(meta_key).strip()
-        if meta_raw:
-            for item in json.loads(meta_raw):
-                sid = item.get("id") or item.get("subId")
-                sname = item.get("name")
-                if sid and sname:
-                    known_meta[sid] = {
-                        "name": sname,
-                        "status": item.get("status", 1)
-                    }
-    except Exception as e:
-        print(f"[Juguang] Dynamic fetch OSS subaccounts_meta failed ({meta_key}): {e}")
+    prefix = (JUGUANG_OSS_SUBACCOUNT_PREFIX or "token/juguang/").rstrip("/")
+    for meta_key in [f"{prefix}/subaccounts_meta.json", "token/juguang/subaccounts_meta.json", "token/subaccounts_meta.json"]:
+        try:
+            meta_raw = fetch_oss_token(meta_key).strip()
+            if meta_raw:
+                for item in json.loads(meta_raw):
+                    sid = item.get("id") or item.get("subId")
+                    sname = item.get("name")
+                    if sid and sname:
+                        known_meta[sid] = {
+                            "name": sname,
+                            "status": item.get("status", 1)
+                        }
+                if known_meta:
+                    break
+        except Exception as e:
+            pass
 
     cache_candidates = [
         BASE_DIR / "data" / "juguang_subaccounts_cache.json",

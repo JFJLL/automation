@@ -13,13 +13,15 @@ def sync_token_from_oss(force: bool = False) -> Optional[Dict[str, str]]:
     """从 OSS 获取最新的灵犀 Token / Cookie 并持久化到本地 token.json"""
     try:
         from platforms.registry import fetch_oss_token
-        from app.config import JUGUANG_OSS_SUBACCOUNT_PREFIX
+        from app.config import JUGUANG_OSS_SUBACCOUNT_PREFIX, LINGXI_OSS_OBJECT_KEY
     except Exception as import_err:
         print(f"[Lingxi OSS Sync] Import config error: {import_err}")
         return None
 
-    prefix = (JUGUANG_OSS_SUBACCOUNT_PREFIX or "token/").rstrip("/")
+    prefix = (JUGUANG_OSS_SUBACCOUNT_PREFIX or "token/juguang/").rstrip("/")
     candidate_keys = [
+        LINGXI_OSS_OBJECT_KEY,
+        "token/lingxi/lingxi_cookie.txt",
         f"{prefix}/lingxi_cookie.txt",
         "token/lingxi_cookie.txt",
         "lingxi_cookie.txt"
