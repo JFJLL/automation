@@ -571,3 +571,27 @@
     }
 
   
+    /* 暂停任务整行置灰与沉浸式弱化交互样式 */
+    tbody tr.task-row-paused {
+      background-color: #f8fafc;
+    }
+    tbody tr.task-row-paused td:not(:last-child) {
+      opacity: 0.62;
+    }
+    tbody tr.task-row-paused:hover {
+      background-color: #f1f5f9;
+    }
+    tbody tr.task-row-paused:hover td:not(:last-child) {
+      opacity: 0.88;
+    }
+    .btn-resume {
+      color: #059669 !important;
+      border-color: #a7f3d0 !important;
+      background-color: #ecfdf5 !important;
+      font-weight: 600 !important;
+    }
+    .btn-resume:hover {
+      background-color: #d1fae5 !important;
+      border-color: #34d399 !important;
+      box-shadow: 0 2px 6px rgba(16, 185, 129, 0.18) !important;
+    }

@@ -94,6 +94,7 @@ export const TasksPage: React.FC = () => {
               <tr>
                 <th>任务名称</th>
                 <th>平台</th>
+                <th>状态</th>
                 <th>对应飞书表格</th>
                 <th>更新方式</th>
                 <th>调度频率</th>
@@ -103,9 +104,16 @@ export const TasksPage: React.FC = () => {
             </thead>
             <tbody>
               {tasks.map((t) => (
-                <tr key={t.id}>
+                <tr key={t.id} className={t.status !== 'active' ? 'task-row-paused' : ''}>
                   <td>
-                    <strong>{t.name}</strong>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <strong>{t.name}</strong>
+                      {t.status !== 'active' && (
+                        <span className="badge badge-warning" style={{ fontSize: '11px', padding: '1px 6px' }}>
+                          已暂停
+                        </span>
+                      )}
+                    </div>
                     <div style={{ fontSize: '11px', color: 'var(--text-muted)' }}>ID: #{t.id}</div>
                   </td>
                   <td>
@@ -115,12 +123,18 @@ export const TasksPage: React.FC = () => {
                     </span>
                   </td>
                   <td>
+                    <span className={`badge ${t.status === 'active' ? 'badge-success' : 'badge-warning'}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                      <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: t.status === 'active' ? 'var(--success)' : 'var(--warning)' }} />
+                      <span>{t.status === 'active' ? '正常运行' : '已暂停'}</span>
+                    </span>
+                  </td>
+                  <td>
                     {t.spreadsheet_url ? (
                       <a
                         href={t.spreadsheet_url}
                         target="_blank"
                         rel="noreferrer"
-                        style={{ color: 'var(--primary)', fontWeight: 500, textDecoration: 'none' }}
+                        style={{ color: t.status === 'active' ? 'var(--primary)' : 'var(--text-muted)', fontWeight: 500, textDecoration: 'none' }}
                       >
                         查看飞书表格 ↗
                       </a>
@@ -151,7 +165,7 @@ export const TasksPage: React.FC = () => {
                       </button>
                       <button
                         type="button"
-                        className="btn btn-outline btn-sm"
+                        className={`btn btn-sm ${t.status === 'active' ? 'btn-outline' : 'btn-resume'}`}
                         onClick={() => toggleMutation.mutate(t.id)}
                       >
                         {t.status === 'active' ? '暂停' : '恢复'}
