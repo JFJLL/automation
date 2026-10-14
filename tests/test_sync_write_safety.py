@@ -124,3 +124,60 @@ def test_phase1_fetch_failure_aborts_before_writing():
             assert "中止写表" in run["message"]
         conn.close()
 
+
+
+def test_overwrite_watershed_preserves_old_history():
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        db_file = Path(tmp_dir) / "test_sync.db"
+        conn = get_db_connection(db_file)
+        run_migrations(conn, module="sync")
+        task_id = setup_test_task(conn, update_mode="overwrite")
+
+        # 模拟工作表中已有 1 条超期老历史数据（20260801）和 1 条窗口内数据（20260920）
+        feishu_store = {
+            "rows": [
+                ["日期", "任务ID", "成交GMV"],
+                ["20260801", "198973", "888.0"],
+                ["20260920", "198973", "100.0"]
+            ]
+        }
+
+        mock_feishu = MagicMock()
+        mock_feishu.read_values.side_effect = lambda ss, ws, rng: [list(r) for r in feishu_store["rows"]]
+        def mock_write(ss, ws, start_row, rows):
+            while len(feishu_store["rows"]) < start_row - 1:
+                feishu_store["rows"].append(["", "", ""])
+            for offset, r in enumerate(rows):
+                idx = (start_row - 1) + offset
+                if idx < len(feishu_store["rows"]):
+                    feishu_store["rows"][idx] = list(r)
+                else:
+                    feishu_store["rows"].append(list(r))
+        mock_feishu.write_rows.side_effect = mock_write
+        mock_feishu.find_last_row_index.side_effect = lambda ss, ws: len(feishu_store["rows"])
+
+        # 模拟上游 API 只能返回最近 30 天的数据（2026-09-20 到 2026-09-21），2026-08-01 已经不返回了
+        mock_provider_result = ProviderFetchResult(
+            status=ProviderFetchStatus.SUCCESS,
+            rows=[
+                {"日期": "2026-09-20", "任务ID": "198973", "成交GMV": "999.0"},
+                {"日期": "2026-09-21", "任务ID": "198973", "成交GMV": "200.0"}
+            ],
+            pages_fetched=1
+        )
+
+        with patch("core.sync.get_db", return_value=conn),              patch("core.sync.FeishuClient", return_value=mock_feishu),              patch("core.sync.Notifier"),              patch("core.sync.fetch_jzt_data", return_value=mock_provider_result):
+
+            res = execute_task_sync(task_id, trigger_type="manual")
+            assert res["status"] == "success"
+
+            # 验证：2026-08-01 的超期老数据完好保留，未被 overwrite 清除！
+            dates_in_table = [r[0] for r in feishu_store["rows"][1:]]
+            assert "20260801" in dates_in_table
+            assert "20260920" in dates_in_table
+            assert "20260921" in dates_in_table
+            row_0920 = next(r for r in feishu_store["rows"][1:] if r[0] == "20260920")
+            assert row_0920[2] == "999.0"
+            # 严格保持日期升序
+            assert dates_in_table == ["20260801", "20260920", "20260921"]
+        conn.close()

@@ -392,17 +392,57 @@ def execute_task_sync(task_id: int, trigger_type: str = "scheduled") -> Dict[str
                     conn.commit()
 
             primary_entity_id = entity_ids[0] if entity_ids else ""
+            id_idx = headers.index(id_col) if (headers and id_col in headers) else 1
+            date_idx = headers.index(date_col) if (headers and date_col in headers) else 0
             if task["update_mode"] == "overwrite":
-                # 全量覆写：只保留本次抓取到的最新全量数据，并按任务组及日期升序排序
-                only_new_rows = [map_item_to_row(item, headers, id_col, date_col) for item in fetched_items]
-                sorted_rows = sort_sheet_data_rows(only_new_rows, headers, id_col, date_col, entity_ids)
-                if not sorted_rows and not existing_values:
+                # 分水岭智能全量更新（窗口全量覆盖 + 历史基线保护，彻底防止超期老数据被抹除）
+                if not fetched_items and existing_values:
+                    # 若接口未返回任何数据，安全起见绝不抹空表格
                     pass
                 else:
-                    feishu.clear_rows_below(task["spreadsheet_token"], worksheet_id, keep_header_row=1, col_count=len(headers) or 30)
+                    # 1. 计算每个任务在本次 API 抓取中的最早返回日期 (分水岭)
+                    min_date_by_task = {}
+                    for item in fetched_items:
+                        raw_tid = str(item.get("任务ID") or item.get(id_col) or primary_entity_id).strip()
+                        if raw_tid.endswith(".0"):
+                            raw_tid = raw_tid[:-2]
+                        d = normalize_date_compact(item.get("日期") or item.get("时间") or item.get(date_col) or "")[:8]
+                        if d and d.isdigit() and len(d) == 8:
+                            if raw_tid not in min_date_by_task or d < min_date_by_task[raw_tid]:
+                                min_date_by_task[raw_tid] = d
+
+                    # 2. 提取分水岭之前的历史基线受保护行 (日期 < API最早日期的老数据 100% 完整保留)
+                    protected_history_rows = []
+                    if len(existing_values) > 1:
+                        for r in existing_values[1:]:
+                            if any(r):
+                                padded_r = list(r) + [""] * max(0, len(headers) - len(r))
+                                padded_r = padded_r[:len(headers)]
+                                r_tid = str(padded_r[id_idx] if len(padded_r) > id_idx else "").strip()
+                                if r_tid.endswith(".0"):
+                                    r_tid = r_tid[:-2]
+                                r_date = normalize_date_compact(padded_r[date_idx] if len(padded_r) > date_idx else "")[:8]
+                                min_api_d = min_date_by_task.get(r_tid)
+                                # 若老数据早于本次 API 能够返回的最早日期，或者该任务 API 暂未返回数据，严格保留
+                                if min_api_d is None or (r_date and r_date < min_api_d):
+                                    protected_history_rows.append(padded_r)
+
+                    # 3. 本次 API 返回的活跃窗口数据
+                    only_new_rows = [map_item_to_row(item, headers, id_col, date_col) for item in fetched_items]
+
+                    # 4. 合并历史基线行与活跃重算行，并执行全局结构化排序
+                    combined_rows = protected_history_rows + only_new_rows
+                    sorted_rows = sort_sheet_data_rows(combined_rows, headers, id_col, date_col, entity_ids)
+
+                    # 5. 写入飞书表格并清理多余尾部行
                     if sorted_rows:
                         feishu.write_rows(task["spreadsheet_token"], worksheet_id, start_row=2, rows=sorted_rows)
-                    total_updated += len(sorted_rows)
+                        total_updated += len(sorted_rows)
+
+                        last_row = feishu.find_last_row_index(task["spreadsheet_token"], worksheet_id)
+                        target_end_row = len(sorted_rows) + 1
+                        if last_row > target_end_row:
+                            feishu.clear_rows_below(task["spreadsheet_token"], worksheet_id, keep_header_row=target_end_row, col_count=len(headers) or 30)
             else:
                 # 增量更新/Upsert（结构化任务组排序，彻底解决多任务合并时的乱序堆叠问题）
                 # 1. 整理与合并所有已有历史行与新抓取行
