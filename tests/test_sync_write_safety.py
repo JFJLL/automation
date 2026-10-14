@@ -82,8 +82,8 @@ def test_append_mode_idempotent_no_duplicate_rows():
             assert res1["rows_appended"] == 1
             # 现在表内行数应为 1 (表头) + 2 (数据行) = 3
             assert len(feishu_store["rows"]) == 3
-            assert feishu_store["rows"][1] == ["2026-09-20", "198973", "150.0"]
-            assert feishu_store["rows"][2] == ["2026-09-21", "198973", "200.0"]
+            assert feishu_store["rows"][1] == ["20260920", "198973", "150.0"]
+            assert feishu_store["rows"][2] == ["20260921", "198973", "200.0"]
             
             # 第二次执行完全相同的抓取 (幂等性测试：绝不追加重复行！)
             res2 = execute_task_sync(task_id, trigger_type="manual")

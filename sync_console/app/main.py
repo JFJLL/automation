@@ -391,7 +391,8 @@ def create_task(req: CreateTaskRequest):
 
             feishu.write_rows(ss_token, ws_id, start_row=1, rows=[sc.headers])
             if req.write_initial_data and sc.initial_rows:
-                feishu.write_rows(ss_token, ws_id, start_row=2, rows=sc.initial_rows)
+                sorted_init = sort_sheet_data_rows(sc.initial_rows, sc.headers, sc.id_column, sc.date_column, sc.entity_ids)
+                feishu.write_rows(ss_token, ws_id, start_row=2, rows=sorted_init)
 
             sheet_records.append({
                 "sheet_title": title,
@@ -421,7 +422,8 @@ def create_task(req: CreateTaskRequest):
                 
             feishu.write_rows(ss_token, ws_id, start_row=1, rows=[sc.headers])
             if req.write_initial_data and sc.initial_rows:
-                feishu.write_rows(ss_token, ws_id, start_row=2, rows=sc.initial_rows)
+                sorted_init = sort_sheet_data_rows(sc.initial_rows, sc.headers, sc.id_column, sc.date_column, sc.entity_ids)
+                feishu.write_rows(ss_token, ws_id, start_row=2, rows=sorted_init)
                 
             sheet_records.append({
                 "sheet_title": sc.sheet_title,

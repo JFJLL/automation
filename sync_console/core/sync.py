@@ -24,6 +24,37 @@ from platforms.jzt import fetch_jzt_data
 from platforms.taobao import fetch_taobao_data
 from platforms.juguang import fetch_juguang_data
 
+
+def sort_sheet_data_rows(
+    rows: List[List[Any]],
+    headers: List[str],
+    id_col: str,
+    date_col: str,
+    entity_ids: List[str]
+) -> List[List[Any]]:
+    if not rows or not headers:
+        return rows
+    id_idx = headers.index(id_col) if (headers and id_col in headers) else 1
+    date_idx = headers.index(date_col) if (headers and date_col in headers) else 0
+    clean_entity_ids = [str(eid).strip()[:-2] if str(eid).strip().endswith(".0") else str(eid).strip() for eid in (entity_ids or [])]
+
+    def row_sort_key(r):
+        row_id = str(r[id_idx] if len(r) > id_idx else "").strip()
+        if row_id.endswith(".0"):
+            row_id = row_id[:-2]
+        task_order = clean_entity_ids.index(row_id) if row_id in clean_entity_ids else 999999
+        raw_d = str(r[date_idx] if len(r) > date_idx else "").strip()
+        d_compact = normalize_date_compact(raw_d)[:8]
+        channel = ""
+        for col_name in ["平台", "渠道", "流量类型"]:
+            if col_name in headers:
+                c_idx = headers.index(col_name)
+                channel = str(r[c_idx] if len(r) > c_idx else "")
+                break
+        return (task_order, row_id, d_compact, channel)
+
+    return sorted(rows, key=row_sort_key)
+
 def format_cell_value(val: Any) -> str:
     if val is None:
         return ""
@@ -360,53 +391,60 @@ def execute_task_sync(task_id: int, trigger_type: str = "scheduled") -> Dict[str
                     )
                     conn.commit()
 
-            new_rows = [map_item_to_row(item, headers, id_col, date_col) for item in fetched_items]
-            
+            primary_entity_id = entity_ids[0] if entity_ids else ""
             if task["update_mode"] == "overwrite":
-                # 全量覆盖写
-                if not new_rows and not existing_values:
-                    # 无论如何不破坏空表
+                # 全量覆写：只保留本次抓取到的最新全量数据，并按任务组及日期升序排序
+                only_new_rows = [map_item_to_row(item, headers, id_col, date_col) for item in fetched_items]
+                sorted_rows = sort_sheet_data_rows(only_new_rows, headers, id_col, date_col, entity_ids)
+                if not sorted_rows and not existing_values:
                     pass
                 else:
                     feishu.clear_rows_below(task["spreadsheet_token"], worksheet_id, keep_header_row=1, col_count=len(headers) or 30)
-                    if new_rows:
-                        feishu.write_rows(task["spreadsheet_token"], worksheet_id, start_row=2, rows=new_rows)
-                    total_updated += len(new_rows)
+                    if sorted_rows:
+                        feishu.write_rows(task["spreadsheet_token"], worksheet_id, start_row=2, rows=sorted_rows)
+                    total_updated += len(sorted_rows)
             else:
-                # 增量追加/Upsert：杜绝重复追加！
-                # 使用统一 get_item_natural_key 构建已有行与新抓取行的高可靠复合自然键
-                existing_key_map = {}
-                primary_entity_id = entity_ids[0] if entity_ids else ""
+                # 增量更新/Upsert（结构化任务组排序，彻底解决多任务合并时的乱序堆叠问题）
+                # 1. 整理与合并所有已有历史行与新抓取行
+                all_rows_map = {}
+                existing_keys = set()
                 if len(existing_values) > 1:
-                    for idx, r in enumerate(existing_values[1:], start=2):
-                        row_dict = dict(zip(headers, r))
-                        key = get_item_natural_key(task["platform"], row_dict, primary_entity_id, dimension)
-                        existing_key_map[key] = idx
+                    for r in existing_values[1:]:
+                        if any(r):
+                            padded_r = list(r) + [""] * max(0, len(headers) - len(r))
+                            padded_r = padded_r[:len(headers)]
+                            row_dict = dict(zip(headers, padded_r))
+                            key = get_item_natural_key(task["platform"], row_dict, primary_entity_id, dimension)
+                            all_rows_map[key] = padded_r
+                            existing_keys.add(key)
 
-                to_append = []
-                to_update_chunks = {} # row_idx -> mapped_row
+                # 2. 合并新抓取数据 (相同自然键更新指标，新自然键并入)
+                rows_updated_count = 0
+                rows_appended_count = 0
                 for item in fetched_items:
                     mapped_row = map_item_to_row(item, headers, id_col, date_col)
                     key = get_item_natural_key(task["platform"], item, primary_entity_id, dimension)
-                    if key in existing_key_map:
-                        target_row_idx = existing_key_map[key]
-                        to_update_chunks[target_row_idx] = mapped_row
+                    if key in existing_keys:
+                        rows_updated_count += 1
                     else:
-                        to_append.append(mapped_row)
-                        
-                # 执行原地更新
-                for r_idx, u_row in to_update_chunks.items():
-                    feishu.write_rows(task["spreadsheet_token"], worksheet_id, start_row=r_idx, rows=[u_row])
-                    total_updated += 1
-                    
-                # 执行追加新行
-                if to_append:
+                        rows_appended_count += 1
+                        existing_keys.add(key)
+                    all_rows_map[key] = mapped_row
+
+                # 3. 双层全局结构化排序 (任务组间按配置顺序排列，任务组内日期严格从旧到新升序)
+                sorted_rows = sort_sheet_data_rows(list(all_rows_map.values()), headers, id_col, date_col, entity_ids)
+
+                # 4. 规整批量回写并清理末尾冗余脏行
+                if sorted_rows:
+                    feishu.write_rows(task["spreadsheet_token"], worksheet_id, start_row=2, rows=sorted_rows)
+                    total_updated += rows_updated_count
+                    total_appended += rows_appended_count
+
                     last_row = feishu.find_last_row_index(task["spreadsheet_token"], worksheet_id)
-                    start_row = max(last_row + 1, 2)
-                    feishu.write_rows(task["spreadsheet_token"], worksheet_id, start_row=start_row, rows=to_append)
-                    total_appended += len(to_append)
-                    
-            # 6. 写后回读校验 (确保表头完整，且非全空)
+                    target_end_row = len(sorted_rows) + 1
+                    if last_row > target_end_row:
+                        feishu.clear_rows_below(task["spreadsheet_token"], worksheet_id, keep_header_row=target_end_row, col_count=len(headers) or 30)
+
             verify_rows = feishu.read_values(task["spreadsheet_token"], worksheet_id, "A:AZ")
             if len(verify_rows) < 1:
                 raise FeishuWriteError(f"工作表【{sheet_title}】写后回读校验失败：表头或数据丢失")

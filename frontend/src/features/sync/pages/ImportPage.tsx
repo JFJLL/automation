@@ -167,8 +167,12 @@ export const ImportPage: React.FC = () => {
   });
 
   const handleToggleSheet = (idx: number) => {
+    if (isMergeTasks) {
+      setSelectedSheetIndices([idx]);
+      return;
+    }
     setSelectedSheetIndices((prev) =>
-      prev.includes(idx) ? prev.filter((i) => i !== idx) : [...prev, idx]
+      prev.includes(idx) ? (prev.length > 1 ? prev.filter((i) => i !== idx) : prev) : [...prev, idx]
     );
   };
 
@@ -362,8 +366,15 @@ export const ImportPage: React.FC = () => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', flex: 1 }}>
               {/* 1. 工作表选择区（强化徽章与结构展示） */}
               <div>
-                <div style={{ fontSize: '13px', fontWeight: 600, color: '#334155', marginBottom: '8px' }}>
-                  目标工作表 (Sheet)
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                  <div style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+                    目标工作表 (Sheet)
+                  </div>
+                  {isMergeTasks && (
+                    <span style={{ fontSize: '11px', color: '#ea580c', fontWeight: 500, background: '#fff7ed', padding: '2px 8px', borderRadius: '4px', border: '1px solid #fed7aa' }}>
+                      ⚡ 已开启多任务合并：仅保留 1 个工作表作为合并载体
+                    </span>
+                  )}
                 </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   {analyzedSheets.map((s, idx) => {
@@ -450,10 +461,14 @@ export const ImportPage: React.FC = () => {
                       type="checkbox"
                       checked={isMergeTasks}
                       onChange={(e) => {
-                        setIsMergeTasks(e.target.checked);
-                        if (e.target.checked && !customTaskIdsInput) {
-                          const defaultIds = analyzedSheets[selectedSheetIndices[0] || 0]?.detected_entity_ids || [];
-                          setCustomTaskIdsInput(defaultIds.join(', '));
+                        const checked = e.target.checked;
+                        setIsMergeTasks(checked);
+                        if (checked) {
+                          setSelectedSheetIndices([selectedSheetIndices[0] || 0]);
+                          if (!customTaskIdsInput) {
+                            const defaultIds = analyzedSheets[selectedSheetIndices[0] || 0]?.detected_entity_ids || [];
+                            setCustomTaskIdsInput(defaultIds.join(', '));
+                          }
                         }
                         setTimeout(() => previewMutation.mutate(), 80);
                       }}
