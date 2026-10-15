@@ -103,6 +103,8 @@ def get_item_natural_key(platform: str, item: Dict[str, Any], entity_id: str, di
     d_val = normalize_date_compact(raw_date)[:8]
     if platform == "jzt":
         task_id_val = str(item.get("任务ID") or entity_id or "").strip()
+        if task_id_val.endswith(".0"):
+            task_id_val = task_id_val[:-2]
         channel = str(item.get("平台") or item.get("渠道") or "").strip()
         return (task_id_val, d_val, channel)
     elif platform == "taobao":
@@ -354,6 +356,10 @@ def execute_task_sync(task_id: int, trigger_type: str = "scheduled") -> Dict[str
             date_col = prep["date_col"]
             dimension = prep["dimension"]
             
+            # 若增量模式下接口未返回任何新数据，无需重复写回或备份飞书工作表
+            if task["update_mode"] == "append" and not fetched_items:
+                continue
+
             # 1. 写前整表备份
             stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             backup_file = BACKUPS_DIR / f"{task_id}_{worksheet_id}_{stamp}.json"
