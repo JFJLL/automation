@@ -17,8 +17,7 @@ export const KeywordEditor: React.FC<KeywordEditorProps> = ({
   const handleAdd = () => {
     if (!inputText.trim()) return;
     const splitWords = inputText
-      .replace(/[,，\n\r\t]+/g, ' ')
-      .split(' ')
+      .split(/[,，\n\r\t]+/)
       .map((w) => w.trim())
       .filter(Boolean);
     if (splitWords.length === 0) return;
@@ -117,13 +116,36 @@ export const KeywordEditor: React.FC<KeywordEditorProps> = ({
       <div style={{ display: 'flex', gap: '8px' }}>
         <input
           type="text"
-          placeholder="输入新关键词，多个词可用空格、逗号分隔..."
+          placeholder="输入新关键词，多个词可用逗号分隔..."
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter') {
+            if (e.key === 'Enter' || e.key === ',' || e.key === '，') {
               e.preventDefault();
               handleAdd();
+            }
+          }}
+          onPaste={(e) => {
+            const text = e.clipboardData.getData('text');
+            if (text && (text.includes(',') || text.includes('，') || text.includes('\n'))) {
+              e.preventDefault();
+              const splitWords = text
+                .split(/[,，\n\r\t]+/)
+                .map((w) => w.trim())
+                .filter(Boolean);
+              if (splitWords.length > 0) {
+                const seen = new Set(keywords);
+                const added: string[] = [];
+                for (const w of splitWords) {
+                  if (!seen.has(w)) {
+                    seen.add(w);
+                    added.push(w);
+                  }
+                }
+                if (added.length > 0) {
+                  onChange([...keywords, ...added]);
+                }
+              }
             }
           }}
           style={{

@@ -95,13 +95,19 @@ export const LingxiInsightPage: React.FC = () => {
     },
   });
 
-  const handleAddWord = (word: string) => {
-    const trimmed = word.trim();
-    if (!trimmed) return;
-    if (!selectedWords.includes(trimmed)) {
-      setSelectedWords([...selectedWords, trimmed]);
-    }
+  const handleAddWordString = (text: string) => {
+    const words = text
+      .split(/[,，\n\r\t]+/)
+      .map((w) => w.trim())
+      .filter((w) => w.length > 0);
+    if (words.length === 0) return;
+    const set = new Set([...selectedWords, ...words]);
+    setSelectedWords(Array.from(set));
     setInputWord('');
+  };
+
+  const handleAddWord = (word: string) => {
+    handleAddWordString(word);
   };
 
   const handleRemoveWord = (word: string) => {
@@ -197,14 +203,21 @@ export const LingxiInsightPage: React.FC = () => {
                     type="text"
                     id="keywordInput"
                     className="form-control-custom"
-                    placeholder="输入关键词，按空格或回车添加多个"
+                    placeholder="输入关键词，按逗号或回车添加多个"
                     autoComplete="off"
                     value={inputWord}
                     onChange={(e) => setInputWord(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === ' ' || e.key === 'Enter') {
+                      if (e.key === ',' || e.key === '，' || e.key === 'Enter') {
                         e.preventDefault();
                         handleAddWord(inputWord);
+                      }
+                    }}
+                    onPaste={(e) => {
+                      const text = e.clipboardData.getData('text');
+                      if (text && (text.includes(',') || text.includes('，') || text.includes('\n'))) {
+                        e.preventDefault();
+                        handleAddWord(text);
                       }
                     }}
                   />

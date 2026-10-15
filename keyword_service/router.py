@@ -1,3 +1,4 @@
+import re
 import os
 import sys
 import json
@@ -158,7 +159,7 @@ def keyword_library():
 @private_router.post("/search")
 def search_keywords(req: KeywordSearchRequest):
     if isinstance(req.keywords, str):
-        kws = [k.strip() for k in req.keywords.replace(",", " ").split() if k.strip()]
+        kws = [k.strip() for k in re.split(r"[,，\n\r]+", req.keywords) if k.strip()]
     else:
         kws = [str(k).strip() for k in req.keywords if str(k).strip()]
         
@@ -273,7 +274,7 @@ def add_keyword_task(req: CreateKeywordTaskRequest):
 @private_router.post("/tasks/{task_id}/append_keywords")
 def append_words_endpoint(task_id: int, req: AppendKeywordsRequest):
     if isinstance(req.keywords, str):
-        kws = [k.strip() for k in req.keywords.replace(",", " ").split() if k.strip()]
+        kws = [k.strip() for k in re.split(r"[,，\n\r]+", req.keywords) if k.strip()]
     else:
         kws = [str(k).strip() for k in req.keywords if str(k).strip()]
     if not kws:
@@ -283,7 +284,7 @@ def append_words_endpoint(task_id: int, req: AppendKeywordsRequest):
 @private_router.post("/tasks/{task_id}/remove_keywords")
 def remove_words_endpoint(task_id: int, req: RemoveKeywordsRequest):
     if isinstance(req.keywords, str):
-        kws = [k.strip() for k in req.keywords.replace(",", " ").split() if k.strip()]
+        kws = [k.strip() for k in re.split(r"[,，\n\r]+", req.keywords) if k.strip()]
     else:
         kws = [str(k).strip() for k in req.keywords if str(k).strip()]
     if not kws:

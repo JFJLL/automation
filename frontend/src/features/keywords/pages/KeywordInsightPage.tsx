@@ -262,8 +262,7 @@ export const KeywordInsightPage: React.FC = () => {
 
   const handleAddWordString = (text: string) => {
     const words = text
-      .replace(/[,，\n]/g, ' ')
-      .split(/\s+/)
+      .split(/[,，\n\r\t]+/)
       .map((w) => w.trim())
       .filter((w) => w.length > 0);
     const set = new Set([...selectedWords, ...words]);
@@ -544,19 +543,19 @@ export const KeywordInsightPage: React.FC = () => {
                     type="text"
                     id="keywordInput"
                     className="form-control-custom"
-                    placeholder="输入关键词，按空格或回车添加"
+                    placeholder="输入关键词，按逗号或回车添加"
                     autoComplete="off"
                     value={inputWord}
                     onChange={(e) => setInputWord(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
+                      if (e.key === 'Enter' || e.key === ',' || e.key === '，') {
                         e.preventDefault();
                         if (inputWord.trim()) handleAddWordString(inputWord);
                       }
                     }}
                     onPaste={(e) => {
                       const text = e.clipboardData.getData('text');
-                      if (text && (text.includes(' ') || text.includes(',') || text.includes('\n'))) {
+                      if (text && (text.includes(',') || text.includes('，') || text.includes('\n'))) {
                         e.preventDefault();
                         handleAddWordString(text);
                       }

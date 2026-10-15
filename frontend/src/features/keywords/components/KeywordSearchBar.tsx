@@ -55,18 +55,18 @@ export const KeywordSearchBar: React.FC<KeywordSearchBarProps> = ({
           <div style={{ display: 'flex', gap: '8px' }}>
             <input
               type="text"
-              placeholder="输入关键词（支持空格、回车或逗号分隔批量粘贴添加）"
+              placeholder="输入关键词（支持逗号或回车分隔批量粘贴添加）"
               value={inputWord}
               onChange={(e) => setInputWord(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') {
+                if (e.key === 'Enter' || e.key === ',' || e.key === '，') {
                   e.preventDefault();
                   if (inputWord.trim()) onAddWords(inputWord);
                 }
               }}
               onPaste={(e) => {
                 const pasteText = e.clipboardData.getData('text');
-                if (pasteText && (pasteText.includes(' ') || pasteText.includes(',') || pasteText.includes('\n'))) {
+                if (pasteText && (pasteText.includes(',') || pasteText.includes('，') || pasteText.includes('\n'))) {
                   e.preventDefault();
                   onAddWords(pasteText);
                 }

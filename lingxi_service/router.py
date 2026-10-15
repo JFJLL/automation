@@ -1,3 +1,4 @@
+import re
 import os
 import sys
 import json
@@ -57,7 +58,7 @@ def search_lingxi_keywords(req: LingxiSearchRequest):
     """查询灵犀关键词的即时覆盖人数及推荐词"""
     raw_kw = req.keywords
     if isinstance(raw_kw, str):
-        kw_list = [k.strip() for k in raw_kw.replace(",", " ").split() if k.strip()]
+        kw_list = [k.strip() for k in re.split(r"[,，\n\r]+", raw_kw) if k.strip()]
     else:
         kw_list = [str(k).strip() for k in raw_kw if str(k).strip()]
 
