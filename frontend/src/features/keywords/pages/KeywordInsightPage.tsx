@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Sparkles, Calendar, Search, X, Clock, Tags, Copy } from 'lucide-react';
+import { Sparkles, Calendar, Search, X, Clock, Tags, Copy, Maximize2 } from 'lucide-react';
 import { fetchJson } from '@/shared/api/client';
 import { Dialog } from '@/shared/components/Dialog';
+import { BulkKeywordDialog } from '@/shared/components/BulkKeywordDialog';
 import { useToast } from '@/shared/components/Toast';
 import { SchedulePicker } from '@/shared/components/SchedulePicker';
 
@@ -12,7 +13,8 @@ export const KeywordInsightPage: React.FC = () => {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [inputWord, setInputWord] = useState('');
-  const [selectedWords, setSelectedWords] = useState<string[]>(['凯乐石']);
+  const [selectedWords, setSelectedWords] = useState<string[]>([]);
+  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [activePrimeCategory, setActivePrimeCategory] = useState<string>('全部词库');
   const [activeSubCategory, setActiveSubCategory] = useState<string>('全部');
   const [libraryFilter, setLibraryFilter] = useState('');
@@ -262,9 +264,10 @@ export const KeywordInsightPage: React.FC = () => {
 
   const handleAddWordString = (text: string) => {
     const words = text
-      .split(/[,，\n\r\t]+/)
+      .split(/\r?\n/)
       .map((w) => w.trim())
       .filter((w) => w.length > 0);
+    if (words.length === 0) return;
     const set = new Set([...selectedWords, ...words]);
     setSelectedWords(Array.from(set));
     setInputWord('');
@@ -543,24 +546,36 @@ export const KeywordInsightPage: React.FC = () => {
                     type="text"
                     id="keywordInput"
                     className="form-control-custom"
-                    placeholder="输入关键词，按逗号或回车添加"
+                    placeholder="输入关键词，按回车添加"
                     autoComplete="off"
                     value={inputWord}
                     onChange={(e) => setInputWord(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === 'Enter' || e.key === ',' || e.key === '，') {
+                      if (e.key === 'Enter') {
                         e.preventDefault();
                         if (inputWord.trim()) handleAddWordString(inputWord);
                       }
                     }}
                     onPaste={(e) => {
                       const text = e.clipboardData.getData('text');
-                      if (text && (text.includes(',') || text.includes('，') || text.includes('\n'))) {
+                      if (text && text.includes('\n')) {
                         e.preventDefault();
                         handleAddWordString(text);
                       }
                     }}
                   />
+                  <button
+                    type="button"
+                    className="keyword-expand-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsBulkModalOpen(true);
+                    }}
+                    title="展开批量输入（一行一个词）"
+                  >
+                    <Maximize2 size={13} className="icon" />
+                    <span>展开</span>
+                  </button>
                   {selectedWords.length > 0 && (
                     <button
                       type="button"
@@ -1006,6 +1021,21 @@ export const KeywordInsightPage: React.FC = () => {
           </div>
         </div>
       </Dialog>
+      <BulkKeywordDialog
+        isOpen={isBulkModalOpen}
+        onClose={() => setIsBulkModalOpen(false)}
+        storageKey="juguang_bulk_keywords_draft"
+        initialKeywords={selectedWords}
+        onConfirm={(keywords) => {
+          setSelectedWords(keywords);
+        }}
+        onConfirmAndSearch={(keywords) => {
+          setSelectedWords(keywords);
+          if (keywords.length > 0) {
+            searchMutation.mutate(keywords);
+          }
+        }}
+      />
     </>
   );
 };

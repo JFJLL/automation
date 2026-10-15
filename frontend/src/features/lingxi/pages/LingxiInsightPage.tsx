@@ -1,10 +1,11 @@
 import React, { useState, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Sparkles, Search, X, Tags, Copy, Check } from 'lucide-react';
+import { Sparkles, Search, X, Tags, Copy, Check, Maximize2 } from 'lucide-react';
 import { fetchJson } from '@/shared/api/client';
 import { useToast } from '@/shared/components/Toast';
 import { DirectSheetDialog } from '@/features/keywords/components/DirectSheetDialog';
 import { CreateLingxiTaskDialog } from '@/features/lingxi/components/CreateLingxiTaskDialog';
+import { BulkKeywordDialog } from '@/shared/components/BulkKeywordDialog';
 
 export const LingxiInsightPage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -12,7 +13,8 @@ export const LingxiInsightPage: React.FC = () => {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [inputWord, setInputWord] = useState('');
-  const [selectedWords, setSelectedWords] = useState<string[]>(['新生儿奶粉']);
+  const [selectedWords, setSelectedWords] = useState<string[]>([]);
+  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
 
   // 弹窗状态
   const [directSheetOpen, setDirectSheetOpen] = useState(false);
@@ -97,7 +99,7 @@ export const LingxiInsightPage: React.FC = () => {
 
   const handleAddWordString = (text: string) => {
     const words = text
-      .split(/[,，\n\r\t]+/)
+      .split(/\r?\n/)
       .map((w) => w.trim())
       .filter((w) => w.length > 0);
     if (words.length === 0) return;
@@ -203,24 +205,36 @@ export const LingxiInsightPage: React.FC = () => {
                     type="text"
                     id="keywordInput"
                     className="form-control-custom"
-                    placeholder="输入关键词，按逗号或回车添加多个"
+                    placeholder="输入关键词，按回车添加"
                     autoComplete="off"
                     value={inputWord}
                     onChange={(e) => setInputWord(e.target.value)}
                     onKeyDown={(e) => {
-                      if (e.key === ',' || e.key === '，' || e.key === 'Enter') {
+                      if (e.key === 'Enter') {
                         e.preventDefault();
                         handleAddWord(inputWord);
                       }
                     }}
                     onPaste={(e) => {
                       const text = e.clipboardData.getData('text');
-                      if (text && (text.includes(',') || text.includes('，') || text.includes('\n'))) {
+                      if (text && text.includes('\n')) {
                         e.preventDefault();
                         handleAddWord(text);
                       }
                     }}
                   />
+                  <button
+                    type="button"
+                    className="keyword-expand-btn"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsBulkModalOpen(true);
+                    }}
+                    title="展开批量输入（一行一个词）"
+                  >
+                    <Maximize2 size={13} className="icon" />
+                    <span>展开</span>
+                  </button>
                   {selectedWords.length > 0 && (
                     <button
                       type="button"
@@ -449,6 +463,21 @@ export const LingxiInsightPage: React.FC = () => {
         hasFailedKeywords={hasFailedKeywords}
         onSubmit={() => createTaskMutation.mutate()}
         isSubmitting={createTaskMutation.isPending}
+      />
+      <BulkKeywordDialog
+        isOpen={isBulkModalOpen}
+        onClose={() => setIsBulkModalOpen(false)}
+        storageKey="lingxi_bulk_keywords_draft"
+        initialKeywords={selectedWords}
+        onConfirm={(keywords) => {
+          setSelectedWords(keywords);
+        }}
+        onConfirmAndSearch={(keywords) => {
+          setSelectedWords(keywords);
+          if (keywords.length > 0) {
+            searchMutation.mutate(keywords);
+          }
+        }}
       />
     </>
   );
