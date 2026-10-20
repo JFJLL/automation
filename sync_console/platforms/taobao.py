@@ -1,4 +1,5 @@
 import json
+import os
 import time
 import requests
 from typing import List, Dict, Any, Optional
@@ -96,6 +97,13 @@ def resolve_taobao_order_info(
     raw_eid = str(entity_id).strip()
     eid = TAOBAO_LEGACY_ID_MAP.get(raw_eid, raw_eid)
 
+    def _check_nologin(payload: Any):
+        if isinstance(payload, dict):
+            if payload.get("info", {}).get("message") == "nologin" or payload.get("code") in ("NO_LOGIN", "nologin"):
+                raise ProviderAuthError("淘宝星河未登录或 Cookie 失效 (nologin)")
+            if not payload.get("success") and "nologin" in str(payload).lower():
+                raise ProviderAuthError("淘宝星河未登录或 Cookie 失效 (nologin)")
+
     # 1. 尝试以 keywordType=101 (订单号) 检索
     try:
         p = {
@@ -108,6 +116,7 @@ def resolve_taobao_order_info(
         }
         r = session.get(f"{REPORT_BASE_URL}/api/one/order/list", params=p, timeout=10)
         data = r.json()
+        _check_nologin(data)
         model = data.get("model", {})
         results = model.get("result", []) if isinstance(model, dict) else []
         for o in results:
@@ -117,6 +126,8 @@ def resolve_taobao_order_info(
                 str(o.get("buyOrderId")) == eid or
                 str(o.get("settleSeqId")) == raw_eid):
                 return o
+    except ProviderAuthError:
+        raise
     except Exception as e:
         print(f"[Taobao] Search order list failed: {e}")
 
@@ -134,6 +145,7 @@ def resolve_taobao_order_info(
                 p["saleType"] = st
             r = session.get(f"{REPORT_BASE_URL}/api/one/order/list", params=p, timeout=10)
             data = r.json()
+            _check_nologin(data)
             model = data.get("model", {})
             results = model.get("result", []) if isinstance(model, dict) else []
             for o in results:
@@ -153,6 +165,11 @@ def resolve_taobao_order_info(
             params={"bizCode": "adstar", "_tb_token_": tb_token, "orderId": eid},
             timeout=10
         )
+        if r_get.status_code == 200:
+            try:
+                _check_nologin(r_get.json())
+            except Exception:
+                pass
         if r_get.status_code == 200 and r_get.json().get("success"):
             m = r_get.json().get("model", {})
             if m:
@@ -191,6 +208,15 @@ def fetch_taobao_data(
     sale_type = order_info.get("saleType") or 1
     biz_mode = order_info.get("businessMode") or 88
     media = order_info.get("media") or "RED_BOOK"
+    # deliveryMode 取值因任务类型而异：
+    # - 普通达人订单（saleType=1）报表接口只认 cptSeedDaily
+    # - 任务管理类订单（saleType=4）必须沿用订单自身的 deliveryMode（如 88）
+    # 混用会导致报表恒为空且不报错。
+    raw_delivery_mode = order_info.get("deliveryMode")
+    if str(sale_type) == "4":
+        delivery_mode = raw_delivery_mode if raw_delivery_mode not in (None, "") else 88
+    else:
+        delivery_mode = "cptSeedDaily"
 
     ext = {
         "settleSeqId": int(settle_seq_id) if str(settle_seq_id).isdigit() else settle_seq_id,
@@ -198,7 +224,7 @@ def fetch_taobao_data(
         "media": media,
         "saleType": sale_type,
         "businessMode": biz_mode,
-        "deliveryMode": "cptSeedDaily",
+        "deliveryMode": delivery_mode,
         "dataBatch": "content" if dimension == "内容" else "order",
         "flowType": "all",
         "cycleStr": "30",
@@ -267,6 +293,14 @@ def fetch_taobao_data(
                 if "orderName" in item:
                     item["任务组名称"] = str(item.get("orderName", "")).strip()
                     item["任务名称"] = str(item.get("orderName", "")).strip()
+                # 内容维度需要展示达人昵称/内容链接/订单名称，缺了这三列新行会留空
+                if dimension == "内容":
+                    if item.get("kolName"):
+                        item["达人昵称"] = str(item.get("kolName", "")).strip()
+                    if item.get("contentUrl"):
+                        item["内容链接"] = str(item.get("contentUrl", "")).strip()
+                    if item.get("orderName"):
+                        item["订单名称"] = str(item.get("orderName", "")).strip()
 
                 for label, key in EFFECT_COLUMNS:
                     item[label] = item.get(key, "")

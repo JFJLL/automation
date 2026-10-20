@@ -11,16 +11,30 @@ import { TaskStatusBadge } from '@/shared/components/TaskStatusBadge';
 export const TasksPage: React.FC = () => {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
-  const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [editingTask, setEditingTask] = useState<any | null>(null);
   const [editName, setEditName] = useState('');
   const [editRrule, setEditRrule] = useState('');
+  const [editUpdateMode, setEditUpdateMode] = useState('append');
+
+  const [runningTask, setRunningTask] = useState<any | null>(null);
+  const [runMode, setRunMode] = useState<'latest' | 'backfill'>('latest');
+  const [backfillStartDate, setBackfillStartDate] = useState<string>('');
+  const [backfillEndDate, setBackfillEndDate] = useState<string>('');
+
+  const handleOpenRunDialog = (task: any) => {
+    setRunningTask(task);
+    setRunMode('latest');
+    const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString().split('T')[0];
+    setBackfillEndDate(yesterday);
+    setBackfillStartDate(thirtyDaysAgo);
+  };
 
   const updateTaskMutation = useMutation({
-    mutationFn: (data: { id: number; name: string; rrule: string }) =>
+    mutationFn: (data: { id: number; name: string; rrule: string; update_mode: string }) =>
       fetchJson(`/api/tasks/${data.id}/update`, {
         method: 'POST',
-        body: JSON.stringify({ name: data.name, rrule: data.rrule }),
+        body: JSON.stringify({ name: data.name, rrule: data.rrule, update_mode: data.update_mode }),
       }),
     onSuccess: () => {
       showSuccess('任务配置已更新成功！');
@@ -38,16 +52,25 @@ export const TasksPage: React.FC = () => {
   });
 
   const runNowMutation = useMutation({
-    mutationFn: (taskId: number) => fetchJson(`/api/tasks/${taskId}/run_now`, { method: 'POST' }),
+    mutationFn: (params: { taskId: number; mode?: 'latest' | 'backfill'; startDate?: string; endDate?: string }) =>
+      fetchJson(`/api/tasks/${params.taskId}/run_now`, {
+        method: 'POST',
+        body: JSON.stringify({
+          mode: params.mode || 'latest',
+          start_date: params.startDate,
+          end_date: params.endDate,
+        }),
+      }),
     onSuccess: (res: any) => {
       showSuccess(res.message || '任务同步执行成功');
+      setRunningTask(null);
       queryClient.invalidateQueries({ queryKey: ['syncTasks'] });
       queryClient.invalidateQueries({ queryKey: ['syncRuns'] });
     },
     onError: (err: any) => {
       queryClient.invalidateQueries({ queryKey: ['syncTasks'] });
       queryClient.invalidateQueries({ queryKey: ['syncRuns'] });
-      showError('同步任务执行失败，详情请查看“失败”状态');
+      showError(err.message || '同步任务执行失败，详情请查看“失败”状态');
     },
   });
 
@@ -59,18 +82,6 @@ export const TasksPage: React.FC = () => {
     },
     onError: (err: any) => {
       showError(err.message || '切换状态失败');
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (taskId: number) => fetchJson(`/api/tasks/${taskId}`, { method: 'DELETE' }),
-    onSuccess: () => {
-      showSuccess('任务已成功删除');
-      setDeleteConfirmId(null);
-      queryClient.invalidateQueries({ queryKey: ['syncTasks'] });
-    },
-    onError: (err: any) => {
-      showError(err.message || '删除任务失败');
     },
   });
 
@@ -89,27 +100,41 @@ export const TasksPage: React.FC = () => {
         ) : tasks.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>暂无同步任务</div>
         ) : (
-          <table>
+          <table style={{ tableLayout: 'fixed', width: '100%', minWidth: '900px' }}>
             <thead>
               <tr>
-                <th>任务名称</th>
-                <th>平台</th>
-                <th>状态</th>
-                <th>对应飞书表格</th>
-                <th>更新方式</th>
-                <th>调度频率</th>
-                <th>上次执行</th>
-                <th style={{ textAlign: 'center' }}>操作</th>
+                <th style={{ width: '18%' }}>任务名称</th>
+                <th style={{ width: '9%' }}>平台</th>
+                <th style={{ width: '10%' }}>状态</th>
+                <th style={{ width: '12%' }}>飞书表格</th>
+                <th style={{ width: '9%' }}>更新方式</th>
+                <th style={{ width: '12%' }}>调度频率</th>
+                <th style={{ width: '14%' }}>上次执行</th>
+                <th style={{ textAlign: 'center', width: '16%' }}>操作</th>
               </tr>
             </thead>
             <tbody>
               {tasks.map((t) => (
                 <tr key={t.id} className={t.status !== 'active' ? 'task-row-paused' : ''}>
-                  <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <strong>{t.name}</strong>
+                  <td style={{ minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                      <strong
+                        title={t.name}
+                        style={{
+                          flex: '1 1 auto',
+                          minWidth: 0,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {t.name}
+                      </strong>
                       {t.status !== 'active' && (
-                        <span className="badge badge-warning" style={{ fontSize: '11px', padding: '1px 6px' }}>
+                        <span
+                          className="badge badge-warning"
+                          style={{ fontSize: '11px', padding: '1px 6px', flexShrink: 0 }}
+                        >
                           已暂停
                         </span>
                       )}
@@ -154,12 +179,12 @@ export const TasksPage: React.FC = () => {
                     )}
                   </td>
                   <td style={{ textAlign: 'center' }}>
-                    <div style={{ display: 'inline-flex', gap: '6px' }}>
+                    <div style={{ display: 'inline-flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'center' }}>
                       <button
                         type="button"
                         className="btn btn-outline btn-sm"
-                        disabled={runNowMutation.isPending && runNowMutation.variables === t.id}
-                        onClick={() => runNowMutation.mutate(t.id)}
+                        disabled={runNowMutation.isPending && (runNowMutation.variables as any)?.taskId === t.id}
+                        onClick={() => handleOpenRunDialog(t)}
                       >
                         立即同步
                       </button>
@@ -177,16 +202,10 @@ export const TasksPage: React.FC = () => {
                           setEditingTask(t);
                           setEditName(t.name);
                           setEditRrule(t.rrule);
+                          setEditUpdateMode(t.update_mode || 'append');
                         }}
                       >
                         编辑
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-danger btn-sm"
-                        onClick={() => setDeleteConfirmId(t.id)}
-                      >
-                        删除
                       </button>
                     </div>
                   </td>
@@ -196,33 +215,6 @@ export const TasksPage: React.FC = () => {
           </table>
         )}
       </div>
-
-      {/* 删除确认 Dialog */}
-      <Dialog
-        isOpen={deleteConfirmId !== null}
-        onClose={() => setDeleteConfirmId(null)}
-        title="确认删除任务"
-        width="400px"
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-            确定删除此任务吗？飞书表格内容将保留，但后续将不再触发自动同步。
-          </p>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-            <button type="button" className="btn btn-outline" onClick={() => setDeleteConfirmId(null)}>
-              取消
-            </button>
-            <button
-              type="button"
-              className="btn btn-danger"
-              disabled={deleteMutation.isPending}
-              onClick={() => deleteConfirmId && deleteMutation.mutate(deleteConfirmId)}
-            >
-              确认删除
-            </button>
-          </div>
-        </div>
-      </Dialog>
 
       {/* 编辑任务 Dialog */}
       <Dialog
@@ -245,6 +237,21 @@ export const TasksPage: React.FC = () => {
             />
           </div>
 
+          <div>
+            <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155', display: 'block', marginBottom: '6px' }}>
+              更新方式
+            </label>
+            <select
+              className="form-control"
+              value={editUpdateMode}
+              onChange={(e) => setEditUpdateMode(e.target.value)}
+              style={{ width: '100%', height: '36px', fontSize: '13px' }}
+            >
+              <option value="append">增量更新 (自动校准并防重)</option>
+              <option value="overwrite">全量覆写 (覆盖同步历史窗口)</option>
+            </select>
+          </div>
+
           <SchedulePicker
             label="自动化同步周期 (RRULE)"
             value={editRrule}
@@ -265,11 +272,195 @@ export const TasksPage: React.FC = () => {
                     id: editingTask.id,
                     name: editName.trim(),
                     rrule: editRrule,
+                    update_mode: editUpdateMode,
                   });
                 }
               }}
             >
               {updateTaskMutation.isPending ? '保存中…' : '保存修改'}
+            </button>
+          </div>
+        </div>
+      </Dialog>
+
+      {/* 立即同步与补充历史数据 Dialog */}
+      <Dialog
+        isOpen={runningTask !== null}
+        onClose={() => setRunningTask(null)}
+        title={`执行数据同步 - ${runningTask?.name || ''}`}
+        width="540px"
+      >
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <div style={{ fontSize: '13px', color: '#475569', lineHeight: '1.5' }}>
+            请选择本次数据同步的执行模式：
+          </div>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            {/* 模式 1：同步最新数据（默认） */}
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '12px',
+                padding: '12px 14px',
+                borderRadius: '8px',
+                border: `1.5px solid ${runMode === 'latest' ? '#f53f3f' : '#e2e8f0'}`,
+                background: runMode === 'latest' ? '#fff5f5' : '#ffffff',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <input
+                type="radio"
+                name="runMode"
+                value="latest"
+                checked={runMode === 'latest'}
+                onChange={() => setRunMode('latest')}
+                style={{ marginTop: '3px', accentColor: '#f53f3f', cursor: 'pointer' }}
+              />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: '13px', color: '#1e293b' }}>
+                  ⚡ 同步最新数据（默认）
+                </div>
+                <div style={{ fontSize: '12px', color: '#64748b', marginTop: '3px', lineHeight: '1.4' }}>
+                  按任务原定规则，增量抓取最新数据并校准防重（最近 {runningTask?.calibration_days ?? 2} 天）。
+                </div>
+              </div>
+            </label>
+
+            {/* 模式 2：补充历史数据 */}
+            <label
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: '12px',
+                padding: '12px 14px',
+                borderRadius: '8px',
+                border: `1.5px solid ${runMode === 'backfill' ? '#f53f3f' : '#e2e8f0'}`,
+                background: runMode === 'backfill' ? '#fff5f5' : '#ffffff',
+                cursor: 'pointer',
+                transition: 'all 0.15s ease'
+              }}
+            >
+              <input
+                type="radio"
+                name="runMode"
+                value="backfill"
+                checked={runMode === 'backfill'}
+                onChange={() => setRunMode('backfill')}
+                style={{ marginTop: '3px', accentColor: '#f53f3f', cursor: 'pointer' }}
+              />
+              <div style={{ flex: 1 }}>
+                <div style={{ fontWeight: 600, fontSize: '13px', color: '#1e293b' }}>
+                  📅 补充历史数据
+                </div>
+                <div style={{ fontSize: '12px', color: '#64748b', marginTop: '3px', lineHeight: '1.4' }}>
+                  选择开始和结束日期，获取该区间全量数据合入现有表格；相同记录原地更新，已有历史完好保留，不影响日常定时更新规则。
+                </div>
+              </div>
+            </label>
+          </div>
+
+          {/* 当选择补充历史数据时，展开日期选择器 */}
+          {runMode === 'backfill' && (
+            <div style={{
+              background: '#f8fafc',
+              border: '1px solid #e2e8f0',
+              borderRadius: '8px',
+              padding: '14px',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '12px',
+              animation: 'uiFadeUp .2s both'
+            }}>
+              <div style={{ fontSize: '12px', fontWeight: 600, color: '#334155' }}>
+                选择需要补充的历史区间：
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ fontSize: '12px', color: '#64748b', display: 'block', marginBottom: '4px' }}>
+                    开始日期
+                  </label>
+                  <input
+                    type="date"
+                    className="form-control"
+                    value={backfillStartDate}
+                    onChange={(e) => setBackfillStartDate(e.target.value)}
+                    style={{ width: '100%', height: '36px', fontSize: '13px' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ fontSize: '12px', color: '#64748b', display: 'block', marginBottom: '4px' }}>
+                    结束日期
+                  </label>
+                  <input
+                    type="date"
+                    className="form-control"
+                    value={backfillEndDate}
+                    onChange={(e) => setBackfillEndDate(e.target.value)}
+                    style={{ width: '100%', height: '36px', fontSize: '13px' }}
+                  />
+                </div>
+              </div>
+
+              {/* 快捷范围预设 */}
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <span style={{ fontSize: '11px', color: '#94a3b8' }}>快捷范围:</span>
+                {[
+                  { label: '近30天', days: 30 },
+                  { label: '近60天', days: 60 },
+                  { label: '近90天', days: 90 },
+                  { label: '今年迄今 (1月1日)', startYear: true },
+                ].map((preset, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    className="btn btn-outline btn-sm"
+                    style={{ fontSize: '11px', height: '24px', padding: '0 8px' }}
+                    onClick={() => {
+                      const end = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+                      let start = '';
+                      if (preset.startYear) {
+                        start = `${new Date().getFullYear()}-01-01`;
+                      } else {
+                        start = new Date(Date.now() - (preset.days || 30) * 86400000).toISOString().split('T')[0];
+                      }
+                      setBackfillStartDate(start);
+                      setBackfillEndDate(end);
+                    }}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '8px' }}>
+            <button
+              type="button"
+              className="btn btn-outline"
+              onClick={() => setRunningTask(null)}
+              disabled={runNowMutation.isPending}
+            >
+              取消
+            </button>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={runNowMutation.isPending || (runMode === 'backfill' && (!backfillStartDate || !backfillEndDate))}
+              onClick={() => {
+                if (runningTask) {
+                  runNowMutation.mutate({
+                    taskId: runningTask.id,
+                    mode: runMode,
+                    startDate: runMode === 'backfill' ? backfillStartDate : undefined,
+                    endDate: runMode === 'backfill' ? backfillEndDate : undefined,
+                  });
+                }
+              }}
+            >
+              {runNowMutation.isPending ? '正在执行同步中…' : '确认执行'}
             </button>
           </div>
         </div>

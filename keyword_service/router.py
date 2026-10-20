@@ -21,7 +21,8 @@ from keyword_service.sync_engine import (
     remove_keywords_from_task
 )
 from core.scheduler_manager import SchedulerManager
-from core.security import create_admin_session, is_admin_authenticated
+from core.security import create_admin_session, is_admin_authenticated, require_admin_access
+from core.audit import save_deletion_audit
 from core.errors import (
     AppError,
     TaskNotFoundError,
@@ -293,6 +294,12 @@ def remove_words_endpoint(task_id: int, req: RemoveKeywordsRequest):
 
 @private_router.post("/tasks/{task_id}/run_now")
 def run_task_immediately(task_id: int):
+    with get_db() as conn:
+        row = conn.execute("SELECT status FROM keyword_tasks WHERE id = ?", (task_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="任务不存在")
+        if row["status"] == "archived":
+            raise HTTPException(status_code=409, detail="该任务已归档删除，不再允许执行")
     try:
         return run_keyword_task(task_id, trigger_type="manual")
     except AppError as ae:
@@ -309,6 +316,8 @@ def toggle_task(task_id: int):
         if not row:
             raise HTTPException(status_code=404, detail="Task not found")
         curr = row["status"]
+        if curr == "archived":
+            raise HTTPException(status_code=409, detail="该任务已归档删除，不能恢复调度")
         next_s = "paused" if curr == "active" else "active"
         conn.execute("UPDATE keyword_tasks SET status = ?, updated_at = ? WHERE id = ?", (next_s, datetime.now().isoformat(), task_id))
         conn.commit()
@@ -322,6 +331,7 @@ class UpdateKeywordTaskRequest(BaseModel):
     name: Optional[str] = None
     rrule: Optional[str] = None
     keywords: Optional[List[str]] = None
+    update_mode: Optional[str] = None
 
 @private_router.post("/tasks/{task_id}/update")
 @private_router.put("/tasks/{task_id}")
@@ -332,11 +342,15 @@ def update_keyword_task_endpoint(task_id: int, req: UpdateKeywordTaskRequest):
         task = cursor.fetchone()
         if not task:
             raise HTTPException(status_code=404, detail="任务不存在")
+        if task["status"] == "archived":
+            raise HTTPException(status_code=409, detail="该任务已归档删除，不能编辑")
         now = datetime.now().isoformat()
         if req.name and req.name.strip():
             conn.execute("UPDATE keyword_tasks SET name = ?, updated_at = ? WHERE id = ?", (req.name.strip(), now, task_id))
         if req.rrule and req.rrule.strip():
             conn.execute("UPDATE keyword_tasks SET rrule = ?, updated_at = ? WHERE id = ?", (req.rrule.strip(), now, task_id))
+        if req.update_mode and req.update_mode in ("overwrite", "append"):
+            conn.execute("UPDATE keyword_tasks SET update_mode = ?, updated_at = ? WHERE id = ?", (req.update_mode, now, task_id))
         if req.keywords is not None:
             clean_new = []
             seen = set()
@@ -354,13 +368,21 @@ def update_keyword_task_endpoint(task_id: int, req: UpdateKeywordTaskRequest):
         SchedulerManager.get_instance().schedule_keyword_task(task_id)
     return {"success": True}
 
-@private_router.delete("/tasks/{task_id}")
+@private_router.delete("/tasks/{task_id}", dependencies=[Depends(require_admin_access)])
 def delete_task(task_id: int):
     with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM keyword_tasks WHERE id = ?", (task_id,))
+        task = cursor.fetchone()
+        if not task:
+            raise HTTPException(status_code=404, detail="任务不存在")
+        cursor.execute("SELECT COUNT(*) FROM keyword_runs WHERE task_id = ?", (task_id,))
+        runs_count = cursor.fetchone()[0]
+        save_deletion_audit("keyword", task_id, dict(task), {"runs": runs_count})
         conn.execute("UPDATE keyword_tasks SET status = 'archived', updated_at = ? WHERE id = ?", (datetime.now().isoformat(), task_id))
         conn.commit()
     SchedulerManager.get_instance().remove_keyword_task(task_id)
-    return {"success": True}
+    return {"success": True, "archived": True}
 
 @private_router.get("/runs")
 def list_keyword_runs(task_id: Optional[int] = None, page: int = 1, page_size: int = 20):

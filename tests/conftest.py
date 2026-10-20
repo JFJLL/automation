@@ -27,6 +27,7 @@ os.environ["AUTH_MODE"] = "token"
 os.environ["ACCESS_TOKEN"] = "test_admin_token_2026"
 os.environ["SESSION_SECRET"] = "test-session-secret-32-bytes-long-key-12345"
 os.environ["TIMEZONE"] = "Asia/Shanghai"
+os.environ["ADMIN_AUDIT_DIR"] = str(_TMP_PATH / "admin_audit")
 
 from core.database import get_db_connection, run_migrations
 

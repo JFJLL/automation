@@ -181,6 +181,24 @@ class FeishuClient:
             "valueRange": {"range": range_str, "values": values}
         })
 
+    def read_values_formula(self, spreadsheet_token: str, sheet_id: str, range_suffix: str = "A:AZ") -> List[List[Any]]:
+        """读取时返回公式原文（用于识别并保护公式列）"""
+        res = self.request(
+            "GET",
+            f"sheets/v2/spreadsheets/{spreadsheet_token}/values/{sheet_id}!{range_suffix}?valueRenderOption=Formula",
+        )
+        return res.get("valueRange", {}).get("values") or []
+
+    def batch_update_values(self, spreadsheet_token: str, value_ranges: List[Dict[str, Any]]):
+        """按区间批量写入，单次最多 50 段，避免整行覆盖破坏公式列"""
+        for offset in range(0, len(value_ranges), 50):
+            chunk = value_ranges[offset:offset + 50]
+            if not chunk:
+                continue
+            self.request("POST", f"sheets/v2/spreadsheets/{spreadsheet_token}/values_batch_update", json={
+                "valueRanges": chunk
+            })
+
     def add_columns(self, spreadsheet_token: str, sheet_id: str, length: int) -> Dict[str, Any]:
         return self.request("POST", f"sheets/v2/spreadsheets/{spreadsheet_token}/dimension_range", json={
             "dimension": {

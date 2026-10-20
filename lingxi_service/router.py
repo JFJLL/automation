@@ -20,7 +20,8 @@ from lingxi_service.sync_engine import (
     remove_keywords_from_lingxi_task
 )
 from core.scheduler_manager import SchedulerManager
-from core.security import require_admin, require_auth, is_admin_authenticated
+from core.security import require_admin, require_auth, is_admin_authenticated, require_admin_access
+from core.audit import save_deletion_audit
 from core.errors import (
     AppError,
     TaskNotFoundError,
@@ -123,7 +124,7 @@ def direct_create_sheet(req: LingxiDirectSheetRequest):
 def list_lingxi_tasks():
     conn = get_db()
     cur = conn.cursor()
-    cur.execute("SELECT * FROM lingxi_tasks ORDER BY id DESC")
+    cur.execute("SELECT * FROM lingxi_tasks WHERE status != 'archived' ORDER BY id DESC")
     tasks = [dict(r) for r in cur.fetchall()]
     for t in tasks:
         try:
@@ -171,6 +172,12 @@ def remove_keywords_endpoint(task_id: int, req: TaskKeywordsMutation):
 
 @private_router.post("/tasks/{task_id}/run_now")
 def run_task_now_endpoint(task_id: int):
+    conn = get_db()
+    row = conn.execute("SELECT status FROM lingxi_tasks WHERE id = ?", (task_id,)).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="未找到任务")
+    if row["status"] == "archived":
+        raise HTTPException(status_code=409, detail="该任务已归档删除，不再允许执行")
     try:
         res = run_lingxi_task(task_id, trigger_type="manual")
         return {"code": 0, "msg": "任务执行完成", "data": res}
@@ -190,6 +197,8 @@ def toggle_task_endpoint(task_id: int):
         row = cur.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="未找到任务")
+        if row["status"] == "archived":
+            raise HTTPException(status_code=409, detail="该任务已归档删除，不能恢复调度")
         new_status = "paused" if row["status"] == "active" else "active"
         cur.execute("UPDATE lingxi_tasks SET status = ?, updated_at = ? WHERE id = ?", (new_status, datetime.now().isoformat(), task_id))
 
@@ -205,6 +214,7 @@ class UpdateLingxiTaskRequest(BaseModel):
     name: Optional[str] = None
     rrule: Optional[str] = None
     keywords: Optional[List[str]] = None
+    update_mode: Optional[str] = None
 
 @private_router.post("/tasks/{task_id}/update")
 @private_router.put("/tasks/{task_id}")
@@ -216,11 +226,15 @@ def update_lingxi_task_endpoint(task_id: int, req: UpdateLingxiTaskRequest):
         task = cur.fetchone()
         if not task:
             raise HTTPException(status_code=404, detail="未找到任务")
+        if task["status"] == "archived":
+            raise HTTPException(status_code=409, detail="该任务已归档删除，不能编辑")
         now = datetime.now().isoformat()
         if req.name and req.name.strip():
             cur.execute("UPDATE lingxi_tasks SET name = ?, updated_at = ? WHERE id = ?", (req.name.strip(), now, task_id))
         if req.rrule and req.rrule.strip():
             cur.execute("UPDATE lingxi_tasks SET rrule = ?, updated_at = ? WHERE id = ?", (req.rrule.strip(), now, task_id))
+        if req.update_mode and req.update_mode in ("overwrite", "append"):
+            cur.execute("UPDATE lingxi_tasks SET update_mode = ?, updated_at = ? WHERE id = ?", (req.update_mode, now, task_id))
         if req.keywords is not None:
             clean_new = []
             seen = set()
@@ -237,15 +251,25 @@ def update_lingxi_task_endpoint(task_id: int, req: UpdateLingxiTaskRequest):
         SchedulerManager.get_instance().schedule_lingxi_task(task_id)
     return {"code": 0, "msg": "更新成功"}
 
-@private_router.delete("/tasks/{task_id}")
+@private_router.delete("/tasks/{task_id}", dependencies=[Depends(require_admin_access)])
 def delete_task_endpoint(task_id: int):
     conn = get_db()
     with conn:
         cur = conn.cursor()
-        cur.execute("DELETE FROM lingxi_tasks WHERE id = ?", (task_id,))
+        cur.execute("SELECT * FROM lingxi_tasks WHERE id = ?", (task_id,))
+        task = cur.fetchone()
+        if not task:
+            raise HTTPException(status_code=404, detail="未找到任务")
+        cur.execute("SELECT COUNT(*) FROM lingxi_runs WHERE task_id = ?", (task_id,))
+        runs_count = cur.fetchone()[0]
+        save_deletion_audit("lingxi", task_id, dict(task), {"runs": runs_count})
+        cur.execute(
+            "UPDATE lingxi_tasks SET status = 'archived', updated_at = ? WHERE id = ?",
+            (datetime.now().isoformat(), task_id),
+        )
     mgr = SchedulerManager.get_instance()
     mgr.remove_lingxi_task(task_id)
-    return {"code": 0, "msg": "任务删除成功"}
+    return {"code": 0, "msg": "任务已归档删除，运行记录与本地审计快照均已保留"}
 
 @private_router.get("/runs")
 def list_lingxi_runs(page: int = 1, page_size: int = 20):

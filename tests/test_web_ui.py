@@ -14,7 +14,12 @@ def test_react_spa_production_serving():
         "/keyword/tasks",
         "/keyword/runs",
         "/settings",
-        "/admin"
+        "/admin",
+        "/admin/tasks",
+        "/admin/audit",
+        "/admin/promo",
+        "/admin/promo/tasks",
+        "/admin/promo/runs",
     ]
     for r in routes:
         resp = client.get(r)

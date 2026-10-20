@@ -32,21 +32,32 @@ for root_dir in [PROJECT_ROOT, BASE_DIR]:
 from app.db import get_db, init_db
 from keyword_service.db import init_db as init_kw_db
 from lingxi_service.db import init_db as init_lingxi_db
+from core.database import get_simple_promo_db, run_migrations
+from simple_promo.seed import seed_simple_promo_data
+from simple_promo.router import router as simple_promo_router
 from feishu.client import FeishuClient
 from feishu.notify import Notifier
 from platforms.registry import PLATFORMS
 from platforms.juguang import get_juguang_subaccounts_list
 from platforms.jzt import get_jzt_subaccounts_list
 from core.ingest import parse_excel_sheets, analyze_sheet_for_platform
-from core.sync import preview_fetch, execute_task_sync
+from core.sync import (
+    preview_fetch,
+    execute_task_sync,
+    execute_inplace_merge_sync,
+    sort_sheet_data_rows,
+    normalize_date_compact,
+)
 from core.scheduler_manager import SchedulerManager
 from core.security import (
     require_admin,
     require_auth,
+    require_admin_access,
     is_admin_authenticated,
     create_admin_session,
     SESSION_COOKIE_NAME
 )
+from core.audit import save_deletion_audit, list_deletion_audits
 from core.business_time import now_business_tz, latest_keyword_available_date
 from core.errors import (
     AppError,
@@ -70,6 +81,9 @@ async def lifespan(app: FastAPI):
     init_db()
     init_kw_db()
     init_lingxi_db()
+    promo_conn = get_simple_promo_db()
+    run_migrations(promo_conn, module="simple_promo")
+    seed_simple_promo_data(promo_conn)
     SchedulerManager.get_instance().start()
     yield
     # 优雅停机
@@ -94,9 +108,17 @@ async def http_error_handler(request: Request, exc: HTTPException):
         content={"error": {"code": f"HTTP_{exc.status_code}", "message": msg}}
     )
 
+class CacheControlStaticFiles(StaticFiles):
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        if response.status_code == 200:
+            # Vite 生成的内容指纹静态资源永久缓存 1 年，极大加快二次访问和移动端加载
+            response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
 # 挂载前端 React SPA 生产构建静态产物
 if FRONTEND_DIST.exists() and (FRONTEND_DIST / "assets").exists():
-    app.mount("/assets", StaticFiles(directory=str(FRONTEND_DIST / "assets")), name="assets")
+    app.mount("/assets", CacheControlStaticFiles(directory=str(FRONTEND_DIST / "assets")), name="assets")
 if (BASE_DIR / "web").exists():
     app.mount("/static", StaticFiles(directory=str(BASE_DIR / "web")), name="static")
 
@@ -104,6 +126,7 @@ if (BASE_DIR / "web").exists():
 # 注册关键词路由
 app.include_router(keyword_router)
 app.include_router(lingxi_router)
+app.include_router(simple_promo_router)
 
 # ---------------- 健康检查与就绪检查 (Section 六十一) ----------------
 @app.get("/api/business-time")
@@ -144,11 +167,12 @@ def readiness_check():
     }
 
 def render_spa_index():
+    spa_headers = {"Cache-Control": "no-cache, no-store, must-revalidate"}
     if FRONTEND_DIST.exists() and (FRONTEND_DIST / "index.html").exists():
-        return HTMLResponse((FRONTEND_DIST / "index.html").read_text(encoding="utf-8"))
+        return HTMLResponse((FRONTEND_DIST / "index.html").read_text(encoding="utf-8"), headers=spa_headers)
     html_path = BASE_DIR / "web" / "index.html"
     if html_path.exists():
-        return HTMLResponse(html_path.read_text(encoding="utf-8"))
+        return HTMLResponse(html_path.read_text(encoding="utf-8"), headers=spa_headers)
     return HTMLResponse("<h1>自动化中心前端构建未就绪，请在 frontend 目录执行 npm run build</h1>", status_code=503)
 
 @app.get("/", response_class=HTMLResponse)
@@ -167,8 +191,27 @@ def render_spa_index():
 @app.get("/lingxi/tasks/", response_class=HTMLResponse)
 @app.get("/lingxi/runs", response_class=HTMLResponse)
 @app.get("/lingxi/runs/", response_class=HTMLResponse)
+@app.get("/simple-promo", response_class=HTMLResponse)
+@app.get("/simple-promo/", response_class=HTMLResponse)
+@app.get("/simple-promo/tasks", response_class=HTMLResponse)
+@app.get("/simple-promo/tasks/", response_class=HTMLResponse)
+@app.get("/simple-promo/runs", response_class=HTMLResponse)
+@app.get("/simple-promo/runs/", response_class=HTMLResponse)
 @app.get("/settings", response_class=HTMLResponse)
 @app.get("/admin", response_class=HTMLResponse)
+@app.get("/admin/", response_class=HTMLResponse)
+@app.get("/admin/tasks", response_class=HTMLResponse)
+@app.get("/admin/tasks/", response_class=HTMLResponse)
+@app.get("/admin/audit", response_class=HTMLResponse)
+@app.get("/admin/audit/", response_class=HTMLResponse)
+@app.get("/admin/runs", response_class=HTMLResponse)
+@app.get("/admin/runs/", response_class=HTMLResponse)
+@app.get("/admin/promo", response_class=HTMLResponse)
+@app.get("/admin/promo/", response_class=HTMLResponse)
+@app.get("/admin/promo/tasks", response_class=HTMLResponse)
+@app.get("/admin/promo/tasks/", response_class=HTMLResponse)
+@app.get("/admin/promo/runs", response_class=HTMLResponse)
+@app.get("/admin/promo/runs/", response_class=HTMLResponse)
 def index_page():
     return render_spa_index()
 
@@ -246,7 +289,8 @@ def get_platforms():
     }
 
 @app.get("/api/platforms/juguang/subaccounts")
-def get_juguang_subaccounts(refresh: bool = False):
+def get_juguang_subaccounts(response: Response, refresh: bool = False):
+    response.headers["Cache-Control"] = "public, max-age=300, stale-while-revalidate=3600"
     return get_juguang_subaccounts_list(force_refresh=refresh)
 
 @app.get("/api/platforms/jzt/subaccounts")
@@ -391,7 +435,23 @@ def create_task(req: CreateTaskRequest):
 
             feishu.write_rows(ss_token, ws_id, start_row=1, rows=[sc.headers])
             if req.write_initial_data and sc.initial_rows:
-                sorted_init = sort_sheet_data_rows(sc.initial_rows, sc.headers, sc.id_column, sc.date_column, sc.entity_ids)
+                id_idx = sc.headers.index(sc.id_column) if (sc.headers and sc.id_column in sc.headers) else 1
+                date_idx = sc.headers.index(sc.date_column) if (sc.headers and sc.date_column in sc.headers) else 0
+                dedup_map = {}
+                for r in sc.initial_rows:
+                    if any(r):
+                        eid = str(r[id_idx] if len(r) > id_idx else "").strip()
+                        if eid.endswith(".0"):
+                            eid = eid[:-2]
+                        d = normalize_date_compact(r[date_idx] if len(r) > date_idx else "")[:8]
+                        chan = ""
+                        for c_name in ["平台", "渠道"]:
+                            if c_name in sc.headers:
+                                c_i = sc.headers.index(c_name)
+                                chan = str(r[c_i] if len(r) > c_i else "").strip()
+                                break
+                        dedup_map[(eid, d, chan)] = r
+                sorted_init = sort_sheet_data_rows(list(dedup_map.values()), sc.headers, sc.id_column, sc.date_column, sc.entity_ids)
                 feishu.write_rows(ss_token, ws_id, start_row=2, rows=sorted_init)
 
             sheet_records.append({
@@ -422,7 +482,23 @@ def create_task(req: CreateTaskRequest):
                 
             feishu.write_rows(ss_token, ws_id, start_row=1, rows=[sc.headers])
             if req.write_initial_data and sc.initial_rows:
-                sorted_init = sort_sheet_data_rows(sc.initial_rows, sc.headers, sc.id_column, sc.date_column, sc.entity_ids)
+                id_idx = sc.headers.index(sc.id_column) if (sc.headers and sc.id_column in sc.headers) else 1
+                date_idx = sc.headers.index(sc.date_column) if (sc.headers and sc.date_column in sc.headers) else 0
+                dedup_map = {}
+                for r in sc.initial_rows:
+                    if any(r):
+                        eid = str(r[id_idx] if len(r) > id_idx else "").strip()
+                        if eid.endswith(".0"):
+                            eid = eid[:-2]
+                        d = normalize_date_compact(r[date_idx] if len(r) > date_idx else "")[:8]
+                        chan = ""
+                        for c_name in ["平台", "渠道"]:
+                            if c_name in sc.headers:
+                                c_i = sc.headers.index(c_name)
+                                chan = str(r[c_i] if len(r) > c_i else "").strip()
+                                break
+                        dedup_map[(eid, d, chan)] = r
+                sorted_init = sort_sheet_data_rows(list(dedup_map.values()), sc.headers, sc.id_column, sc.date_column, sc.entity_ids)
                 feishu.write_rows(ss_token, ws_id, start_row=2, rows=sorted_init)
                 
             sheet_records.append({
@@ -491,9 +567,50 @@ def list_tasks():
             t["sheets"] = [dict(s) for s in cursor.fetchall()]
     return tasks
 
+class RunTaskNowRequest(BaseModel):
+    mode: Optional[Literal["latest", "backfill"]] = "latest"
+    start_date: Optional[str] = None
+    end_date: Optional[str] = None
+
 @app.post("/api/tasks/{task_id}/run_now")
-def run_task_now(task_id: int):
-    return execute_task_sync(task_id, trigger_type="manual")
+def run_task_now(task_id: int, req: Optional[RunTaskNowRequest] = None):
+    custom_start = None
+    custom_end = None
+    force_upsert = False
+    trigger = "manual"
+    if req and req.mode == "backfill":
+        if not req.start_date:
+            raise HTTPException(status_code=400, detail="补充历史数据必须指定开始日期")
+        custom_start = req.start_date.strip()
+        custom_end = req.end_date.strip() if req.end_date else datetime.now().date().isoformat()
+        force_upsert = True
+        trigger = f"backfill"
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT sync_style, status FROM tasks WHERE id = ?", (task_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="任务不存在")
+        if row["status"] == "archived":
+            raise HTTPException(status_code=409, detail="该任务已归档删除，不再允许执行")
+        sync_style = (row["sync_style"] if row and "sync_style" in row.keys() else "rewrite") or "rewrite"
+
+    if sync_style == "inplace":
+        return execute_inplace_merge_sync(
+            task_id,
+            trigger_type=trigger,
+            custom_start_date=custom_start,
+            custom_end_date=custom_end,
+        )
+
+    return execute_task_sync(
+        task_id,
+        trigger_type=trigger,
+        custom_start_date=custom_start,
+        custom_end_date=custom_end,
+        force_upsert=force_upsert
+    )
 
 @app.post("/api/tasks/{task_id}/toggle_status")
 def toggle_task_status(task_id: int):
@@ -503,6 +620,8 @@ def toggle_task_status(task_id: int):
         r = cursor.fetchone()
         if not r:
             raise HTTPException(status_code=404, detail="Task not found")
+        if r["status"] == "archived":
+            raise HTTPException(status_code=409, detail="该任务已归档删除，不能恢复调度")
         new_status = "paused" if r["status"] == "active" else "active"
         cursor.execute("UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?", (new_status, datetime.now().isoformat(), task_id))
         conn.commit()
@@ -515,6 +634,8 @@ def toggle_task_status(task_id: int):
 class UpdateTaskRequest(BaseModel):
     name: Optional[str] = None
     rrule: Optional[str] = None
+    update_mode: Optional[str] = None
+    calibration_days: Optional[int] = None
 
 @app.post("/api/tasks/{task_id}/update")
 @app.put("/api/tasks/{task_id}")
@@ -525,26 +646,57 @@ def update_sync_task(task_id: int, req: UpdateTaskRequest):
         task = cursor.fetchone()
         if not task:
             raise HTTPException(status_code=404, detail="任务不存在")
+        if task["status"] == "archived":
+            raise HTTPException(status_code=409, detail="该任务已归档删除，不能编辑")
         now = datetime.now().isoformat()
         if req.name and req.name.strip():
             conn.execute("UPDATE tasks SET name = ?, updated_at = ? WHERE id = ?", (req.name.strip(), now, task_id))
         if req.rrule and req.rrule.strip():
             conn.execute("UPDATE tasks SET rrule = ?, updated_at = ? WHERE id = ?", (req.rrule.strip(), now, task_id))
+        if req.update_mode and req.update_mode in ("append", "overwrite"):
+            conn.execute("UPDATE tasks SET update_mode = ?, updated_at = ? WHERE id = ?", (req.update_mode, now, task_id))
+        if req.calibration_days is not None and req.calibration_days >= 0:
+            conn.execute("UPDATE tasks SET calibration_days = ?, updated_at = ? WHERE id = ?", (req.calibration_days, now, task_id))
         conn.commit()
     if req.rrule and task["status"] == "active":
         SchedulerManager.get_instance().schedule_sync_task(task_id)
     return {"success": True}
 
-@app.delete("/api/tasks/{task_id}")
+@app.delete("/api/tasks/{task_id}", dependencies=[Depends(require_admin_access)])
 def delete_task(task_id: int):
     with get_db() as conn:
-        conn.execute("DELETE FROM task_sheets WHERE task_id = ?", (task_id,))
-        conn.execute("DELETE FROM runs WHERE task_id = ?", (task_id,))
-        conn.execute("DELETE FROM backups WHERE task_id = ?", (task_id,))
-        conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
+        task = cursor.fetchone()
+        if not task:
+            raise HTTPException(status_code=404, detail="任务不存在")
+        cursor.execute("SELECT COUNT(*) FROM runs WHERE task_id = ?", (task_id,))
+        runs_count = cursor.fetchone()[0]
+        cursor.execute("SELECT COUNT(*) FROM task_sheets WHERE task_id = ?", (task_id,))
+        sheets_count = cursor.fetchone()[0]
+        save_deletion_audit(
+            "sync",
+            task_id,
+            dict(task),
+            {"runs": runs_count, "task_sheets": sheets_count},
+        )
+        # Archive instead of hard-deleting: run history stays queryable for auditing.
+        conn.execute(
+            "UPDATE tasks SET status = 'archived', updated_at = ? WHERE id = ?",
+            (datetime.now().isoformat(), task_id),
+        )
         conn.commit()
     SchedulerManager.get_instance().remove_sync_task(task_id)
-    return {"success": True}
+    return {
+        "success": True,
+        "archived": True,
+        "message": "任务已归档删除，运行记录与本地审计快照均已保留",
+    }
+
+
+@app.get("/api/admin/deletion-audits", dependencies=[Depends(require_admin_access)])
+def get_deletion_audits(limit: int = 200):
+    return list_deletion_audits(limit)
 
 @app.get("/api/runs")
 def list_runs(
@@ -599,4 +751,3 @@ def list_runs(
             "items": runs
         }
     return runs
-

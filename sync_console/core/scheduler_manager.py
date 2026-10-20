@@ -10,6 +10,7 @@ from app.config import TIMEZONE
 from app.db import get_db
 from keyword_service.db import get_db as get_kw_db
 from lingxi_service.db import get_db as get_lingxi_db
+from core.database import get_simple_promo_db
 from core.workdays import is_china_workday
 
 tz = gettz(TIMEZONE)
@@ -45,7 +46,7 @@ class SchedulerManager:
             after_dt = datetime.now(tz)
         elif after_dt.tzinfo is None:
             after_dt = after_dt.replace(tzinfo=tz)
-            
+
         clean_str = rrule_str.strip()
         if clean_str.startswith("RRULE:"):
             clean_str = clean_str[6:]
@@ -90,20 +91,20 @@ class SchedulerManager:
             if not task or task["status"] != "active":
                 self.remove_sync_task(task_id)
                 return
-                
+
             now = datetime.now(tz)
             next_dt = self.parse_sync_next_run(task["rrule"], now)
             next_iso = next_dt.isoformat()
-            
+
             cursor.execute("UPDATE tasks SET next_run_at = ?, updated_at = ? WHERE id = ?", (next_iso, now.isoformat(), task_id))
             conn.commit()
-            
+
             job_id = f"sync_task_{task_id}"
             try:
                 self.scheduler.remove_job(job_id)
             except JobLookupError:
                 pass
-                
+
             self.scheduler.add_job(
                 _run_sync_task_job,
                 trigger="date",
@@ -128,20 +129,20 @@ class SchedulerManager:
             if not task or task["status"] != "active":
                 self.remove_keyword_task(task_id)
                 return
-                
+
             now = datetime.now(tz)
             next_dt = self.parse_kw_next_run(task["rrule"], now)
             next_iso = next_dt.isoformat()
-            
+
             cursor.execute("UPDATE keyword_tasks SET next_run_at = ?, updated_at = ? WHERE id = ?", (next_iso, now.isoformat(), task_id))
             conn.commit()
-            
+
             job_id = f"kw_task_{task_id}"
             try:
                 self.scheduler.remove_job(job_id)
             except JobLookupError:
                 pass
-                
+
             self.scheduler.add_job(
                 _run_keyword_task_job,
                 trigger="date",
@@ -166,20 +167,20 @@ class SchedulerManager:
             if not task or task["status"] != "active":
                 self.remove_lingxi_task(task_id)
                 return
-                
+
             now = datetime.now(tz)
             next_dt = self.parse_kw_next_run(task["rrule"], now)
             next_iso = next_dt.isoformat()
-            
+
             cursor.execute("UPDATE lingxi_tasks SET next_run_at = ?, updated_at = ? WHERE id = ?", (next_iso, now.isoformat(), task_id))
             conn.commit()
-            
+
             job_id = f"lingxi_task_{task_id}"
             try:
                 self.scheduler.remove_job(job_id)
             except JobLookupError:
                 pass
-                
+
             self.scheduler.add_job(
                 _run_lingxi_task_job,
                 trigger="date",
@@ -196,6 +197,44 @@ class SchedulerManager:
         except JobLookupError:
             pass
 
+    def schedule_simple_promo_task(self, task_id: int):
+        with get_simple_promo_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, rrule, status FROM simple_promo_tasks WHERE id = ?", (task_id,))
+            task = cursor.fetchone()
+            if not task or task["status"] != "active":
+                self.remove_simple_promo_task(task_id)
+                return
+
+            now = datetime.now(tz)
+            next_dt = self.parse_kw_next_run(task["rrule"], now)
+            next_iso = next_dt.isoformat()
+
+            cursor.execute("UPDATE simple_promo_tasks SET next_run_at = ?, updated_at = ? WHERE id = ?", (next_iso, now.isoformat(), task_id))
+            conn.commit()
+
+            job_id = f"simple_promo_task_{task_id}"
+            try:
+                self.scheduler.remove_job(job_id)
+            except JobLookupError:
+                pass
+
+            self.scheduler.add_job(
+                _run_simple_promo_task_job,
+                trigger="date",
+                run_date=next_dt,
+                args=[task_id],
+                id=job_id,
+                replace_existing=True
+            )
+
+    def remove_simple_promo_task(self, task_id: int):
+        job_id = f"simple_promo_task_{task_id}"
+        try:
+            self.scheduler.remove_job(job_id)
+        except JobLookupError:
+            pass
+
     def restore_all_tasks(self):
         # 1. 恢复主数据同步任务
         with get_db() as conn:
@@ -206,7 +245,7 @@ class SchedulerManager:
                     self.schedule_sync_task(r["id"])
                 except Exception as e:
                     print(f"[SchedulerManager] Schedule sync task {r['id']} error: {e}")
-                    
+
         # 2. 恢复关键词同步任务
         with get_kw_db() as conn:
             cursor = conn.cursor()
@@ -227,11 +266,29 @@ class SchedulerManager:
                 except Exception as e:
                     print(f"[SchedulerManager] Schedule lingxi task {r['id']} error: {e}")
 
+        try:
+            with get_simple_promo_db() as conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id FROM simple_promo_tasks WHERE status = 'active'")
+                for r in cursor.fetchall():
+                    try:
+                        self.schedule_simple_promo_task(r['id'])
+                    except Exception as e:
+                        print(f"[SchedulerManager] Schedule simple_promo task {r['id']} error: {e}")
+        except Exception as e:
+            print(f"[SchedulerManager] Restore simple promo tasks error: {e}")
+
 def _run_sync_task_job(task_id: int):
-    from core.sync import execute_task_sync
+    from core.sync import execute_task_sync, execute_inplace_merge_sync
     mgr = SchedulerManager.get_instance()
     try:
-        execute_task_sync(task_id, trigger_type="scheduled")
+        with get_db() as conn:
+            row = conn.execute("SELECT sync_style FROM tasks WHERE id = ?", (task_id,)).fetchone()
+            sync_style = (row["sync_style"] if row and "sync_style" in row.keys() else "rewrite") or "rewrite"
+        if sync_style == "inplace":
+            execute_inplace_merge_sync(task_id, trigger_type="scheduled")
+        else:
+            execute_task_sync(task_id, trigger_type="scheduled")
     except Exception as e:
         print(f"[Scheduler] Run scheduled sync task {task_id} error: {e}")
     finally:
@@ -267,3 +324,12 @@ def _run_lingxi_task_job(task_id: int):
     finally:
         mgr.schedule_lingxi_task(task_id)
 
+def _run_simple_promo_task_job(task_id: int):
+    from simple_promo.engine import run_simple_promo_task
+    mgr = SchedulerManager.get_instance()
+    try:
+        run_simple_promo_task(task_id, trigger_type="scheduled")
+    except Exception as e:
+        print(f"[Scheduler] Run scheduled simple_promo task {task_id} error: {e}")
+    finally:
+        mgr.schedule_simple_promo_task(task_id)

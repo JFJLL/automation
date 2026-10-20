@@ -10,6 +10,12 @@ import { KeywordRunsPage } from '@/features/keywords/pages/KeywordRunsPage';
 import { LingxiInsightPage } from '@/features/lingxi/pages/LingxiInsightPage';
 import { LingxiTasksPage } from '@/features/lingxi/pages/LingxiTasksPage';
 import { LingxiRunsPage } from '@/features/lingxi/pages/LingxiRunsPage';
+import { SimplePromoWorkbenchPage } from '@/features/simple_promo/pages/SimplePromoWorkbenchPage';
+import { SimplePromoTasksPage } from '@/features/simple_promo/pages/SimplePromoTasksPage';
+import { SimplePromoRunsPage } from '@/features/simple_promo/pages/SimplePromoRunsPage';
+import { AdminHomePage } from '@/features/admin/pages/AdminHomePage';
+import { AdminTasksPage } from '@/features/admin/pages/AdminTasksPage';
+import { AdminAuditPage } from '@/features/admin/pages/AdminAuditPage';
 import { SettingsPage } from '@/features/settings/pages/SettingsPage';
 
 export const router = createBrowserRouter([
@@ -58,12 +64,48 @@ export const router = createBrowserRouter([
         element: <LingxiRunsPage />,
       },
       {
-        path: 'settings',
-        element: <SettingsPage />,
+        path: 'admin',
+        element: <AdminHomePage />,
       },
       {
-        path: 'admin',
-        element: <Navigate to="/settings" replace />,
+        path: 'admin/tasks',
+        element: <AdminTasksPage />,
+      },
+      {
+        path: 'admin/audit',
+        element: <AdminAuditPage />,
+      },
+      {
+        path: 'admin/promo',
+        element: <SimplePromoWorkbenchPage />,
+      },
+      {
+        path: 'admin/promo/tasks',
+        element: <SimplePromoTasksPage />,
+      },
+      {
+        path: 'admin/promo/runs',
+        element: <SimplePromoRunsPage />,
+      },
+      {
+        path: 'simple-promo',
+        element: <Navigate to="/admin/promo" replace />,
+      },
+      {
+        path: 'simple-promo/tasks',
+        element: <Navigate to="/admin/promo/tasks" replace />,
+      },
+      {
+        path: 'simple-promo/runs',
+        element: <Navigate to="/admin/promo/runs" replace />,
+      },
+      {
+        path: 'admin/runs',
+        element: <Navigate to="/admin/promo/runs" replace />,
+      },
+      {
+        path: 'settings',
+        element: <SettingsPage />,
       },
       {
         path: '*',

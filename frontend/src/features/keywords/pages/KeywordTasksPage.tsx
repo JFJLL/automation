@@ -13,11 +13,11 @@ export const KeywordTasksPage: React.FC = () => {
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
 
-  const [deleteConfirmId, setDeleteConfirmId] = useState<number | null>(null);
   const [editingTask, setEditingTask] = useState<any | null>(null);
   const [editName, setEditName] = useState('');
   const [editRrule, setEditRrule] = useState('');
   const [editKeywords, setEditKeywords] = useState<string[]>([]);
+  const [editUpdateMode, setEditUpdateMode] = useState('overwrite');
 
   const { data: tasks = [], isLoading, refetch } = useQuery<any[]>({
     queryKey: ['keywordTasks'],
@@ -48,13 +48,14 @@ export const KeywordTasksPage: React.FC = () => {
   });
 
   const updateTaskMutation = useMutation({
-    mutationFn: (data: { id: number; name: string; rrule: string; keywords: string[] }) =>
+    mutationFn: (data: { id: number; name: string; rrule: string; keywords: string[]; update_mode: string }) =>
       fetchJson(`/api/keyword/tasks/${data.id}/update`, {
         method: 'POST',
         body: JSON.stringify({
           name: data.name,
           rrule: data.rrule,
           keywords: data.keywords,
+          update_mode: data.update_mode,
         }),
       }),
     onSuccess: () => {
@@ -65,18 +66,6 @@ export const KeywordTasksPage: React.FC = () => {
     },
     onError: (err: any) => {
       showError(err.message || '更新任务失败');
-    },
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (taskId: number) => fetchJson(`/api/keyword/tasks/${taskId}`, { method: 'DELETE' }),
-    onSuccess: () => {
-      showSuccess('关键词任务已归档删除');
-      setDeleteConfirmId(null);
-      queryClient.invalidateQueries({ queryKey: ['keywordTasks'] });
-    },
-    onError: (err: any) => {
-      showError(err.message || '删除任务失败');
     },
   });
 
@@ -95,27 +84,41 @@ export const KeywordTasksPage: React.FC = () => {
         ) : tasks.length === 0 ? (
           <div style={{ textAlign: 'center', padding: '30px', color: 'var(--text-muted)' }}>暂无关键词监控任务</div>
         ) : (
-          <table>
+          <table style={{ tableLayout: 'fixed', width: '100%', minWidth: '900px' }}>
             <thead>
               <tr>
-                <th>任务名称</th>
-                <th>关键词详情</th>
-                <th>状态</th>
-                <th>对应飞书表格</th>
-                <th>模式</th>
-                <th>调度频率</th>
-                <th>上次执行</th>
-                <th style={{ textAlign: 'center' }}>操作</th>
+                <th style={{ width: '14%' }}>任务名称</th>
+                <th style={{ width: '15%' }}>关键词详情</th>
+                <th style={{ width: '9%' }}>状态</th>
+                <th style={{ width: '11%' }}>飞书表格</th>
+                <th style={{ width: '8%' }}>模式</th>
+                <th style={{ width: '10%' }}>调度频率</th>
+                <th style={{ width: '11%' }}>上次执行</th>
+                <th style={{ textAlign: 'center', width: '22%' }}>操作</th>
               </tr>
             </thead>
             <tbody>
               {tasks.map((t) => (
                 <tr key={t.id} className={t.status !== 'active' ? 'task-row-paused' : ''}>
-                  <td>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <strong>{t.name}</strong>
+                  <td style={{ minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                      <strong
+                        title={t.name}
+                        style={{
+                          flex: '1 1 auto',
+                          minWidth: 0,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {t.name}
+                      </strong>
                       {t.status !== 'active' && (
-                        <span className="badge badge-warning" style={{ fontSize: '11px', padding: '1px 6px' }}>
+                        <span
+                          className="badge badge-warning"
+                          style={{ fontSize: '11px', padding: '1px 6px', flexShrink: 0 }}
+                        >
                           已暂停
                         </span>
                       )}
@@ -169,7 +172,7 @@ export const KeywordTasksPage: React.FC = () => {
                     )}
                   </td>
                   <td style={{ textAlign: 'center' }}>
-                    <div style={{ display: 'inline-flex', gap: '6px' }}>
+                      <div style={{ display: 'inline-flex', gap: '6px', flexWrap: 'nowrap', justifyContent: 'center' }}>
                       <button
                         type="button"
                         className="btn btn-outline btn-sm"
@@ -193,17 +196,10 @@ export const KeywordTasksPage: React.FC = () => {
                           setEditName(t.task_name || t.name);
                           setEditRrule(t.rrule);
                           setEditKeywords([...(t.keywords || [])]);
+                          setEditUpdateMode(t.update_mode || 'overwrite');
                         }}
                       >
                         编辑
-                      </button>
-                      <button
-                        type="button"
-                        className="btn btn-outline btn-sm"
-                        style={{ color: 'var(--danger)' }}
-                        onClick={() => setDeleteConfirmId(t.id)}
-                      >
-                        删除
                       </button>
                     </div>
                   </td>
@@ -235,6 +231,21 @@ export const KeywordTasksPage: React.FC = () => {
             />
           </div>
 
+          <div>
+            <label style={{ fontSize: '13px', fontWeight: 600, color: '#334155', display: 'block', marginBottom: '6px' }}>
+              更新方式
+            </label>
+            <select
+              className="form-control"
+              value={editUpdateMode}
+              onChange={(e) => setEditUpdateMode(e.target.value)}
+              style={{ width: '100%', height: '36px', fontSize: '13px' }}
+            >
+              <option value="overwrite">全量覆写 (覆盖历史窗口数据)</option>
+              <option value="append">增量追加 (按日期向右扩展追加)</option>
+            </select>
+          </div>
+
           <SchedulePicker
             label="自动化同步周期 (RRULE)"
             value={editRrule}
@@ -262,6 +273,7 @@ export const KeywordTasksPage: React.FC = () => {
                     name: editName.trim(),
                     rrule: editRrule,
                     keywords: editKeywords,
+                    update_mode: editUpdateMode,
                   });
                 }
               }}
@@ -272,32 +284,6 @@ export const KeywordTasksPage: React.FC = () => {
         </div>
       </Dialog>
 
-      {/* 删除确认 Dialog */}
-      <Dialog
-        isOpen={deleteConfirmId !== null}
-        onClose={() => setDeleteConfirmId(null)}
-        title="确认删除关键词任务"
-        width="400px"
-      >
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <p style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
-            确定要归档删除该关键词监控任务吗？飞书表格内容将保留，但不再触发后续同步。
-          </p>
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-            <button type="button" className="btn btn-outline" onClick={() => setDeleteConfirmId(null)}>
-              取消
-            </button>
-            <button
-              type="button"
-              className="btn btn-danger"
-              disabled={deleteMutation.isPending}
-              onClick={() => deleteConfirmId && deleteMutation.mutate(deleteConfirmId)}
-            >
-              确认删除
-            </button>
-          </div>
-        </div>
-      </Dialog>
     </div>
   );
 };

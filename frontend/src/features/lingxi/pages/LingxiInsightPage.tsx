@@ -1,4 +1,5 @@
-import React, { useState, useRef } from 'react';
+import { getPageCache, setPageCache } from '@/shared/utils/pageCache';
+import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Sparkles, Search, X, Tags, Copy, Check, Maximize2 } from 'lucide-react';
 import { fetchJson } from '@/shared/api/client';
@@ -13,7 +14,12 @@ export const LingxiInsightPage: React.FC = () => {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [inputWord, setInputWord] = useState('');
-  const [selectedWords, setSelectedWords] = useState<string[]>([]);
+  const [selectedWords, setSelectedWords] = useState<string[]>(() => getPageCache('lingxi_selectedWords', []));
+  const [cachedQueryResult, setCachedQueryResult] = useState<any>(() => getPageCache('lingxi_queryResult', null));
+
+  useEffect(() => {
+    setPageCache('lingxi_selectedWords', selectedWords);
+  }, [selectedWords]);
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
 
   // 弹窗状态
@@ -32,6 +38,10 @@ export const LingxiInsightPage: React.FC = () => {
         body: JSON.stringify({ keywords: kws }),
       }),
     onSuccess: (res) => {
+      if (res.data) {
+        setPageCache('lingxi_queryResult', res.data);
+        setCachedQueryResult(res.data);
+      }
       if (res.data?.failed_keywords?.length > 0) {
         showError(String(res.data.failed_keywords.length) + ' 个关键词获取失败，可在表格中查看错误详情');
       } else {
@@ -116,7 +126,7 @@ export const LingxiInsightPage: React.FC = () => {
     setSelectedWords(selectedWords.filter((w) => w !== word));
   };
 
-  const queryResult = searchMutation.data?.data;
+  const queryResult = searchMutation.data?.data || cachedQueryResult;
   const hasFailedKeywords = Boolean(queryResult && queryResult.failed_keywords?.length > 0);
 
   // 复制表格内容到剪贴板 (TSV 格式，兼容 Excel 直接粘贴)

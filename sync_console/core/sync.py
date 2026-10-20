@@ -1,4 +1,5 @@
 import json
+import re
 import time
 import os
 from datetime import datetime, date, timedelta
@@ -23,6 +24,8 @@ from feishu.notify import Notifier
 from platforms.jzt import fetch_jzt_data
 from platforms.taobao import fetch_taobao_data
 from platforms.juguang import fetch_juguang_data
+from platforms.registry import detect_best_platform
+from feishu.client import column_letter
 
 
 def sort_sheet_data_rows(
@@ -175,13 +178,22 @@ def preview_fetch(
     for item in all_raw_rows[:50]:
         row = map_item_to_row(item, merged_headers, id_col, date_col)
         preview_table_rows.append(row)
-        
+
+    # 用表头特征反推真实来源平台，前端据此提示"平台选错"并支持一键切换
+    detected_platform = platform
+    try:
+        detected_platform, _ = detect_best_platform(merged_headers)
+    except Exception:
+        pass
+
     return {
         "headers": merged_headers,
         "rows": preview_table_rows,
         "total_fetched": len(all_raw_rows),
         "sample_entities_checked": sample_ids,
-        "errors": errors
+        "errors": errors,
+        "detected_platform": detected_platform,
+        "platform_mismatch": detected_platform != platform
     }
 
 def clean_old_backups(task_id: int, worksheet_id: str, keep_limit: int = 30):
@@ -204,7 +216,360 @@ def clean_old_backups(task_id: int, worksheet_id: str, keep_limit: int = 30):
                 cursor.execute("DELETE FROM backups WHERE id = ?", (r["id"],))
             conn.commit()
 
-def execute_task_sync(task_id: int, trigger_type: str = "scheduled") -> Dict[str, Any]:
+def _is_empty_cell(val: Any) -> bool:
+    return val is None or (isinstance(val, str) and not val.strip())
+
+
+def _cell_equivalent(old: Any, new: Any) -> bool:
+    """数值容差比较：避免 2 与 "2"、0 与 "0.0" 被误判为变更而反复回写。"""
+    if _is_empty_cell(old) and _is_empty_cell(new):
+        return True
+    # 飞书富文本/超链接单元格读回是对象数组，写成纯文本会丢失可点击链接，视为等价跳过
+    if isinstance(old, (list, dict)):
+        return True
+    if str(old).strip() == str(new).strip():
+        return True
+    try:
+        return float(str(old).strip()) == float(str(new).strip())
+    except (TypeError, ValueError):
+        return False
+
+
+_FORMULA_REF_RE = re.compile(r"(?<![A-Za-z0-9_$])(\$?)([A-Z]{1,3})(\$?)(\d+)(?![0-9])")
+
+
+def shift_formula_row(formula: str, from_row: int, to_row: int) -> str:
+    """把公式中的相对行引用从 from_row 平移到 to_row，绝对引用（$2）保持不变。"""
+    if not isinstance(formula, str) or not formula.startswith("=") or from_row == to_row:
+        return formula
+
+    def repl(match: re.Match) -> str:
+        col_abs, col, row_abs, row_no = match.groups()
+        if row_abs == "$" or int(row_no) != from_row:
+            return match.group(0)
+        return f"{col_abs}{col}{row_abs}{to_row}"
+
+    return _FORMULA_REF_RE.sub(repl, formula)
+
+
+def normalize_natural_key_parts(platform: str, item: Dict[str, Any], entity_id: str, dimension: str) -> Tuple:
+    """与 get_item_natural_key 对齐，用于原地合并时定位已有行"""
+    return get_item_natural_key(platform, item, entity_id, dimension)
+
+
+def _row_natural_key(row: List[Any], headers: List[str], platform: str, entity_id: str, dimension: str, id_col: str) -> Optional[Tuple]:
+    row_dict = {h: (row[i] if i < len(row) else "") for i, h in enumerate(headers)}
+    date_val = row_dict.get("日期") or row_dict.get("时间") or ""
+    if not str(date_val).strip():
+        return None
+    if platform == "taobao":
+        row_dict.setdefault("任务ID", row_dict.get("任务ID") or entity_id)
+        row_dict.setdefault("内容ID", row_dict.get("内容ID") or "")
+        if dimension == "内容":
+            row_dict["内容ID"] = row_dict.get("内容ID") or entity_id
+        else:
+            row_dict["任务ID"] = row_dict.get("任务ID") or entity_id
+    return get_item_natural_key(platform, row_dict, entity_id, dimension)
+
+
+def execute_inplace_merge_sync(
+    task_id: int,
+    trigger_type: str = "scheduled",
+    custom_start_date: Optional[str] = None,
+    custom_end_date: Optional[str] = None,
+) -> Dict[str, Any]:
+    """
+    原地合并同步：适用于已在飞书上人工维护的表。
+    - 不重排行、不整块重写
+    - 仅按自然键 upsert 变更行，按行区间写入
+    - 跳过空单元格，绝不覆盖公式列（如 归属 / 任务组名称）
+    - 已有行无数据时补空，有数据时只更新非空指标
+    """
+    started_at = datetime.now().isoformat()
+    t0 = time.time()
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
+        task = cursor.fetchone()
+        if not task:
+            raise TaskNotFoundError(f"同步任务 #{task_id} 不存在")
+        if not acquire_task_lease(conn, f"sync_task_{task_id}", owner=f"sync_{trigger_type}", lease_seconds=1800):
+            raise TaskAlreadyRunningError(f"任务 #{task_id} 正在执行中，请勿重复触发")
+        cursor.execute("SELECT * FROM task_sheets WHERE task_id = ?", (task_id,))
+        sheets = cursor.fetchall()
+        cursor.execute("""
+            INSERT INTO runs (task_id, trigger_type, started_at, status, rows_fetched, rows_appended, rows_updated, message)
+            VALUES (?, ?, ?, 'running', 0, 0, 0, '原地合并同步执行中...')
+        """, (task_id, trigger_type, started_at))
+        run_id = cursor.lastrowid
+        conn.commit()
+
+    feishu = FeishuClient()
+    notifier = Notifier(feishu)
+    spreadsheet_token = task["spreadsheet_token"]
+    cutoff_date = custom_end_date or latest_sync_cutoff_date(task["platform"])
+    total_fetched = 0
+    total_appended = 0
+    total_updated = 0
+    errors: List[str] = []
+    backups_written: List[Tuple[str, List[List[Any]]]] = []
+    detail: List[Dict[str, Any]] = []
+
+    # 每个子表独立容错：单个子表失败不影响其余子表，失败明细写入 runs.error_detail
+    for s in sheets:
+        try:
+            sheet_title = s["sheet_title"]
+            worksheet_id = s["worksheet_id"]
+            headers = json.loads(s["header_json"])
+            entity_ids = json.loads(s["entity_ids_json"])
+            id_col = s["id_column"] or ("内容ID" if s["dimension"] == "内容" else "任务ID")
+            date_col = s["date_column"] or "日期"
+            dimension = s["dimension"] or "任务"
+
+            raw_values = feishu.read_values(spreadsheet_token, worksheet_id, "A:BZ") or []
+            formula_values = feishu.read_values_formula(spreadsheet_token, worksheet_id, "A:BZ") or []
+            if not raw_values:
+                errors.append(f"【{sheet_title}】表为空，跳过以免破坏结构")
+                continue
+
+            col_count = len(headers)
+            data_rows = raw_values[1:]
+            formula_rows = formula_values[1:] if len(formula_values) > 1 else []
+
+            # 1. 计算已有数据的最新日期
+            existing_dates: List[str] = []
+            date_idx = headers.index(date_col) if date_col in headers else 0
+            for r in data_rows:
+                if date_idx < len(r):
+                    compact = normalize_date_compact(r[date_idx])
+                    if len(compact) == 8 and compact.isdigit():
+                        existing_dates.append(f"{compact[:4]}-{compact[4:6]}-{compact[6:8]}")
+
+            if custom_start_date:
+                start_date = custom_start_date
+            else:
+                configured_start = s["sheet_start_date"] if "sheet_start_date" in s.keys() else None
+                if existing_dates:
+                    latest = max(existing_dates)
+                    try:
+                        latest_dt = datetime.strptime(latest, "%Y-%m-%d").date()
+                        start_date = (latest_dt - timedelta(days=int(task["calibration_days"]))).isoformat()
+                    except Exception:
+                        start_date = (date.today() - timedelta(days=int(task["calibration_days"]))).isoformat()
+                elif configured_start:
+                    start_date = configured_start
+                else:
+                    start_date = (date.today() - timedelta(days=int(task["calibration_days"]))).isoformat()
+
+            if start_date > cutoff_date:
+                start_date = cutoff_date
+
+            # 2. 抓取
+            fetched_items: List[Dict[str, Any]] = []
+            sub_acc_id = task["sub_account_id"] if "sub_account_id" in task.keys() else None
+            for eid in entity_ids:
+                if task["platform"] == "jzt":
+                    res = fetch_jzt_data(eid, start_date, cutoff_date, sub_account_id=sub_acc_id)
+                elif task["platform"] == "taobao":
+                    res = fetch_taobao_data(eid, dimension, start_date, cutoff_date)
+                elif task["platform"] == "juguang":
+                    res = fetch_juguang_data(eid, dimension, start_date, cutoff_date, sub_account_id=sub_acc_id)
+                else:
+                    raise ValueError(f"未知平台类型: {task['platform']}")
+                fetched_items.extend(res.rows if hasattr(res, "rows") else res)
+
+            total_fetched += len(fetched_items)
+            if not fetched_items:
+                detail.append({"sheet": sheet_title, "fetched": 0, "appended": 0, "updated": 0, "note": "接口无新数据"})
+                continue
+
+            # 3. 建立已有行索引（自然键 -> 行号）
+            key_to_row: Dict[Tuple, int] = {}
+            for offset, r in enumerate(data_rows):
+                if not any(not _is_empty_cell(c) for c in r):
+                    continue
+                padded = list(r) + [""] * max(0, col_count - len(r))
+                key = _row_natural_key(padded[:col_count], headers, task["platform"], entity_ids[0] if entity_ids else "", dimension, id_col)
+                if key is None:
+                    continue
+                # 同一自然键重复时保留首次出现，避免误写
+                if key in key_to_row:
+                    continue
+                key_to_row[key] = offset + 2  # +1 表头 +1 起始行号
+
+            # 4. 生成变更（只写存在差异的单元格区间）
+            pending_updates: List[Dict[str, Any]] = []
+            appended_rows: List[List[Any]] = []
+            rows_appended = 0
+            rows_updated = 0
+            last_row_needed = 1
+
+            for item in fetched_items:
+                mapped = map_item_to_row(item, headers, id_col, date_col)
+                key = normalize_natural_key_parts(task["platform"], item, entity_ids[0] if entity_ids else "", dimension)
+                if key in key_to_row:
+                    row_no = key_to_row[key]
+                    idx_in_data = row_no - 2
+                    old_row = data_rows[idx_in_data] if idx_in_data < len(data_rows) else []
+                    old_formula_row = formula_rows[idx_in_data] if idx_in_data < len(formula_rows) else []
+                    changed = False
+                    for ci in range(col_count):
+                        new_val = mapped[ci] if ci < len(mapped) else ""
+                        if _is_empty_cell(new_val):
+                            continue
+                        formula_val = old_formula_row[ci] if ci < len(old_formula_row) else None
+                        if isinstance(formula_val, str) and formula_val.startswith("="):
+                            continue
+                        old_val = old_row[ci] if ci < len(old_row) else ""
+                        if not _cell_equivalent(old_val, new_val):
+                            c_letter = column_letter(ci + 1)
+                            pending_updates.append({
+                                "range": f"{worksheet_id}!{c_letter}{row_no}:{c_letter}{row_no}",
+                                "values": [[new_val]],
+                            })
+                            changed = True
+                    if changed:
+                        rows_updated += 1
+                    last_row_needed = max(last_row_needed, row_no)
+                else:
+                    appended_rows.append(mapped)
+                    key_to_row[key] = 0
+                    rows_appended += 1
+
+            # 5. 追加行：以"日期列"判定最后一条真实数据行。
+            # 不能用整行非空判定 —— 归属/任务组名称等公式列会预填到几十上百行，
+            # 否则新数据会被追加到很靠后的位置，中间留下大段空行。
+            last_existing_row = 1
+            for offset, r in enumerate(data_rows):
+                if date_idx < len(r) and not _is_empty_cell(r[date_idx]):
+                    last_existing_row = offset + 2
+
+            write_plan: List[Dict[str, Any]] = []
+            if pending_updates:
+                write_plan.extend(pending_updates)
+            if appended_rows:
+                start_row = last_existing_row + 1
+                target_last_row = start_row + len(appended_rows) - 1
+                try:
+                    sheet_meta = next(
+                        (x for x in feishu.get_sheets(spreadsheet_token) if x.get("sheet_id") == worksheet_id),
+                        None,
+                    )
+                    grid = (sheet_meta or {}).get("grid_properties") or {}
+                    current_rows = int(grid.get("row_count") or 0)
+                    if current_rows and target_last_row > current_rows:
+                        feishu.add_rows(spreadsheet_token, worksheet_id, target_last_row - current_rows)
+                        time.sleep(1.0)
+                except Exception as ex:
+                    print(f"[InPlaceMerge] add_rows note: {ex}")
+                for offset, row in enumerate(appended_rows):
+                    row_no = start_row + offset
+                    # 新行若落在公式列，写入公式列的"计算后结果"，而不是公式本身。
+                    # 平移公式会因引用类型不同（日期文本/空值）导致 #VALUE!，且历史上
+                    # 该列也可能本来就是静态文本（如 启萃图文-F 的任务组名称）。
+                    prev_row_no = row_no - 1
+                    prev_formula_row = (
+                        formula_rows[prev_row_no - 2]
+                        if 0 <= prev_row_no - 2 < len(formula_rows)
+                        else []
+                    )
+                    prev_value_row = (
+                        data_rows[prev_row_no - 2]
+                        if 0 <= prev_row_no - 2 < len(data_rows)
+                        else []
+                    )
+                    for ci in range(min(col_count, len(row))):
+                        formula_val = prev_formula_row[ci] if ci < len(prev_formula_row) else None
+                        if isinstance(formula_val, str) and formula_val.startswith("="):
+                            fallback = prev_value_row[ci] if ci < len(prev_value_row) else ""
+                            row[ci] = "" if _is_empty_cell(fallback) else fallback
+                    # 只写非公式列（表头中能识别的业务列）
+                    for ci in range(min(col_count, len(row))):
+                        if _is_empty_cell(row[ci]):
+                            continue
+                        c_letter = column_letter(ci + 1)
+                        write_plan.append({
+                            "range": f"{worksheet_id}!{c_letter}{row_no}:{c_letter}{row_no}",
+                            "values": [[row[ci]]],
+                        })
+
+            # 6. 写前备份
+            if write_plan:
+                stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                backup_file = BACKUPS_DIR / f"{task_id}_{worksheet_id}_{stamp}.json"
+                backup_file.write_text(json.dumps(raw_values, ensure_ascii=False), encoding="utf-8")
+                with get_db() as conn:
+                    conn.execute(
+                        "INSERT INTO backups (task_id, worksheet_id, backup_path, row_count, created_at) VALUES (?, ?, ?, ?, ?)",
+                        (task_id, worksheet_id, str(backup_file), len(raw_values), datetime.now().isoformat()),
+                    )
+                    conn.commit()
+                clean_old_backups(task_id, worksheet_id, 30)
+                backups_written.append((worksheet_id, raw_values))
+
+                feishu.batch_update_values(spreadsheet_token, write_plan)
+
+                # 7. 回读校验：确认追加行已落地
+                verified = feishu.read_values(spreadsheet_token, worksheet_id, "A:BZ")
+                if len(verified) < 1:
+                    raise FeishuWriteError(f"【{sheet_title}】写后回读失败：表头丢失")
+
+            total_appended += rows_appended
+            total_updated += rows_updated
+            detail.append({
+                "sheet": sheet_title,
+                "fetched": len(fetched_items),
+                "appended": rows_appended,
+                "updated": rows_updated,
+                "range": f"{start_date}~{cutoff_date}",
+            })
+
+        except Exception as exc:
+            errors.append(f"【{s['sheet_title']}】{type(exc).__name__}: {exc}")
+            detail.append({
+                "sheet": s["sheet_title"],
+                "fetched": 0,
+                "appended": 0,
+                "updated": 0,
+                "error": str(exc),
+            })
+
+    finished_at = datetime.now().isoformat()
+    duration_ms = int((time.time() - t0) * 1000)
+    status = "failed" if errors else "success"
+    err_detail = "; ".join(errors) if errors else None
+    message = f"抓取{total_fetched}行，追加{total_appended}行，更新{total_updated}行"
+    if trigger_type.startswith("backfill"):
+        message = f"历史补数({custom_start_date}~{cutoff_date})：抓取{total_fetched}行，追加{total_appended}行，更新{total_updated}行"
+
+    with get_db() as conn:
+        conn.execute("""
+            UPDATE runs SET finished_at = ?, status = ?, rows_fetched = ?, rows_appended = ?,
+                rows_updated = ?, duration_ms = ?, message = ?, error_detail = ?
+            WHERE id = ?
+        """, (finished_at, status, total_fetched, total_appended, total_updated,
+              duration_ms, message, err_detail, run_id))
+        conn.execute("""
+            UPDATE tasks SET last_run_at = ?, last_status = ?, last_error = ?, updated_at = ? WHERE id = ?
+        """, (finished_at, status, err_detail, finished_at, task_id))
+        conn.commit()
+        release_task_lease(conn, f"sync_task_{task_id}")
+
+    if status == "failed":
+        notifier.notify_failure(task["name"], task["platform"], err_detail or "未知错误")
+
+    return {
+        "status": status,
+        "rows_fetched": total_fetched,
+        "rows_appended": total_appended,
+        "rows_updated": total_updated,
+        "duration_ms": duration_ms,
+        "errors": errors,
+        "detail": detail,
+    }
+
+def execute_task_sync(task_id: int, trigger_type: str = "scheduled", custom_start_date: Optional[str] = None, custom_end_date: Optional[str] = None, force_upsert: bool = False) -> Dict[str, Any]:
     """
     执行主数据同步：
     两阶段高可靠事务保证：
@@ -281,7 +646,11 @@ def execute_task_sync(task_id: int, trigger_type: str = "scheduled") -> Dict[str
                             if len(d_str) == 10:
                                 dates_in_sheet.append(d_str)
                             
-            if task["update_mode"] == "overwrite":
+            if custom_start_date:
+                start_date = custom_start_date
+                if custom_end_date:
+                    cutoff_date = custom_end_date
+            elif task["update_mode"] == "overwrite":
                 start_date = min(dates_in_sheet) if dates_in_sheet else (date.today() - timedelta(days=30)).isoformat()
             else:
                 if dates_in_sheet:
@@ -400,7 +769,8 @@ def execute_task_sync(task_id: int, trigger_type: str = "scheduled") -> Dict[str
             primary_entity_id = entity_ids[0] if entity_ids else ""
             id_idx = headers.index(id_col) if (headers and id_col in headers) else 1
             date_idx = headers.index(date_col) if (headers and date_col in headers) else 0
-            if task["update_mode"] == "overwrite":
+            is_overwrite = (task["update_mode"] == "overwrite") and not force_upsert
+            if is_overwrite:
                 # 分水岭智能全量更新（窗口全量覆盖 + 历史基线保护，彻底防止超期老数据被抹除）
                 if not fetched_items and existing_values:
                     # 若接口未返回任何数据，安全起见绝不抹空表格
@@ -524,7 +894,7 @@ def execute_task_sync(task_id: int, trigger_type: str = "scheduled") -> Dict[str
             (
                 finished_at, status, total_fetched, total_appended, total_updated,
                 duration_ms, rollback_status,
-                f"抓取{total_fetched}行，追加{total_appended}行，更新{total_updated}行",
+                (f"补充历史数据完成({custom_start_date or start_date}~{custom_end_date or cutoff_date})：抓取{total_fetched}行，追加{total_appended}行，更新{total_updated}行" if trigger_type.startswith("backfill") else f"抓取{total_fetched}行，追加{total_appended}行，更新{total_updated}行"),
                 err_detail, run_id
             )
         )

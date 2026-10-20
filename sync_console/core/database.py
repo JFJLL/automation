@@ -5,10 +5,11 @@ import time
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta
-from app.config import DATA_DIR, DB_PATH
+from app.config import DATA_DIR, DB_PATH, BASE_DIR
 
 KEYWORD_DB_PATH = Path(os.getenv("KEYWORD_DB_PATH", str(DATA_DIR / "keyword_data.db")))
 LINGXI_DB_PATH = Path(os.getenv("LINGXI_DB_PATH", str(DATA_DIR / "lingxi_data.db")))
+SIMPLE_PROMO_DB_PATH = Path(os.getenv("SIMPLE_PROMO_DB_PATH", str(DATA_DIR / "simple_promo_data.db")))
 
 def get_db_connection(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -49,6 +50,11 @@ def get_lingxi_db(db_path: Optional[Path] = None) -> sqlite3.Connection:
     if db_path:
         return get_db_connection(db_path)
     return get_db_connection(LINGXI_DB_PATH)
+
+def get_simple_promo_db(db_path: Optional[Path] = None) -> sqlite3.Connection:
+    if db_path:
+        return get_db_connection(db_path)
+    return get_db_connection(SIMPLE_PROMO_DB_PATH)
 
 def run_migrations(conn: sqlite3.Connection, module: str = "sync"):
     with conn:
@@ -164,6 +170,19 @@ def run_migrations(conn: sqlite3.Connection, module: str = "sync"):
                 if "rollback_status" not in cols:
                     conn.execute("ALTER TABLE runs ADD COLUMN rollback_status TEXT")
                 conn.execute("INSERT INTO schema_migrations (version, module, applied_at) VALUES (3, 'sync', ?)", (datetime.now().isoformat(),))
+
+            # Migration 5: 原地合并同步模式（保护公式列与人工列，不重排行）
+            # 说明：版本 4 在历史环境已被 max_backfill_days 使用，这里顺延到 5。
+            if 5 not in applied:
+                cur.execute("PRAGMA table_info(tasks)")
+                cols = [r[1] for r in cur.fetchall()]
+                if "sync_style" not in cols:
+                    conn.execute("ALTER TABLE tasks ADD COLUMN sync_style TEXT NOT NULL DEFAULT 'rewrite'")
+                cur.execute("PRAGMA table_info(task_sheets)")
+                sheet_cols = [r[1] for r in cur.fetchall()]
+                if "sheet_start_date" not in sheet_cols:
+                    conn.execute("ALTER TABLE task_sheets ADD COLUMN sheet_start_date TEXT")
+                conn.execute("INSERT INTO schema_migrations (version, module, applied_at) VALUES (5, 'sync', ?)", (datetime.now().isoformat(),))
 
         elif module == "keyword":
             # Migration 1: Base tables
@@ -284,6 +303,77 @@ def run_migrations(conn: sqlite3.Connection, module: str = "sync"):
                 )
                 """)
                 conn.execute("INSERT INTO schema_migrations (version, module, applied_at) VALUES (1, 'lingxi', ?)", (datetime.now().isoformat(),))
+
+        elif module == "simple_promo":
+            # Migration 1: Base tables for simple promotion note pause
+            if 1 not in applied:
+                conn.execute("""
+                CREATE TABLE IF NOT EXISTS simple_promo_tasks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL,
+                    accounts_json TEXT NOT NULL,
+                    cutoff_date TEXT NOT NULL DEFAULT '2026-01-01 00:00:00',
+                    whitelist_note_ids_json TEXT NOT NULL DEFAULT '[]',
+                    rrule TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'active',
+                    next_run_at TEXT,
+                    last_run_at TEXT,
+                    last_status TEXT,
+                    last_error TEXT,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL
+                )
+                """)
+                conn.execute("""
+                CREATE TABLE IF NOT EXISTS simple_promo_runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    task_id INTEGER,
+                    task_name TEXT NOT NULL,
+                    trigger_type TEXT NOT NULL,
+                    mode TEXT NOT NULL DEFAULT 'EXECUTE',
+                    cutoff_date TEXT NOT NULL,
+                    started_at TEXT NOT NULL,
+                    finished_at TEXT,
+                    duration_ms INTEGER DEFAULT 0,
+                    status TEXT NOT NULL,
+                    accounts_count INTEGER DEFAULT 0,
+                    total_notes_scanned INTEGER DEFAULT 0,
+                    pre_cutoff_notes_count INTEGER DEFAULT 0,
+                    to_pause_count INTEGER DEFAULT 0,
+                    paused_success_count INTEGER DEFAULT 0,
+                    already_paused_count INTEGER DEFAULT 0,
+                    message TEXT,
+                    error_detail TEXT,
+                    summary_json TEXT
+                )
+                """)
+                conn.execute("""
+                CREATE TABLE IF NOT EXISTS simple_promo_run_items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id INTEGER NOT NULL,
+                    account_name TEXT NOT NULL,
+                    account_id TEXT NOT NULL,
+                    campaign_group_id TEXT,
+                    creativity_id TEXT NOT NULL,
+                    note_id TEXT NOT NULL,
+                    note_title TEXT,
+                    note_publish_time TEXT,
+                    note_url TEXT,
+                    original_status TEXT,
+                    action TEXT,
+                    result_status TEXT,
+                    error_message TEXT
+                )
+                """)
+                conn.execute("""
+                CREATE TABLE IF NOT EXISTS task_leases (
+                    task_key TEXT PRIMARY KEY,
+                    owner TEXT NOT NULL,
+                    acquired_at TEXT NOT NULL,
+                    expires_at TEXT NOT NULL
+                )
+                """)
+                conn.execute("INSERT INTO schema_migrations (version, module, applied_at) VALUES (1, 'simple_promo', ?)", (datetime.now().isoformat(),))
 
 def acquire_task_lease(conn: sqlite3.Connection, task_key: str, owner: str = "worker", lease_seconds: int = 600) -> bool:
     """

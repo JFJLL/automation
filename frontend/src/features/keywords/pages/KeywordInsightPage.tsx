@@ -1,3 +1,4 @@
+import { getPageCache, setPageCache } from '@/shared/utils/pageCache';
 import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Sparkles, Calendar, Search, X, Clock, Tags, Copy, Maximize2 } from 'lucide-react';
@@ -13,7 +14,12 @@ export const KeywordInsightPage: React.FC = () => {
   const inputRef = useRef<HTMLInputElement>(null);
 
   const [inputWord, setInputWord] = useState('');
-  const [selectedWords, setSelectedWords] = useState<string[]>([]);
+  const [selectedWords, setSelectedWords] = useState<string[]>(() => getPageCache('kw_selectedWords', []));
+  const [cachedQueryResult, setCachedQueryResult] = useState<any>(() => getPageCache('kw_queryResult', null));
+
+  useEffect(() => {
+    setPageCache('kw_selectedWords', selectedWords);
+  }, [selectedWords]);
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [activePrimeCategory, setActivePrimeCategory] = useState<string>('全部词库');
   const [activeSubCategory, setActiveSubCategory] = useState<string>('全部');
@@ -207,6 +213,8 @@ export const KeywordInsightPage: React.FC = () => {
         }),
       }),
     onSuccess: (res) => {
+      setPageCache('kw_queryResult', res);
+      setCachedQueryResult(res);
       if (res.failed_keywords?.length > 0) {
         showError(`${res.failed_keywords.length} 个关键词获取失败，可在表格中查看错误详情`);
       } else {
@@ -369,7 +377,7 @@ export const KeywordInsightPage: React.FC = () => {
     return Array.from(new Set(words));
   }, [libraryData, activePrimeCategory, activeSubCategory, libraryFilter]);
 
-  const queryResult = searchMutation.data;
+  const queryResult = searchMutation.data || cachedQueryResult;
   const sortedDates = React.useMemo(() => {
     if (!queryResult?.dates) return [];
     return isDescending ? [...queryResult.dates].reverse() : queryResult.dates;

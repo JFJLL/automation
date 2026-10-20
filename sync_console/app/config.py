@@ -16,6 +16,7 @@ SHARED_FOLDER_TOKEN = os.getenv("SHARED_FOLDER_TOKEN", "").strip()
 SHARED_FOLDER_NAME = os.getenv("SHARED_FOLDER_NAME", "数据自动同步表").strip()
 ACCESS_TOKEN = os.getenv("ACCESS_TOKEN", "").strip()
 AUTH_MODE = os.getenv("AUTH_MODE", "token").strip().lower()
+SIMPLE_PROMO_PASSWORD = os.getenv("SIMPLE_PROMO_PASSWORD", "xinxiliu123").strip()
 
 OSS_ENDPOINT = os.getenv("OSS_ENDPOINT", "https://oss-cn-beijing.aliyuncs.com").strip()
 OSS_BUCKET = os.getenv("OSS_BUCKET", "redmagic").strip()

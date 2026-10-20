@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { getPageCache, setPageCache } from '@/shared/utils/pageCache';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { Info, Check, AlertTriangle, ArrowRight, RotateCw, Layers, Calendar, Link2, Hash } from 'lucide-react';
@@ -6,29 +7,51 @@ import { fetchJson } from '@/shared/api/client';
 import { SchedulePicker } from '@/shared/components/SchedulePicker';
 import { useToast } from '@/shared/components/Toast';
 
+const PLATFORM_LABELS: Record<string, string> = {
+  jzt: '京准通',
+  taobao: '淘宝星河',
+  juguang: '小红书聚光',
+};
+
 export const ImportPage: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { showSuccess, showError } = useToast();
 
-  const [platform, setPlatform] = useState<string>('jzt');
-  const [subAccountId, setSubAccountId] = useState<string>('');
-  const [file, setFile] = useState<File | null>(null);
-  const [analyzedSheets, setAnalyzedSheets] = useState<any[]>([]);
-  const [selectedSheetIndices, setSelectedSheetIndices] = useState<number[]>([0]);
-
-  // 任务配置项
-  const [taskName, setTaskName] = useState<string>('');
-  const [updateMode, setUpdateMode] = useState<string>('append');
-  const [calibrationDays, setCalibrationDays] = useState<number>(2);
-  const [rrule, setRrule] = useState<string>('RRULE:FREQ=DAILY;BYHOUR=9;BYMINUTE=0');
-  const [isMergeTasks, setIsMergeTasks] = useState(false);
-  const [customTaskIdsInput, setCustomTaskIdsInput] = useState('');
-  const [isLinkExisting, setIsLinkExisting] = useState(false);
-  const [existingUrl, setExistingUrl] = useState('');
-  const [newSheetTitle, setNewSheetTitle] = useState('');
+  const [platform, setPlatform] = useState<string>(() => getPageCache('sync_platform', 'jzt'));
+  const [subAccountId, setSubAccountId] = useState<string>(() => getPageCache('sync_subAccountId', ''));
+  const [file, setFile] = useState<File | null>(() => getPageCache('sync_file', null));
+  const [analyzedSheets, setAnalyzedSheets] = useState<any[]>(() => getPageCache('sync_analyzedSheets', []));
+  const [selectedSheetIndices, setSelectedSheetIndices] = useState<number[]>(() => getPageCache('sync_selectedSheetIndices', [0]));
+  const [taskName, setTaskName] = useState<string>(() => getPageCache('sync_taskName', ''));
+  const [updateMode, setUpdateMode] = useState<string>(() => getPageCache('sync_updateMode', 'append'));
+  const [calibrationDays, setCalibrationDays] = useState<number>(() => getPageCache('sync_calibrationDays', 2));
+  const [rrule, setRrule] = useState<string>(() => getPageCache('sync_rrule', 'RRULE:FREQ=DAILY;BYHOUR=9;BYMINUTE=0'));
+  const [isMergeTasks, setIsMergeTasks] = useState(() => getPageCache('sync_isMergeTasks', false));
+  const [customTaskIdsInput, setCustomTaskIdsInput] = useState(() => getPageCache('sync_customTaskIdsInput', ''));
+  const [isLinkExisting, setIsLinkExisting] = useState(() => getPageCache('sync_isLinkExisting', false));
+  const [existingUrl, setExistingUrl] = useState(() => getPageCache('sync_existingUrl', ''));
+  const [newSheetTitle, setNewSheetTitle] = useState(() => getPageCache('sync_newSheetTitle', ''));
+  const [previewStartDate, setPreviewStartDate] = useState<string>(() => getPageCache('sync_previewStartDate', ''));
+  const [previewEndDate, setPreviewEndDate] = useState<string>(() => getPageCache('sync_previewEndDate', ''));
   const [showInstruction, setShowInstruction] = useState(false);
   const [createErrorMsg, setCreateErrorMsg] = useState('');
+  useEffect(() => { setPageCache('sync_platform', platform); }, [platform]);
+  useEffect(() => { setPageCache('sync_subAccountId', subAccountId); }, [subAccountId]);
+  useEffect(() => { setPageCache('sync_file', file); }, [file]);
+  useEffect(() => { setPageCache('sync_analyzedSheets', analyzedSheets); }, [analyzedSheets]);
+  useEffect(() => { setPageCache('sync_selectedSheetIndices', selectedSheetIndices); }, [selectedSheetIndices]);
+  useEffect(() => { setPageCache('sync_taskName', taskName); }, [taskName]);
+  useEffect(() => { setPageCache('sync_updateMode', updateMode); }, [updateMode]);
+  useEffect(() => { setPageCache('sync_calibrationDays', calibrationDays); }, [calibrationDays]);
+  useEffect(() => { setPageCache('sync_rrule', rrule); }, [rrule]);
+  useEffect(() => { setPageCache('sync_isMergeTasks', isMergeTasks); }, [isMergeTasks]);
+  useEffect(() => { setPageCache('sync_customTaskIdsInput', customTaskIdsInput); }, [customTaskIdsInput]);
+  useEffect(() => { setPageCache('sync_isLinkExisting', isLinkExisting); }, [isLinkExisting]);
+  useEffect(() => { setPageCache('sync_existingUrl', existingUrl); }, [existingUrl]);
+  useEffect(() => { setPageCache('sync_newSheetTitle', newSheetTitle); }, [newSheetTitle]);
+  useEffect(() => { setPageCache('sync_previewStartDate', previewStartDate); }, [previewStartDate]);
+  useEffect(() => { setPageCache('sync_previewEndDate', previewEndDate); }, [previewEndDate]);
 
   // 获取聚光子账号
   const { data: subaccounts = [] } = useQuery<Array<{ id: string; name: string }>>({
@@ -45,16 +68,16 @@ export const ImportPage: React.FC = () => {
 
   // 上传 Excel 样本
   const uploadMutation = useMutation({
-    mutationFn: async (uploadFile: File) => {
+    mutationFn: async (payload: { file: File; platform: string }) => {
       const formData = new FormData();
-      formData.append('file', uploadFile);
-      formData.append('selected_platform', platform);
+      formData.append('file', payload.file);
+      formData.append('selected_platform', payload.platform);
       return fetchJson<{ sheets: any[]; filename: string }>('/api/upload', {
         method: 'POST',
         body: formData,
       });
     },
-    onSuccess: (res) => {
+    onSuccess: (res, vars) => {
       setAnalyzedSheets(res.sheets);
       setSelectedSheetIndices(res.sheets.map((_, i) => i));
       if (!taskName && res.filename) {
@@ -64,10 +87,21 @@ export const ImportPage: React.FC = () => {
         const defaultIds = res.sheets[0]?.detected_entity_ids || [];
         setCustomTaskIdsInput(defaultIds.join(', '));
       }
+      const first = res.sheets[0];
+      const today = new Date();
+      const defaultEnd = today.toISOString().split('T')[0];
+      const defaultStart = first?.next_start_date || new Date(today.getTime() - 7 * 86400 * 1000).toISOString().split('T')[0];
+      setPreviewStartDate(defaultStart);
+      setPreviewEndDate(defaultEnd);
       showSuccess(`成功解析 ${res.sheets.length} 个工作表`);
-      // 上传成功后自动触发接口数据抓取预览
+      // 上传成功后按"本次实际选择的平台"抓取预览，避免闭包里的旧平台状态
       setTimeout(() => {
-        previewMutation.mutate();
+        previewMutation.mutate({
+          platform: vars.platform,
+          sheet: res.sheets[0],
+          startDate: defaultStart,
+          endDate: defaultEnd,
+        });
       }, 80);
     },
     onError: (err: any) => {
@@ -77,18 +111,21 @@ export const ImportPage: React.FC = () => {
 
   // 平台预览
   const previewMutation = useMutation({
-    mutationFn: async () => {
-      const firstSheet = analyzedSheets[selectedSheetIndices[0] || 0];
+    mutationFn: async (override?: { platform?: string; sheet?: any; startDate?: string; endDate?: string }) => {
+      const targetPlatform = override?.platform || platform;
+      const firstSheet = override?.sheet || analyzedSheets[selectedSheetIndices[0] || 0];
       if (!firstSheet) throw new Error('未选择有效工作表');
 
       const today = new Date();
-      const endStr = today.toISOString().split('T')[0];
-      const startStr = firstSheet.next_start_date || new Date(today.getTime() - 7 * 86400 * 1000).toISOString().split('T')[0];
+      const defaultEnd = today.toISOString().split('T')[0];
+      const defaultStart = firstSheet.next_start_date || new Date(today.getTime() - 7 * 86400 * 1000).toISOString().split('T')[0];
+      const startStr = override?.startDate || previewStartDate || defaultStart;
+      const endStr = override?.endDate || previewEndDate || defaultEnd;
 
       return fetchJson<any>('/api/preview', {
         method: 'POST',
         body: JSON.stringify({
-          platform,
+          platform: targetPlatform,
           sheet_title: firstSheet.sheet_title,
           headers: firstSheet.headers || [],
           entity_ids: (isMergeTasks && customTaskIdsInput.trim()) ? customTaskIdsInput.replace(/[,，\s]+/g, ' ').split(' ').filter(Boolean) : (firstSheet.detected_entity_ids || []),
@@ -97,12 +134,18 @@ export const ImportPage: React.FC = () => {
           dimension: firstSheet.dimension || '',
           start_date: startStr,
           end_date: endStr,
-          sub_account_id: platform === 'juguang' ? subAccountId : null,
+          sub_account_id: targetPlatform === 'juguang' ? subAccountId : null,
         }),
       });
     },
     onSuccess: (res) => {
-      showSuccess(`成功从目标平台获取到 ${res.total_fetched} 行预览数据`);
+      if (res.total_fetched > 0) {
+        showSuccess(`成功从目标平台获取到 ${res.total_fetched} 行预览数据`);
+      } else if (res.platform_mismatch) {
+        showError('数据来源与所选平台不匹配，请按提示切换平台后重试');
+      } else {
+        showError('接口未返回数据，请检查日期区间或查看下方错误说明');
+      }
     },
     onError: (err: any) => {
       showError(err.message || '预览抓取失败');
@@ -180,7 +223,18 @@ export const ImportPage: React.FC = () => {
     if (e.target.files && e.target.files[0]) {
       const selected = e.target.files[0];
       setFile(selected);
-      uploadMutation.mutate(selected);
+      previewMutation.reset();
+      uploadMutation.mutate({ file: selected, platform });
+    }
+  };
+
+  const handlePlatformChange = (nextPlatform: string) => {
+    if (nextPlatform === platform) return;
+    setPlatform(nextPlatform);
+    previewMutation.reset();
+    if (file) {
+      // 切换平台后必须按新平台重新解析，否则预览仍会用旧平台请求接口
+      uploadMutation.mutate({ file, platform: nextPlatform });
     }
   };
 
@@ -231,10 +285,7 @@ export const ImportPage: React.FC = () => {
             <div className="platform-selector">
               <div
                 className={`platform-card ${platform === 'jzt' ? 'selected' : ''}`}
-                onClick={() => {
-                  setPlatform('jzt');
-                  if (file) uploadMutation.mutate(file);
-                }}
+                onClick={() => handlePlatformChange('jzt')}
               >
                 <img className="platform-logo" src="/static/assets/platform-jzt.png" alt="京准通" />
                 <div className="title">京准通</div>
@@ -242,10 +293,7 @@ export const ImportPage: React.FC = () => {
               </div>
               <div
                 className={`platform-card ${platform === 'taobao' ? 'selected' : ''}`}
-                onClick={() => {
-                  setPlatform('taobao');
-                  if (file) uploadMutation.mutate(file);
-                }}
+                onClick={() => handlePlatformChange('taobao')}
               >
                 <img className="platform-logo" src="/static/assets/platform-taobao.png" alt="淘宝星河" />
                 <div className="title">淘宝星河</div>
@@ -253,10 +301,7 @@ export const ImportPage: React.FC = () => {
               </div>
               <div
                 className={`platform-card ${platform === 'juguang' ? 'selected' : ''}`}
-                onClick={() => {
-                  setPlatform('juguang');
-                  if (file) uploadMutation.mutate(file);
-                }}
+                onClick={() => handlePlatformChange('juguang')}
               >
                 <img className="platform-logo" src="/static/assets/platform-juguang.png" alt="小红书聚光" />
                 <div className="title">小红书聚光</div>
@@ -594,12 +639,129 @@ export const ImportPage: React.FC = () => {
             </button>
           </div>
 
+          {/* 首次抓取数据日期范围设置 */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: '12px',
+            padding: '10px 14px',
+            marginBottom: '14px',
+            background: '#f8fafc',
+            borderRadius: '8px',
+            border: '1px solid #e2e8f0'
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '13px', fontWeight: 600, color: '#334155' }}>
+                📅 首次抓取数据日期范围：
+              </span>
+              {isMergeTasks && (
+                <span style={{ fontSize: '11px', color: '#165dff', background: '#e8f3ff', padding: '2px 8px', borderRadius: '4px' }}>
+                  已开启多任务合并
+                </span>
+              )}
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '12px', color: '#64748b' }}>从</span>
+              <input
+                type="date"
+                className="form-control"
+                value={previewStartDate}
+                onChange={(e) => setPreviewStartDate(e.target.value)}
+                style={{ width: '135px', height: '32px', fontSize: '12px', padding: '0 8px' }}
+              />
+              <span style={{ fontSize: '12px', color: '#64748b' }}>至</span>
+              <input
+                type="date"
+                className="form-control"
+                value={previewEndDate}
+                onChange={(e) => setPreviewEndDate(e.target.value)}
+                style={{ width: '135px', height: '32px', fontSize: '12px', padding: '0 8px' }}
+              />
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                onClick={() => previewMutation.mutate()}
+                disabled={previewMutation.isPending}
+                style={{ height: '32px', fontSize: '12px', padding: '0 12px' }}
+              >
+                {previewMutation.isPending ? '抓取中…' : '🔄 按此区间重新抓取'}
+              </button>
+            </div>
+          </div>
+          {isMergeTasks && (
+            <div style={{ fontSize: '11px', color: '#64748b', background: '#fffbeb', borderLeft: '3px solid #f59e0b', padding: '6px 12px', borderRadius: '4px', marginBottom: '12px' }}>
+              💡 提示：若新合并的任务组在官网有更早的历史数据，可将上方【从】开始日期往前调整（如设为新任务的起始日），建表时系统会自动将该时间段的历史一并完整写入。
+            </div>
+          )}
+
+          {previewMutation.data?.platform_mismatch && (
+            <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
+              gap: '12px',
+              flexWrap: 'wrap',
+              padding: '10px 14px',
+              marginBottom: '12px',
+              background: '#fff7ed',
+              border: '1px solid #fed7aa',
+              borderLeft: '3px solid #f59e0b',
+              borderRadius: '6px',
+              fontSize: '12px',
+              color: '#9a3412',
+            }}>
+              <span>
+                该文件的表头特征属于
+                <strong style={{ margin: '0 4px' }}>
+                  {PLATFORM_LABELS[previewMutation.data.detected_platform] || previewMutation.data.detected_platform}
+                </strong>
+                ，与当前选择的
+                <strong style={{ margin: '0 4px' }}>{PLATFORM_LABELS[platform] || platform}</strong>
+                不一致，因此接口查不到数据。
+              </span>
+              <button
+                type="button"
+                className="btn btn-outline btn-sm"
+                style={{ height: '30px', fontSize: '12px', padding: '0 12px', whiteSpace: 'nowrap' }}
+                onClick={() => handlePlatformChange(previewMutation.data.detected_platform)}
+              >
+                切换为{PLATFORM_LABELS[previewMutation.data.detected_platform] || previewMutation.data.detected_platform}并重新抓取
+              </button>
+            </div>
+          )}
+
+          {previewMutation.data && previewMutation.data.rows.length === 0 && (
+            <div style={{
+              padding: '10px 14px',
+              marginBottom: '12px',
+              background: '#fef2f2',
+              border: '1px solid #fecaca',
+              borderRadius: '6px',
+              fontSize: '12px',
+              color: '#b91c1c',
+              lineHeight: 1.7,
+            }}>
+              <strong>本次未获取到任何数据。</strong>
+              {previewMutation.data.errors?.length > 0 ? (
+                <ul style={{ margin: '4px 0 0 18px', padding: 0 }}>
+                  {previewMutation.data.errors.map((msg: string, i: number) => (
+                    <li key={i}>{msg}</li>
+                  ))}
+                </ul>
+              ) : (
+                <div>接口调用成功但返回空结果，请确认所选日期区间内该任务确实有投放数据。</div>
+              )}
+            </div>
+          )}
+
           {previewMutation.isPending ? (
             <div style={{ padding: '36px', textAlign: 'center', color: '#64748b', fontSize: '13px' }}>
               ⏳ 正在自动调用目标平台接口抓取最新数据并校验字段映射，请稍候…
             </div>
           ) : previewMutation.data ? (
-            <div className="table-container" style={{ maxHeight: '320px', overflowY: 'auto' }}>
+            <div className="table-container" style={{ maxHeight: '320px', overflowY: 'auto', display: previewMutation.data.rows.length ? 'block' : 'none' }}>
               <table>
                 <thead>
                   <tr>

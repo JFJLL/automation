@@ -88,12 +88,24 @@ def get_juguang_subaccount_headers(sub_account_id: str) -> Dict[str, str]:
         "content-type": "application/json"
     }
 
-_subaccounts_cache = {"timestamp": 0.0, "data": []}
+def _init_local_subaccounts_cache() -> List[Dict[str, str]]:
+    for cf in [BASE_DIR / "data" / "juguang_subaccounts_cache.json", BASE_DIR / "tokens" / "juguang_subaccounts.json"]:
+        if cf.exists():
+            try:
+                items = json.loads(cf.read_text(encoding="utf-8"))
+                if items and isinstance(items, list):
+                    return items
+            except Exception:
+                pass
+    return []
+
+_subaccounts_cache = {"timestamp": time.time(), "data": _init_local_subaccounts_cache()}
 
 def get_juguang_subaccounts_list(force_refresh: bool = False) -> List[Dict[str, str]]:
     global _subaccounts_cache
     now = time.time()
-    if not force_refresh and _subaccounts_cache["data"] and (now - _subaccounts_cache["timestamp"] < 60):
+    # 本地缓存有效时长提升为 1 小时，除非显式 force_refresh 否则不再反复重打 OSS
+    if not force_refresh and _subaccounts_cache["data"] and (now - _subaccounts_cache["timestamp"] < 3600):
         return _subaccounts_cache["data"]
 
     known_meta = {}
