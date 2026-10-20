@@ -27,6 +27,43 @@ from platforms.juguang import fetch_juguang_data
 from platforms.registry import detect_best_platform
 from feishu.client import column_letter
 
+EXCEL_DATE_EPOCH = date(1899, 12, 30)
+
+
+def _excel_serial_to_date(value: Any) -> Optional[date]:
+    try:
+        serial = int(float(value))
+    except (TypeError, ValueError):
+        return None
+    # Modern Feishu date serials sit in this range; this avoids mistaking
+    # small numeric IDs or years for dates.
+    if 20000 <= serial <= 80000:
+        try:
+            return EXCEL_DATE_EPOCH + timedelta(days=serial)
+        except OverflowError:
+            return None
+    return None
+
+
+def date_to_excel_serial(value: Any) -> Optional[int]:
+    """Convert supported date text to a real Excel/Feishu date serial."""
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        # Already a serial; keep it stable across syncs.
+        parsed = _excel_serial_to_date(value)
+        return int(float(value)) if parsed else None
+    text = str(value).strip()
+    if not text:
+        return None
+    digits = "".join(c for c in text.replace("/", "-").split(" ")[0] if c.isdigit())
+    if len(digits) != 8:
+        return None
+    try:
+        parsed_date = datetime.strptime(digits, "%Y%m%d").date()
+    except ValueError:
+        return None
+    return (parsed_date - EXCEL_DATE_EPOCH).days
 
 def sort_sheet_data_rows(
     rows: List[List[Any]],
@@ -66,6 +103,9 @@ def format_cell_value(val: Any) -> str:
     return str(val).strip()
 
 def normalize_date_compact(val: Any) -> str:
+    serial_date = _excel_serial_to_date(val)
+    if serial_date:
+        return serial_date.strftime("%Y%m%d")
     s = str(val).strip().replace('/', '-').split(' ')[0]
     digits = ''.join(c for c in s if c.isdigit())
     if len(digits) == 8:
@@ -79,27 +119,124 @@ def normalize_date_str(val: Any) -> str:
         return digits
     return s
 
-def map_item_to_row(item: Dict[str, Any], headers: List[str], id_col: str, date_col: str) -> List[Any]:
+def map_item_to_row(
+    item: Dict[str, Any],
+    headers: List[str],
+    id_col: str,
+    date_col: str,
+    date_as_serial: bool = True,
+) -> List[Any]:
     row = []
     for h in headers:
         if h in item:
             val = item[h]
             if h == date_col:
-                val = normalize_date_compact(val)
-            row.append(format_cell_value(val))
+                serial = date_to_excel_serial(val) if date_as_serial else None
+                row.append(serial if serial is not None else normalize_date_compact(val))
+            else:
+                row.append(format_cell_value(val))
         else:
             found = False
             for k, v in item.items():
                 if str(k).strip().lower() == str(h).strip().lower():
                     val = v
                     if h == date_col:
-                        val = normalize_date_compact(val)
-                    row.append(format_cell_value(val))
+                        serial = date_to_excel_serial(val) if date_as_serial else None
+                        row.append(serial if serial is not None else normalize_date_compact(val))
+                    else:
+                        row.append(format_cell_value(val))
                     found = True
                     break
             if not found:
                 row.append("")
     return row
+
+
+def apply_date_column_format(
+    feishu: FeishuClient,
+    spreadsheet_token: str,
+    worksheet_id: str,
+    headers: List[str],
+    date_col: str,
+    last_row: int,
+    formatter: str = "yyyy/MM/dd",
+) -> None:
+    """Format the date column so numeric serials render as yyyy/MM/dd."""
+    if not headers or date_col not in headers or last_row < 2:
+        return
+    col = column_letter(headers.index(date_col) + 1)
+    try:
+        feishu.set_number_format(
+            spreadsheet_token,
+            worksheet_id,
+            f"{col}2:{col}{last_row}",
+            formatter,
+        )
+    except Exception as exc:
+        # Formatting is cosmetic; never fail a data sync because of it.
+        print(f"[DateFormat] {worksheet_id} {col}: {exc}")
+
+
+def normalize_row_date_value(row: List[Any], date_idx: int) -> List[Any]:
+    """Convert an 8-digit date text cell in a row to a real date serial."""
+    if date_idx >= len(row):
+        return row
+    current = row[date_idx]
+    if isinstance(current, str) and current.strip().startswith("="):
+        return row
+    serial = date_to_excel_serial(current)
+    if serial is None:
+        compact = normalize_date_compact(current)
+        if len(compact) != 8 or not compact.isdigit():
+            return row
+        serial = date_to_excel_serial(compact)
+    if serial is not None:
+        row[date_idx] = serial
+    return row
+
+
+def is_entity_assigned_to_sheet(
+    entity_id: str,
+    sheet_entity_ids: List[str],
+    row_task_id: Any,
+) -> bool:
+    """Prevent one child sheet from ingesting another sheet's task rows."""
+    normalized = [str(eid).strip() for eid in (sheet_entity_ids or []) if str(eid).strip()]
+    if not normalized:
+        return True
+    row_id = str(row_task_id or "").strip()
+    if row_id.endswith(".0"):
+        row_id = row_id[:-2]
+    return row_id in normalized
+
+
+def narrow_entity_ids_from_existing_rows(
+    entity_ids: List[str],
+    existing_values: List[List[Any]],
+    headers: List[str],
+    id_col: str,
+) -> List[str]:
+    """Infer a sheet's single owning task when legacy config lists several tasks."""
+    configured = [
+        str(eid).strip()[:-2]
+        if str(eid).strip().endswith(".0")
+        else str(eid).strip()
+        for eid in (entity_ids or [])
+        if str(eid).strip()
+    ]
+    if len(configured) <= 1 or id_col not in headers:
+        return configured
+    id_idx = headers.index(id_col)
+    observed = set()
+    for row in existing_values[1:]:
+        if id_idx >= len(row):
+            continue
+        row_id = str(row[id_idx] or "").strip()
+        if row_id.endswith(".0"):
+            row_id = row_id[:-2]
+        if row_id in configured:
+            observed.add(row_id)
+    return [next(iter(observed))] if len(observed) == 1 else configured
 
 def get_item_natural_key(platform: str, item: Dict[str, Any], entity_id: str, dimension: str) -> Tuple:
     raw_date = item.get("日期") or item.get("时间") or ""
@@ -176,7 +313,7 @@ def preview_fetch(
     merged_headers = list(headers)
     preview_table_rows = []
     for item in all_raw_rows[:50]:
-        row = map_item_to_row(item, merged_headers, id_col, date_col)
+        row = map_item_to_row(item, merged_headers, id_col, date_col, date_as_serial=False)
         preview_table_rows.append(row)
 
     # 用表头特征反推真实来源平台，前端据此提示"平台选错"并支持一键切换
@@ -332,6 +469,9 @@ def execute_inplace_merge_sync(
             if not raw_values:
                 errors.append(f"【{sheet_title}】表为空，跳过以免破坏结构")
                 continue
+            entity_ids = narrow_entity_ids_from_existing_rows(
+                entity_ids, raw_values, headers, id_col
+            )
 
             col_count = len(headers)
             data_rows = raw_values[1:]
@@ -377,7 +517,20 @@ def execute_inplace_merge_sync(
                     res = fetch_juguang_data(eid, dimension, start_date, cutoff_date, sub_account_id=sub_acc_id)
                 else:
                     raise ValueError(f"未知平台类型: {task['platform']}")
-                fetched_items.extend(res.rows if hasattr(res, "rows") else res)
+                rows = res.rows if hasattr(res, "rows") else res
+                # 历史任务曾把所有任务ID复制进每个子表；只保留本子表负责的任务。
+                rows = [
+                    row
+                    for row in rows
+                    if is_entity_assigned_to_sheet(
+                        eid,
+                        entity_ids,
+                        row.get("任务ID")
+                        or row.get("内容ID")
+                        or row.get(id_col),
+                    )
+                ]
+                fetched_items.extend(rows)
 
             total_fetched += len(fetched_items)
             if not fetched_items:
@@ -385,7 +538,7 @@ def execute_inplace_merge_sync(
                 continue
 
             # 3. 建立已有行索引（自然键 -> 行号）
-            key_to_row: Dict[Tuple, int] = {}
+            key_to_row: Dict[Tuple, List[int]] = {}
             for offset, r in enumerate(data_rows):
                 if not any(not _is_empty_cell(c) for c in r):
                     continue
@@ -393,10 +546,8 @@ def execute_inplace_merge_sync(
                 key = _row_natural_key(padded[:col_count], headers, task["platform"], entity_ids[0] if entity_ids else "", dimension, id_col)
                 if key is None:
                     continue
-                # 同一自然键重复时保留首次出现，避免误写
-                if key in key_to_row:
-                    continue
-                key_to_row[key] = offset + 2  # +1 表头 +1 起始行号
+                # 历史表可能已有重复自然键，全部记录并在本次同步一并校准
+                key_to_row.setdefault(key, []).append(offset + 2)
 
             # 4. 生成变更（只写存在差异的单元格区间）
             pending_updates: List[Dict[str, Any]] = []
@@ -409,7 +560,8 @@ def execute_inplace_merge_sync(
                 mapped = map_item_to_row(item, headers, id_col, date_col)
                 key = normalize_natural_key_parts(task["platform"], item, entity_ids[0] if entity_ids else "", dimension)
                 if key in key_to_row:
-                    row_no = key_to_row[key]
+                    duplicate_rows = key_to_row[key]
+                    row_no = duplicate_rows[0]
                     idx_in_data = row_no - 2
                     old_row = data_rows[idx_in_data] if idx_in_data < len(data_rows) else []
                     old_formula_row = formula_rows[idx_in_data] if idx_in_data < len(formula_rows) else []
@@ -429,12 +581,36 @@ def execute_inplace_merge_sync(
                                 "values": [[new_val]],
                             })
                             changed = True
+                    for duplicate_row_no in duplicate_rows[1:]:
+                        duplicate_idx = duplicate_row_no - 2
+                        duplicate_formula_row = (
+                            formula_rows[duplicate_idx]
+                            if 0 <= duplicate_idx < len(formula_rows)
+                            else []
+                        )
+                        for ci in range(col_count):
+                            new_val = mapped[ci] if ci < len(mapped) else ""
+                            if _is_empty_cell(new_val):
+                                continue
+                            formula_val = (
+                                duplicate_formula_row[ci]
+                                if ci < len(duplicate_formula_row)
+                                else None
+                            )
+                            if isinstance(formula_val, str) and formula_val.startswith("="):
+                                continue
+                            c_letter = column_letter(ci + 1)
+                            pending_updates.append({
+                                "range": f"{worksheet_id}!{c_letter}{duplicate_row_no}:{c_letter}{duplicate_row_no}",
+                                "values": [[new_val]],
+                            })
+                            changed = True
                     if changed:
                         rows_updated += 1
                     last_row_needed = max(last_row_needed, row_no)
                 else:
                     appended_rows.append(mapped)
-                    key_to_row[key] = 0
+                    key_to_row[key] = [0]
                     rows_appended += 1
 
             # 5. 追加行：以"日期列"判定最后一条真实数据行。
@@ -514,6 +690,14 @@ def execute_inplace_merge_sync(
                 verified = feishu.read_values(spreadsheet_token, worksheet_id, "A:BZ")
                 if len(verified) < 1:
                     raise FeishuWriteError(f"【{sheet_title}】写后回读失败：表头丢失")
+                apply_date_column_format(
+                    feishu,
+                    spreadsheet_token,
+                    worksheet_id,
+                    headers,
+                    date_col,
+                    len(verified),
+                )
 
             total_appended += rows_appended
             total_updated += rows_updated
@@ -631,6 +815,9 @@ def execute_task_sync(task_id: int, trigger_type: str = "scheduled", custom_star
             
             # 读取现有表数据
             existing_values = feishu.read_values(task["spreadsheet_token"], worksheet_id, "A:AZ") or []
+            entity_ids = narrow_entity_ids_from_existing_rows(
+                entity_ids, existing_values, headers, id_col
+            )
             
             # 计算拉取日期范围
             dates_in_sheet = []
@@ -677,8 +864,19 @@ def execute_task_sync(task_id: int, trigger_type: str = "scheduled", custom_star
                     res = fetch_juguang_data(eid, dimension, start_date, cutoff_date, sub_account_id=sub_acc_id)
                 else:
                     raise ValueError(f"未知平台类型: {task['platform']}")
-                    
+
                 rows = res.rows if hasattr(res, "rows") else res
+                rows = [
+                    row
+                    for row in rows
+                    if is_entity_assigned_to_sheet(
+                        eid,
+                        entity_ids,
+                        row.get("任务ID")
+                        or row.get("内容ID")
+                        or row.get(id_col),
+                    )
+                ]
                 fetched_items.extend(rows)
                 
             prepared_sheets_data.append({
@@ -805,6 +1003,12 @@ def execute_task_sync(task_id: int, trigger_type: str = "scheduled", custom_star
 
                     # 3. 本次 API 返回的活跃窗口数据
                     only_new_rows = [map_item_to_row(item, headers, id_col, date_col) for item in fetched_items]
+                    protected_history_rows = [
+                        normalize_row_date_value(r, date_idx) for r in protected_history_rows
+                    ]
+                    only_new_rows = [
+                        normalize_row_date_value(r, date_idx) for r in only_new_rows
+                    ]
 
                     # 4. 合并历史基线行与活跃重算行，并执行全局结构化排序
                     combined_rows = protected_history_rows + only_new_rows
@@ -829,6 +1033,7 @@ def execute_task_sync(task_id: int, trigger_type: str = "scheduled", custom_star
                         if any(r):
                             padded_r = list(r) + [""] * max(0, len(headers) - len(r))
                             padded_r = padded_r[:len(headers)]
+                            normalize_row_date_value(padded_r, date_idx)
                             row_dict = dict(zip(headers, padded_r))
                             key = get_item_natural_key(task["platform"], row_dict, primary_entity_id, dimension)
                             all_rows_map[key] = padded_r
@@ -864,6 +1069,15 @@ def execute_task_sync(task_id: int, trigger_type: str = "scheduled", custom_star
             verify_rows = feishu.read_values(task["spreadsheet_token"], worksheet_id, "A:AZ")
             if len(verify_rows) < 1:
                 raise FeishuWriteError(f"工作表【{sheet_title}】写后回读校验失败：表头或数据丢失")
+            worksheet_rows = len(verify_rows)
+            apply_date_column_format(
+                feishu,
+                task["spreadsheet_token"],
+                worksheet_id,
+                headers,
+                date_col,
+                worksheet_rows,
+            )
                 
     except Exception as write_err:
         errors.append(f"写入阶段异常: {str(write_err)}")

@@ -181,6 +181,21 @@ class FeishuClient:
             "valueRange": {"range": range_str, "values": values}
         })
 
+    def set_number_format(
+        self,
+        spreadsheet_token: str,
+        sheet_id: str,
+        range_str: str,
+        formatter: str,
+    ) -> Dict[str, Any]:
+        """Apply a number format without touching cell values."""
+        return self.request("PUT", f"sheets/v2/spreadsheets/{spreadsheet_token}/style", json={
+            "appendStyle": {
+                "range": f"{sheet_id}!{range_str}",
+                "style": {"formatter": formatter},
+            }
+        })
+
     def read_values_formula(self, spreadsheet_token: str, sheet_id: str, range_suffix: str = "A:AZ") -> List[List[Any]]:
         """读取时返回公式原文（用于识别并保护公式列）"""
         res = self.request(

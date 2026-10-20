@@ -47,6 +47,8 @@ from core.sync import (
     execute_inplace_merge_sync,
     sort_sheet_data_rows,
     normalize_date_compact,
+    date_to_excel_serial,
+    apply_date_column_format,
 )
 from core.scheduler_manager import SchedulerManager
 from core.security import (
@@ -391,6 +393,30 @@ class CreateTaskRequest(BaseModel):
 def create_task(req: CreateTaskRequest):
     if not req.sheets:
         raise HTTPException(status_code=400, detail="至少需要选择一个有效工作表")
+
+    # 同一任务ID出现在多个工作表会导致每个工作表都抓取全量任务，
+    # 表面看是“数据重复/缺失”，实际是跨 Sheet 重复同步。
+    seen_entities: Dict[str, str] = {}
+    duplicate_entities: List[str] = []
+    for sc in req.sheets:
+        for raw_eid in sc.entity_ids:
+            eid = str(raw_eid).strip()
+            if not eid:
+                continue
+            if eid in seen_entities and seen_entities[eid] != sc.sheet_title:
+                duplicate_entities.append(eid)
+            else:
+                seen_entities[eid] = sc.sheet_title
+    if duplicate_entities:
+        joined = "、".join(dict.fromkeys(duplicate_entities))
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"任务ID {joined} 同时配置在多个工作表中，会导致重复抓取和重复写入。"
+                "请改为每个工作表只配置自己的任务ID；多任务汇总请只保留一个合并工作表。"
+            ),
+        )
+
     try:
         SchedulerManager.get_instance().parse_sync_next_run(req.rrule)
     except Exception as e:
@@ -440,10 +466,14 @@ def create_task(req: CreateTaskRequest):
                 dedup_map = {}
                 for r in sc.initial_rows:
                     if any(r):
+                        r = list(r)
                         eid = str(r[id_idx] if len(r) > id_idx else "").strip()
                         if eid.endswith(".0"):
                             eid = eid[:-2]
                         d = normalize_date_compact(r[date_idx] if len(r) > date_idx else "")[:8]
+                        serial = date_to_excel_serial(r[date_idx] if len(r) > date_idx else "")
+                        if serial is not None:
+                            r[date_idx] = serial
                         chan = ""
                         for c_name in ["平台", "渠道"]:
                             if c_name in sc.headers:
@@ -453,6 +483,9 @@ def create_task(req: CreateTaskRequest):
                         dedup_map[(eid, d, chan)] = r
                 sorted_init = sort_sheet_data_rows(list(dedup_map.values()), sc.headers, sc.id_column, sc.date_column, sc.entity_ids)
                 feishu.write_rows(ss_token, ws_id, start_row=2, rows=sorted_init)
+                apply_date_column_format(
+                    feishu, ss_token, ws_id, sc.headers, sc.date_column, len(sorted_init) + 1
+                )
 
             sheet_records.append({
                 "sheet_title": title,
@@ -487,10 +520,14 @@ def create_task(req: CreateTaskRequest):
                 dedup_map = {}
                 for r in sc.initial_rows:
                     if any(r):
+                        r = list(r)
                         eid = str(r[id_idx] if len(r) > id_idx else "").strip()
                         if eid.endswith(".0"):
                             eid = eid[:-2]
                         d = normalize_date_compact(r[date_idx] if len(r) > date_idx else "")[:8]
+                        serial = date_to_excel_serial(r[date_idx] if len(r) > date_idx else "")
+                        if serial is not None:
+                            r[date_idx] = serial
                         chan = ""
                         for c_name in ["平台", "渠道"]:
                             if c_name in sc.headers:
@@ -500,6 +537,9 @@ def create_task(req: CreateTaskRequest):
                         dedup_map[(eid, d, chan)] = r
                 sorted_init = sort_sheet_data_rows(list(dedup_map.values()), sc.headers, sc.id_column, sc.date_column, sc.entity_ids)
                 feishu.write_rows(ss_token, ws_id, start_row=2, rows=sorted_init)
+                apply_date_column_format(
+                    feishu, ss_token, ws_id, sc.headers, sc.date_column, len(sorted_init) + 1
+                )
                 
             sheet_records.append({
                 "sheet_title": sc.sheet_title,

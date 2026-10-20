@@ -114,3 +114,36 @@ def test_e2e_data_sync_and_keyword_flow(client):
             assert r_kw_runs.status_code == 200
             assert r_kw_runs.json()["total"] >= 1
 
+
+def test_create_task_rejects_shared_entity_across_sheets(client):
+    payload = {
+        "task_name": "重复任务ID测试",
+        "platform": "jzt",
+        "update_mode": "append",
+        "calibration_days": 2,
+        "rrule": "RRULE:FREQ=DAILY;BYHOUR=9",
+        "sheets": [
+            {
+                "sheet_title": "Sheet1",
+                "dimension": "",
+                "id_column": "任务ID",
+                "date_column": "日期",
+                "headers": ["日期", "任务ID", "成交GMV"],
+                "entity_ids": ["203769"],
+                "column_mapping": [],
+            },
+            {
+                "sheet_title": "Sheet2",
+                "dimension": "",
+                "id_column": "任务ID",
+                "date_column": "日期",
+                "headers": ["日期", "任务ID", "成交GMV"],
+                "entity_ids": ["203769"],
+                "column_mapping": [],
+            },
+        ],
+    }
+    response = client.post("/api/create_task", json=payload)
+    assert response.status_code == 400
+    assert "同时配置在多个工作表" in response.json()["error"]["message"]
+

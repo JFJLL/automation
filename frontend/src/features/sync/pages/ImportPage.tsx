@@ -160,7 +160,12 @@ export const ImportPage: React.FC = () => {
       }
       const previewRows = previewMutation.data?.rows || [];
 
-      const sheetsPayload = selectedSheetIndices.map((idx, sheetIdx) => {
+      // 多任务合并只能落在一个载体 Sheet 上，避免同一批任务被复制到多个工作表。
+      const targetSheetIndices = isMergeTasks
+        ? [selectedSheetIndices[0]]
+        : selectedSheetIndices;
+
+      const sheetsPayload = targetSheetIndices.map((idx, sheetIdx) => {
         const s = analyzedSheets[idx];
         const histRows = s.uploaded_rows || [];
         const newRows = sheetIdx === 0 && previewRows.length > 0 ? previewRows : [];
@@ -172,7 +177,9 @@ export const ImportPage: React.FC = () => {
           date_column: s.date_column,
           headers: s.headers,
           column_mapping: s.column_mapping || [],
-          entity_ids: (isMergeTasks && customTaskIdsInput.trim()) ? customTaskIdsInput.replace(/[,，\s]+/g, ' ').split(' ').filter(Boolean) : (s.detected_entity_ids || []),
+          entity_ids: (isMergeTasks && sheetIdx === 0 && customTaskIdsInput.trim())
+            ? customTaskIdsInput.replace(/[,，\s]+/g, ' ').split(' ').filter(Boolean)
+            : (s.detected_entity_ids || []),
           initial_rows: combined.length > 0 ? combined : (s.sample_rows || []),
         };
       });
