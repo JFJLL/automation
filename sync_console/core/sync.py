@@ -409,6 +409,463 @@ def _row_natural_key(row: List[Any], headers: List[str], platform: str, entity_i
     return get_item_natural_key(platform, row_dict, entity_id, dimension)
 
 
+_date_storage_re_slash = re.compile(r"^(\d{4})/(\d{1,2})/(\d{1,2})$")
+_date_storage_re_dash = re.compile(r"^(\d{4})-(\d{1,2})-(\d{1,2})$")
+
+
+def date_storage_kind(value: Any) -> Optional[str]:
+    """Identify how a sheet currently stores a date cell.
+
+    Returns one of: serial / yyyymmdd_num / yyyymmdd_text / date_text_slash /
+    date_text_dash, or None when the cell is not a recognisable date.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, (int, float)):
+        number = int(float(value))
+        if 20000 <= number <= 80000:
+            return "serial"
+        if 19000000 <= number <= 21000000:
+            return "yyyymmdd_num"
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if len(text) == 8 and text.isdigit() and text.startswith("20"):
+        return "yyyymmdd_text"
+    if _date_storage_re_slash.match(text):
+        return "date_text_slash"
+    if _date_storage_re_dash.match(text):
+        return "date_text_dash"
+    return None
+
+
+def detect_date_storage(existing_values: List[List[Any]], date_idx: int) -> str:
+    """Majority date storage style of a sheet; defaults to a real date serial."""
+    counts: Dict[str, int] = {}
+    for row in existing_values[1:]:
+        if date_idx >= len(row):
+            continue
+        kind = date_storage_kind(row[date_idx])
+        if kind:
+            counts[kind] = counts.get(kind, 0) + 1
+    if not counts:
+        return "serial"
+    return max(counts.items(), key=lambda item: item[1])[0]
+
+
+def format_date_for_storage(compact: str, storage: str) -> Any:
+    """Render YYYYMMDD text using the sheet's existing date cell style."""
+    if len(compact) != 8 or not compact.isdigit():
+        return compact
+    if storage == "serial":
+        serial = date_to_excel_serial(compact)
+        return serial if serial is not None else compact
+    if storage == "yyyymmdd_num":
+        return int(compact)
+    if storage == "date_text_slash":
+        return f"{compact[:4]}/{compact[4:6]}/{compact[6:8]}"
+    if storage == "date_text_dash":
+        return f"{compact[:4]}-{compact[4:6]}-{compact[6:8]}"
+    return compact
+
+
+def column_numeric_kinds(
+    existing_values: List[List[Any]],
+    headers: List[str],
+    skip_idxs: set,
+) -> Dict[int, str]:
+    """Dominant numeric type per column, so new rows keep int/float instead of str."""
+    votes: Dict[int, Dict[str, int]] = {}
+    for row in existing_values[1:]:
+        for ci in range(min(len(row), len(headers))):
+            if ci in skip_idxs:
+                continue
+            cell = row[ci]
+            if isinstance(cell, (list, dict)):
+                continue
+            if isinstance(cell, bool) or cell is None:
+                continue
+            if isinstance(cell, int):
+                votes.setdefault(ci, {}).setdefault("int", 0)
+                votes[ci]["int"] += 1
+            elif isinstance(cell, float):
+                votes.setdefault(ci, {}).setdefault("float", 0)
+                votes[ci]["float"] += 1
+            elif isinstance(cell, str):
+                stripped = cell.strip()
+                if not stripped:
+                    continue
+                try:
+                    number = float(stripped)
+                except ValueError:
+                    continue
+                kind = "int" if (number.is_integer() and "." not in stripped) else "float"
+                votes.setdefault(ci, {}).setdefault(kind, 0)
+                votes[ci][kind] += 1
+    result: Dict[int, str] = {}
+    for ci, tally in votes.items():
+        result[ci] = max(tally.items(), key=lambda item: item[1])[0]
+    return result
+
+
+def coerce_numeric_value(value: Any, kind: Optional[str]) -> Any:
+    """Keep numeric cells numeric; never downgrade numbers to text."""
+    if kind not in ("int", "float") or value is None or isinstance(value, bool):
+        return value
+    if isinstance(value, (list, dict)):
+        return value
+    try:
+        number = float(str(value).strip())
+    except (TypeError, ValueError):
+        return value
+    if kind == "int" and number.is_integer():
+        return int(number)
+    return number
+
+
+def execute_inplace_ordered_sync(
+    task_id: int,
+    trigger_type: str = "scheduled",
+    custom_start_date: Optional[str] = None,
+    custom_end_date: Optional[str] = None,
+) -> Dict[str, Any]:
+    """原地合并 + 日期升序 + 类型保真（仅对显式启用的任务生效）。
+
+    与 ``execute_inplace_merge_sync`` 的区别：
+    - 合并后按日期升序整体重写数据区，新数据自然落到正确行，不再堆到表尾；
+    - 每列沿用该 Sheet 当前行的存储类型（int/float/日期序列号等），不再把
+      数字和日期降级成文本；
+    - 公式列按行平移，保持自引用公式指向自身行。
+    """
+    started_at = datetime.now().isoformat()
+    t0 = time.time()
+
+    with get_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
+        task = cursor.fetchone()
+        if not task:
+            raise TaskNotFoundError(f"同步任务 #{task_id} 不存在")
+        if not acquire_task_lease(conn, f"sync_task_{task_id}", owner=f"sync_{trigger_type}", lease_seconds=1800):
+            raise TaskAlreadyRunningError(f"任务 #{task_id} 正在执行中，请勿重复触发")
+        cursor.execute("SELECT * FROM task_sheets WHERE task_id = ?", (task_id,))
+        sheets = cursor.fetchall()
+        cursor.execute(
+            """
+            INSERT INTO runs (task_id, trigger_type, started_at, status, rows_fetched, rows_appended, rows_updated, message)
+            VALUES (?, ?, ?, 'running', 0, 0, 0, '有序合并同步执行中...')
+            """,
+            (task_id, trigger_type, started_at),
+        )
+        run_id = cursor.lastrowid
+        conn.commit()
+
+    feishu = FeishuClient()
+    notifier = Notifier(feishu)
+    spreadsheet_token = task["spreadsheet_token"]
+    cutoff_date = custom_end_date or latest_sync_cutoff_date(task["platform"])
+    total_fetched = 0
+    total_appended = 0
+    total_updated = 0
+    errors: List[str] = []
+    detail: List[Dict[str, Any]] = []
+
+    for s in sheets:
+        try:
+            sheet_title = s["sheet_title"]
+            worksheet_id = s["worksheet_id"]
+            headers = json.loads(s["header_json"])
+            entity_ids = json.loads(s["entity_ids_json"])
+            id_col = s["id_column"] or ("内容ID" if s["dimension"] == "内容" else "任务ID")
+            date_col = s["date_column"] or "日期"
+            dimension = s["dimension"] or "任务"
+
+            raw_values = feishu.read_values(spreadsheet_token, worksheet_id, "A:BZ") or []
+            formula_values = feishu.read_values_formula(spreadsheet_token, worksheet_id, "A:BZ") or []
+            if not raw_values:
+                errors.append(f"【{sheet_title}】表为空，跳过以免破坏结构")
+                continue
+            entity_ids = narrow_entity_ids_from_existing_rows(entity_ids, raw_values, headers, id_col)
+
+            col_count = len(headers)
+            date_idx = headers.index(date_col) if date_col in headers else 0
+            id_idx = headers.index(id_col) if id_col in headers else 1
+            storage = detect_date_storage(raw_values, date_idx)
+            numeric_kinds = column_numeric_kinds(raw_values, headers, {date_idx, id_idx})
+
+            # 现有数据行：日期可识别的行才是真实记录
+            existing_rows: List[Dict[str, Any]] = []
+            existing_dates: List[str] = []
+            for offset, row in enumerate(raw_values[1:], start=2):
+                padded = list(row) + [""] * max(0, col_count - len(row))
+                padded = padded[:col_count]
+                compact = normalize_date_compact(padded[date_idx])
+                if not (len(compact) == 8 and compact.isdigit()):
+                    continue
+                existing_dates.append(f"{compact[:4]}-{compact[4:6]}-{compact[6:8]}")
+                existing_rows.append(
+                    {
+                        "values": padded,
+                        "formulas": (formula_values[offset - 1] if offset - 1 < len(formula_values) else []),
+                        "source_row": offset,
+                        "compact": compact,
+                    }
+                )
+
+            if custom_start_date:
+                start_date = custom_start_date
+            else:
+                configured_start = s["sheet_start_date"] if "sheet_start_date" in s.keys() else None
+                if existing_dates:
+                    latest = max(existing_dates)
+                    try:
+                        latest_dt = datetime.strptime(latest, "%Y-%m-%d").date()
+                        start_date = (latest_dt - timedelta(days=int(task["calibration_days"]))).isoformat()
+                    except Exception:
+                        start_date = (date.today() - timedelta(days=int(task["calibration_days"]))).isoformat()
+                elif configured_start:
+                    start_date = configured_start
+                else:
+                    start_date = (date.today() - timedelta(days=int(task["calibration_days"]))).isoformat()
+            if start_date > cutoff_date:
+                start_date = cutoff_date
+
+            fetched_items: List[Dict[str, Any]] = []
+            sub_acc_id = task["sub_account_id"] if "sub_account_id" in task.keys() else None
+            for eid in entity_ids:
+                if task["platform"] == "jzt":
+                    res = fetch_jzt_data(eid, start_date, cutoff_date, sub_account_id=sub_acc_id)
+                elif task["platform"] == "taobao":
+                    res = fetch_taobao_data(eid, dimension, start_date, cutoff_date)
+                elif task["platform"] == "juguang":
+                    res = fetch_juguang_data(eid, dimension, start_date, cutoff_date, sub_account_id=sub_acc_id)
+                else:
+                    raise ValueError(f"未知平台类型: {task['platform']}")
+                rows = res.rows if hasattr(res, "rows") else res
+                rows = [
+                    row
+                    for row in rows
+                    if is_entity_assigned_to_sheet(
+                        eid,
+                        entity_ids,
+                        row.get("任务ID") or row.get("内容ID") or row.get(id_col),
+                    )
+                ]
+                fetched_items.extend(rows)
+
+            total_fetched += len(fetched_items)
+            if not fetched_items:
+                detail.append({"sheet": sheet_title, "fetched": 0, "appended": 0, "updated": 0, "note": "接口无新数据"})
+                continue
+
+            # ---- 合并：已有行 + 新抓取行，按自然键 upsert ----
+            merged: Dict[Tuple, Dict[str, Any]] = {}
+            first_seen: List[Tuple] = []
+            for record in existing_rows:
+                key = _row_natural_key(
+                    record["values"], headers, task["platform"],
+                    entity_ids[0] if entity_ids else "", dimension, id_col,
+                )
+                if key is None:
+                    continue
+                if key not in merged:
+                    first_seen.append(key)
+                merged[key] = record
+
+            rows_appended = 0
+            rows_updated = 0
+            for item in fetched_items:
+                key = normalize_natural_key_parts(
+                    task["platform"], item, entity_ids[0] if entity_ids else "", dimension
+                )
+                mapped = map_item_to_row(item, headers, id_col, date_col)
+                mapped = [
+                    coerce_numeric_value(mapped[ci], numeric_kinds.get(ci))
+                    if ci != date_idx else mapped[ci]
+                    for ci in range(col_count)
+                ]
+                mapped[date_idx] = format_date_for_storage(
+                    normalize_date_compact(mapped[date_idx]), storage
+                )
+
+                if key in merged:
+                    record = merged[key]
+                    old_values = record["values"]
+                    formulas = record["formulas"]
+                    changed = False
+                    for ci in range(col_count):
+                        if _is_empty_cell(mapped[ci]):
+                            continue
+                        formula_val = formulas[ci] if ci < len(formulas) else None
+                        if isinstance(formula_val, str) and formula_val.startswith("="):
+                            continue
+                        if not _cell_equivalent(old_values[ci], mapped[ci]):
+                            old_values[ci] = mapped[ci]
+                            changed = True
+                    if changed:
+                        rows_updated += 1
+                    record["compact"] = normalize_date_compact(mapped[date_idx])
+                else:
+                    merged[key] = {
+                        "values": mapped,
+                        "formulas": [],
+                        "source_row": None,
+                        "compact": normalize_date_compact(mapped[date_idx]),
+                    }
+                    first_seen.append(key)
+                    rows_appended += 1
+
+            # ---- 排序：日期升序，同日期保持原有先后 ----
+            # 整块重写前，把已有行也归一化成该列的主流类型，避免历史文本数字残留
+            for key in first_seen:
+                record = merged[key]
+                values = record["values"]
+                formulas = record["formulas"]
+                for ci in range(min(col_count, len(values))):
+                    formula_val = formulas[ci] if ci < len(formulas) else None
+                    if isinstance(formula_val, str) and formula_val.startswith("="):
+                        continue
+                    if isinstance(values[ci], (list, dict)):
+                        continue
+                    if ci == date_idx:
+                        compact = normalize_date_compact(values[ci])
+                        values[ci] = format_date_for_storage(compact, storage)
+                        continue
+                    values[ci] = coerce_numeric_value(values[ci], numeric_kinds.get(ci))
+
+            ordered_keys = sorted(
+                first_seen,
+                key=lambda k: merged[k]["compact"] or "99999999",
+            )
+            output_rows = [merged[k]["values"] for k in ordered_keys]
+            output_formulas = [merged[k]["formulas"] for k in ordered_keys]
+
+            # ---- 写前备份 ----
+            if output_rows:
+                stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                backup_file = BACKUPS_DIR / f"{task_id}_{worksheet_id}_{stamp}.json"
+                backup_file.write_text(json.dumps(raw_values, ensure_ascii=False), encoding="utf-8")
+                with get_db() as conn:
+                    conn.execute(
+                        "INSERT INTO backups (task_id, worksheet_id, backup_path, row_count, created_at) VALUES (?, ?, ?, ?, ?)",
+                        (task_id, worksheet_id, str(backup_file), len(raw_values), datetime.now().isoformat()),
+                    )
+                    conn.commit()
+                clean_old_backups(task_id, worksheet_id, 30)
+
+                # ---- 整块重写数据区（含公式列随行平移） ----
+                target_end_row = len(output_rows) + 1
+                meta = next(
+                    (x for x in feishu.get_sheets(spreadsheet_token) if x.get("sheet_id") == worksheet_id),
+                    None,
+                )
+                grid = (meta or {}).get("grid_properties") or {}
+                current_rows = int(grid.get("row_count") or 0)
+                if current_rows and target_end_row > current_rows:
+                    feishu.add_rows(spreadsheet_token, worksheet_id, target_end_row - current_rows)
+                    time.sleep(0.5)
+
+                end_col = column_letter(col_count)
+                feishu.write_rows(
+                    spreadsheet_token, worksheet_id, start_row=2, rows=output_rows
+                )
+
+                # 公式列：按新行号平移后单独写回，值列不受影响
+                formula_updates: List[Dict[str, Any]] = []
+                for out_idx, formulas in enumerate(output_formulas):
+                    if not formulas:
+                        continue
+                    new_row = out_idx + 2
+                    old_row = merged[ordered_keys[out_idx]]["source_row"]
+                    for ci, formula in enumerate(formulas):
+                        if not (isinstance(formula, str) and formula.startswith("=")):
+                            continue
+                        shifted = (
+                            shift_formula_row(formula, old_row, new_row)
+                            if old_row else formula
+                        )
+                        col = column_letter(ci + 1)
+                        formula_updates.append(
+                            {"range": f"{worksheet_id}!{col}{new_row}:{col}{new_row}", "values": [[shifted]]}
+                        )
+                if formula_updates:
+                    feishu.batch_update_values(spreadsheet_token, formula_updates)
+
+                # 清除尾部残留行
+                last_row = feishu.find_last_row_index(spreadsheet_token, worksheet_id)
+                if last_row > target_end_row:
+                    feishu.clear_rows_below(
+                        spreadsheet_token,
+                        worksheet_id,
+                        keep_header_row=target_end_row,
+                        col_count=col_count,
+                    )
+
+                apply_date_column_format(
+                    feishu, spreadsheet_token, worksheet_id,
+                    headers, date_col, target_end_row,
+                )
+
+            total_appended += rows_appended
+            total_updated += rows_updated
+            detail.append({
+                "sheet": sheet_title,
+                "fetched": len(fetched_items),
+                "appended": rows_appended,
+                "updated": rows_updated,
+                "rows": len(output_rows),
+                "range": f"{start_date}~{cutoff_date}",
+                "date_storage": storage,
+            })
+
+        except Exception as exc:
+            errors.append(f"【{s['sheet_title']}】{type(exc).__name__}: {exc}")
+            detail.append({
+                "sheet": s["sheet_title"],
+                "fetched": 0,
+                "appended": 0,
+                "updated": 0,
+                "error": str(exc),
+            })
+
+    finished_at = datetime.now().isoformat()
+    duration_ms = int((time.time() - t0) * 1000)
+    status = "failed" if errors else "success"
+    err_detail = "; ".join(errors) if errors else None
+    message = f"抓取{total_fetched}行，追加{total_appended}行，更新{total_updated}行"
+
+    with get_db() as conn:
+        conn.execute(
+            """
+            UPDATE runs SET finished_at = ?, status = ?, rows_fetched = ?, rows_appended = ?,
+                rows_updated = ?, duration_ms = ?, message = ?, error_detail = ?
+            WHERE id = ?
+            """,
+            (finished_at, status, total_fetched, total_appended, total_updated,
+             duration_ms, message, err_detail, run_id),
+        )
+        conn.execute(
+            "UPDATE tasks SET last_run_at = ?, last_status = ?, last_error = ?, updated_at = ? WHERE id = ?",
+            (finished_at, status, err_detail, finished_at, task_id),
+        )
+        conn.commit()
+        release_task_lease(conn, f"sync_task_{task_id}")
+
+    if status == "failed":
+        notifier.notify_failure(task["name"], task["platform"], err_detail or "未知错误")
+
+    return {
+        "status": status,
+        "rows_fetched": total_fetched,
+        "rows_appended": total_appended,
+        "rows_updated": total_updated,
+        "duration_ms": duration_ms,
+        "errors": errors,
+        "detail": detail,
+    }
+
+
 def execute_inplace_merge_sync(
     task_id: int,
     trigger_type: str = "scheduled",

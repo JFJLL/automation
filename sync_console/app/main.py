@@ -45,6 +45,7 @@ from core.sync import (
     preview_fetch,
     execute_task_sync,
     execute_inplace_merge_sync,
+    execute_inplace_ordered_sync,
     sort_sheet_data_rows,
     normalize_date_compact,
     date_to_excel_serial,
@@ -635,6 +636,14 @@ def run_task_now(task_id: int, req: Optional[RunTaskNowRequest] = None):
         if row["status"] == "archived":
             raise HTTPException(status_code=409, detail="该任务已归档删除，不再允许执行")
         sync_style = (row["sync_style"] if row and "sync_style" in row.keys() else "rewrite") or "rewrite"
+
+    if sync_style == "inplace_ordered":
+        return execute_inplace_ordered_sync(
+            task_id,
+            trigger_type=trigger,
+            custom_start_date=custom_start,
+            custom_end_date=custom_end,
+        )
 
     if sync_style == "inplace":
         return execute_inplace_merge_sync(

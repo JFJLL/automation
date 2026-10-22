@@ -279,13 +279,19 @@ class SchedulerManager:
             print(f"[SchedulerManager] Restore simple promo tasks error: {e}")
 
 def _run_sync_task_job(task_id: int):
-    from core.sync import execute_task_sync, execute_inplace_merge_sync
+    from core.sync import (
+        execute_task_sync,
+        execute_inplace_merge_sync,
+        execute_inplace_ordered_sync,
+    )
     mgr = SchedulerManager.get_instance()
     try:
         with get_db() as conn:
             row = conn.execute("SELECT sync_style FROM tasks WHERE id = ?", (task_id,)).fetchone()
             sync_style = (row["sync_style"] if row and "sync_style" in row.keys() else "rewrite") or "rewrite"
-        if sync_style == "inplace":
+        if sync_style == "inplace_ordered":
+            execute_inplace_ordered_sync(task_id, trigger_type="scheduled")
+        elif sync_style == "inplace":
             execute_inplace_merge_sync(task_id, trigger_type="scheduled")
         else:
             execute_task_sync(task_id, trigger_type="scheduled")

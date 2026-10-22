@@ -24,7 +24,7 @@ OSS_ACCESS_KEY_ID = os.getenv("OSS_ACCESS_KEY_ID", "").strip()
 OSS_ACCESS_KEY_SECRET = os.getenv("OSS_ACCESS_KEY_SECRET", "").strip()
 
 ADSTAR_OSS_BASE_URL = os.getenv("ADSTAR_OSS_BASE_URL", "https://redmagic.oss-cn-beijing.aliyuncs.com")
-ADSTAR_OSS_OBJECT_KEY = os.getenv("ADSTAR_OSS_OBJECT_KEY", "KOL/adstar.txt")
+ADSTAR_OSS_OBJECT_KEY = os.getenv("ADSTAR_OSS_OBJECT_KEY", "token/adstar/adstar.txt")
 JZT_OSS_OBJECT_KEY = os.getenv("JZT_OSS_OBJECT_KEY", "token/jzt/jzt_token.txt")
 JZT_OSS_SUBACCOUNT_PREFIX = os.getenv("JZT_OSS_SUBACCOUNT_PREFIX", "token/jzt/")
 JUGUANG_OSS_OBJECT_KEY = os.getenv("JUGUANG_OSS_OBJECT_KEY", "token/juguang/keyword_token.json")
