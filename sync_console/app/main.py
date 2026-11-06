@@ -50,6 +50,7 @@ from core.sync import (
     normalize_date_compact,
     date_to_excel_serial,
     apply_date_column_format,
+    coerce_row_data_types,
 )
 from core.scheduler_manager import SchedulerManager
 from core.security import (
@@ -483,6 +484,9 @@ def create_task(req: CreateTaskRequest):
                                 break
                         dedup_map[(eid, d, chan)] = r
                 sorted_init = sort_sheet_data_rows(list(dedup_map.values()), sc.headers, sc.id_column, sc.date_column, sc.entity_ids)
+                sorted_init = [
+                    coerce_row_data_types(r, sc.headers, sc.id_column, sc.date_column) for r in sorted_init
+                ]
                 feishu.write_rows(ss_token, ws_id, start_row=2, rows=sorted_init)
                 apply_date_column_format(
                     feishu, ss_token, ws_id, sc.headers, sc.date_column, len(sorted_init) + 1
@@ -537,6 +541,9 @@ def create_task(req: CreateTaskRequest):
                                 break
                         dedup_map[(eid, d, chan)] = r
                 sorted_init = sort_sheet_data_rows(list(dedup_map.values()), sc.headers, sc.id_column, sc.date_column, sc.entity_ids)
+                sorted_init = [
+                    coerce_row_data_types(r, sc.headers, sc.id_column, sc.date_column) for r in sorted_init
+                ]
                 feishu.write_rows(ss_token, ws_id, start_row=2, rows=sorted_init)
                 apply_date_column_format(
                     feishu, ss_token, ws_id, sc.headers, sc.date_column, len(sorted_init) + 1

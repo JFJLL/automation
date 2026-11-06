@@ -54,18 +54,33 @@ def parse_cookie_payload(raw: str) -> Dict[str, str]:
         part = part.strip()
         if "=" in part:
             k, v = part.split("=", 1)
-            cookies[k.strip()] = v.strip()
+            k_clean = k.strip()
+            if k_clean and k_clean not in cookies:
+                cookies[k_clean] = v.strip()
     return cookies
 
-def get_taobao_cookies() -> Dict[str, str]:
+def get_all_taobao_cookies() -> List[Dict[str, str]]:
+    results = []
+    seen = set()
+    oss_keys = []
     if ADSTAR_OSS_OBJECT_KEY:
+        oss_keys.append(ADSTAR_OSS_OBJECT_KEY)
+    for fallback in ["KOL/adstar.txt", "token/adstar/adstar.txt"]:
+        if fallback not in oss_keys:
+            oss_keys.append(fallback)
+
+    for k in oss_keys:
         try:
-            raw = fetch_oss_token(ADSTAR_OSS_OBJECT_KEY, ADSTAR_OSS_BASE_URL)
+            raw = fetch_oss_token(k, ADSTAR_OSS_BASE_URL)
             parsed = parse_cookie_payload(raw)
             if parsed:
-                return parsed
+                tb_token = parsed.get("_tb_token_") or str(sorted(parsed.items()))
+                if tb_token not in seen:
+                    seen.add(tb_token)
+                    results.append(parsed)
         except Exception as e:
-            print(f"[Taobao] Read OSS cookie failed: {e}")
+            print(f"[Taobao] Read OSS cookie '{k}' failed: {e}")
+
     candidates = [
         Path(os.getenv("TAOBAO_TOKEN_PATH", "")),
         BASE_DIR / "tokens" / "adstar.txt",
@@ -75,11 +90,23 @@ def get_taobao_cookies() -> Dict[str, str]:
     ]
     for p in candidates:
         if p and p.exists() and p.is_file():
-            raw = p.read_text(encoding="utf-8").strip()
-            parsed = parse_cookie_payload(raw)
-            if parsed:
-                return parsed
-    raise ProviderAuthError("淘宝星河 Cookie 未配置或无法从 OSS 获取")
+            try:
+                raw = p.read_text(encoding="utf-8").strip()
+                parsed = parse_cookie_payload(raw)
+                if parsed:
+                    tb_token = parsed.get("_tb_token_") or str(sorted(parsed.items()))
+                    if tb_token not in seen:
+                        seen.add(tb_token)
+                        results.append(parsed)
+            except Exception:
+                pass
+
+    if not results:
+        raise ProviderAuthError("淘宝星河 Cookie 未配置或无法从 OSS 获取")
+    return results
+
+def get_taobao_cookies() -> Dict[str, str]:
+    return get_all_taobao_cookies()[0]
 
 TAOBAO_LEGACY_ID_MAP = {
     # 黄天鹅历史旧表任务ID -> 当前新版星河订单 settlement ID (settleSeqId / orderId)
@@ -180,15 +207,13 @@ def resolve_taobao_order_info(
     return {}
 
 
-def fetch_taobao_data(
+def _fetch_taobao_data_single(
     entity_id: str,
     dimension: str,
     start_date: str,
     end_date: str,
-    cookies: Optional[Dict[str, str]] = None
+    cookies: Dict[str, str]
 ) -> ProviderFetchResult:
-    if not cookies:
-        cookies = get_taobao_cookies()
     session = requests.Session()
     session.trust_env = False
     session.headers.update({
@@ -319,3 +344,30 @@ def fetch_taobao_data(
         pages_fetched=pages_fetched,
         expected_pages=pages_fetched
     )
+
+
+def fetch_taobao_data(
+    entity_id: str,
+    dimension: str,
+    start_date: str,
+    end_date: str,
+    cookies: Optional[Dict[str, str]] = None
+) -> ProviderFetchResult:
+    if cookies:
+        cookie_candidates = [cookies]
+    else:
+        cookie_candidates = get_all_taobao_cookies()
+
+    last_auth_error = None
+    for idx, c in enumerate(cookie_candidates):
+        try:
+            return _fetch_taobao_data_single(entity_id, dimension, start_date, end_date, c)
+        except ProviderAuthError as e:
+            last_auth_error = e
+            if idx + 1 < len(cookie_candidates):
+                print(f"[Taobao] Candidate #{idx + 1} cookie auth failed: {e}. Retrying with fallback candidate...")
+                continue
+            raise
+    if last_auth_error:
+        raise last_auth_error
+    raise ProviderAuthError("淘宝星河所有候选 Cookie 均鉴权失败")

@@ -11,6 +11,7 @@ from platforms.registry import (
     calculate_match_scores, detect_best_platform,
     find_id_column, find_date_column, PLATFORMS
 )
+from core.sync import is_id_column, format_id_value, format_cell_value
 
 def normalize_date_str(val: Any) -> str:
     s = str(val).strip().replace("/", "-").split(" ")[0]
@@ -20,7 +21,13 @@ def normalize_date_str(val: Any) -> str:
     return s
 
 def normalize_date_compact(val: Any) -> str:
+    if val is None:
+        return ""
+    if isinstance(val, str) and (not val.strip() or val.strip().lower() in ("none", "null")):
+        return ""
     s = str(val).strip().replace("/", "-").split(" ")[0]
+    if s.lower() in ("none", "null"):
+        return ""
     digits = "".join(c for c in s if c.isdigit())
     if len(digits) == 8:
         return digits
@@ -92,7 +99,10 @@ def parse_excel_sheets(file_bytes: bytes, filename: str) -> List[Dict[str, Any]]
             row_dict = {}
             for col_name, val in zip(header_vals, r):
                 if col_name:
-                    row_dict[col_name] = "" if val is None else str(val).strip()
+                    if is_id_column(col_name):
+                        row_dict[col_name] = format_id_value(val)
+                    else:
+                        row_dict[col_name] = format_cell_value(val)
             if any(row_dict.values()):
                 all_data_rows.append(row_dict)
         sample_rows = all_data_rows[:30]

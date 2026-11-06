@@ -64,5 +64,7 @@ def test_latest_sync_cutoff_date():
     tz = zoneinfo.ZoneInfo("Asia/Shanghai")
     dt_morning = datetime(2026, 9, 30, 10, 0, 0, tzinfo=tz)
     assert latest_sync_cutoff_date(now=dt_morning) == "2026-09-28"
+    assert latest_sync_cutoff_date(platform="jzt", now=dt_morning) == "2026-09-29"
     dt_afternoon = datetime(2026, 9, 30, 15, 0, 0, tzinfo=tz)
     assert latest_sync_cutoff_date(now=dt_afternoon) == "2026-09-29"
+    assert latest_sync_cutoff_date(platform="jzt", now=dt_afternoon) == "2026-09-29"

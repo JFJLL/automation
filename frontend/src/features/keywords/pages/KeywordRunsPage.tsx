@@ -15,6 +15,10 @@ export const KeywordRunsPage: React.FC = () => {
   }>({
     queryKey: ['keywordRuns', page],
     queryFn: () => fetchJson(`/api/keyword/runs?page=${page}&page_size=${pageSize}`),
+    refetchInterval: (query) => {
+      const items = query.state.data?.items || [];
+      return items.some((r: any) => r.status === 'running') ? 2000 : false;
+    },
   });
 
   const runs = data?.items || [];
@@ -65,12 +69,12 @@ export const KeywordRunsPage: React.FC = () => {
                       : '手动运行'}
                   </td>
                   <td>
-                    <span className={`badge ${r.status === 'success' ? 'badge-success' : 'badge-danger'}`}>
-                      {r.status === 'success' ? '成功' : '失败'}
+                    <span className={`badge ${r.status === 'success' ? 'badge-success' : r.status === 'running' ? 'badge-warning' : 'badge-danger'}`}>
+                      {r.status === 'success' ? '成功' : r.status === 'running' ? '运行中...' : '失败'}
                     </span>
                   </td>
                   <td>{r.keywords_count || 0} 个词 / {r.days_count || 0} 天</td>
-                  <td>{r.duration_ms ? `${(r.duration_ms / 1000).toFixed(1)}s` : '-'}</td>
+                  <td>{r.duration_ms ? `${(r.duration_ms / 1000).toFixed(1)}s` : r.status === 'running' ? '进行中' : '-'}</td>
                   <td>{r.finished_at ? r.finished_at.substring(0, 16).replace('T', ' ') : '-'}</td>
                   <td style={{ maxWidth: '360px', whiteSpace: 'normal', wordBreak: 'break-word', lineHeight: 1.4 }}>
                     {r.error_detail ? (

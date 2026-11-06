@@ -123,7 +123,8 @@ def _fetch_single_word(
     start_date: str,
     end_date: str,
     token: Dict[str, str],
-    dates: List[str]
+    dates: List[str],
+    retries: int = 2
 ) -> KeywordItemResult:
     v_seller_id = token.get("v_seller_id") or token.get("v-seller-id", "628b3a5056228a000189c0e4")
     cookie = token.get("cookie", "")
@@ -131,7 +132,7 @@ def _fetch_single_word(
     headers = {
         "cookie": cookie,
         "origin": token.get("origin", "https://ad.xiaohongshu.com"),
-        "referer": token.get("referer", f"https://ad.xiaohongshu.com/aurora/ad/tools/newKeywordTool?vSellerId={v_seller_id}"),
+        "referer": f"https://ad.xiaohongshu.com/aurora/ad/tools/newKeywordTool?vSellerId={v_seller_id}",
         "user-agent": token.get("user_agent") or token.get("user-agent", "Mozilla/5.0"),
         "content-type": "application/json",
         "xsecappid": token.get("xsecappid", "aurora-shell"),
@@ -152,115 +153,130 @@ def _fetch_single_word(
     }
     
     url = f"{API_URL}?vSellerId={v_seller_id}"
-    try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=20)
-        if resp.status_code == 401:
-            return KeywordItemResult(
-                keyword=keyword,
-                status=KeywordFetchStatus.AUTH_ERROR,
-                error_code="401",
-                error_message="小红书聚光登录凭据（Cookie）已过期"
-            )
-        if resp.status_code >= 500:
-            return KeywordItemResult(
-                keyword=keyword,
-                status=KeywordFetchStatus.UPSTREAM_ERROR,
-                error_code=str(resp.status_code),
-                error_message=f"小红书服务器返回 HTTP {resp.status_code}"
-            )
-        resp.raise_for_status()
+    for attempt in range(retries + 1):
         try:
-            res_json = resp.json()
-        except Exception as json_err:
-            return KeywordItemResult(
-                keyword=keyword,
-                status=KeywordFetchStatus.INVALID_RESPONSE,
-                error_code="JSON_PARSE_ERROR",
-                error_message=f"响应非合法 JSON: {json_err}"
-            )
-        
-        code = res_json.get("code")
-        if code in [401, 902]:
-            msg = res_json.get("msg") or "登录凭据已过期"
-            return KeywordItemResult(
-                keyword=keyword,
-                status=KeywordFetchStatus.AUTH_ERROR,
-                error_code=str(code),
-                error_message=f"小红书聚光登录凭据已过期: {msg}"
-            )
-            
-        if not res_json.get("success"):
-            msg = res_json.get("msg") or "获取关键词数据失败"
-            if "登录" in msg or "过期" in msg:
+            resp = requests.post(url, headers=headers, json=payload, timeout=20)
+            if resp.status_code == 401:
                 return KeywordItemResult(
                     keyword=keyword,
                     status=KeywordFetchStatus.AUTH_ERROR,
-                    error_code=str(code or 401),
+                    error_code="401",
+                    error_message="小红书聚光登录凭据（Cookie）已过期"
+                )
+            if resp.status_code >= 500:
+                if attempt < retries:
+                    time.sleep(1.0 * (attempt + 1))
+                    continue
+                return KeywordItemResult(
+                    keyword=keyword,
+                    status=KeywordFetchStatus.UPSTREAM_ERROR,
+                    error_code=str(resp.status_code),
+                    error_message=f"小红书服务器返回 HTTP {resp.status_code}"
+                )
+            resp.raise_for_status()
+            try:
+                res_json = resp.json()
+            except Exception as json_err:
+                if attempt < retries:
+                    time.sleep(1.0 * (attempt + 1))
+                    continue
+                return KeywordItemResult(
+                    keyword=keyword,
+                    status=KeywordFetchStatus.INVALID_RESPONSE,
+                    error_code="JSON_PARSE_ERROR",
+                    error_message=f"响应非合法 JSON: {json_err}"
+                )
+            
+            code = res_json.get("code")
+            if code in [401, 902]:
+                msg = res_json.get("msg") or "登录凭据已过期"
+                return KeywordItemResult(
+                    keyword=keyword,
+                    status=KeywordFetchStatus.AUTH_ERROR,
+                    error_code=str(code),
                     error_message=f"小红书聚光登录凭据已过期: {msg}"
                 )
+                
+            if not res_json.get("success"):
+                msg = res_json.get("msg") or "获取关键词数据失败"
+                if "登录" in msg or "过期" in msg:
+                    return KeywordItemResult(
+                        keyword=keyword,
+                        status=KeywordFetchStatus.AUTH_ERROR,
+                        error_code=str(code or 401),
+                        error_message=f"小红书聚光登录凭据已过期: {msg}"
+                    )
+                if attempt < retries:
+                    time.sleep(1.0 * (attempt + 1))
+                    continue
+                return KeywordItemResult(
+                    keyword=keyword,
+                    status=KeywordFetchStatus.UPSTREAM_ERROR,
+                    error_code=str(code or 500),
+                    error_message=f"小红书接口错误: {msg}"
+                )
+                
+            data_list = res_json.get("data", {}).get("dataList", [])
+            if not data_list:
+                return KeywordItemResult(
+                    keyword=keyword,
+                    status=KeywordFetchStatus.EMPTY,
+                    data={},
+                    error_message=None
+                )
+                
+            daily_data = {}
+            for item in data_list:
+                val_json = json.loads(item.get("dataValueJson") or "{}")
+                day = val_json.get("detailDay") or val_json.get("time") or item.get("time")
+                if not day:
+                    continue
+                    
+                s_num = int(val_json.get("keywordSearchNum", 0) or 0)
+                imp_num = int(val_json.get("keywordAdsImpNum", 0) or 0)
+                note_num = int(val_json.get("adsNoteNum", 0) or 0)
+                raw_bid = val_json.get("keywordBid")
+                bid_val = float(raw_bid) if raw_bid not in (None, "", "-") else 0.0
+                
+                daily_data[str(day)[:10]] = {
+                    "search_num": s_num,
+                    "imp_num": imp_num,
+                    "note_num": note_num,
+                    "bid": bid_val
+                }
+                
+            return KeywordItemResult(
+                keyword=keyword,
+                status=KeywordFetchStatus.SUCCESS,
+                data=daily_data
+            )
+        except requests.Timeout:
+            if attempt < retries:
+                time.sleep(1.0 * (attempt + 1))
+                continue
+            return KeywordItemResult(
+                keyword=keyword,
+                status=KeywordFetchStatus.TIMEOUT,
+                error_code="TIMEOUT",
+                error_message="请求小红书聚光超时"
+            )
+        except Exception as e:
+            if attempt < retries:
+                time.sleep(1.0 * (attempt + 1))
+                continue
             return KeywordItemResult(
                 keyword=keyword,
                 status=KeywordFetchStatus.UPSTREAM_ERROR,
-                error_code=str(code or 500),
-                error_message=f"小红书接口错误: {msg}"
+                error_code="EXCEPTION",
+                error_message=str(e)
             )
-            
-        data_list = res_json.get("data", {}).get("dataList", [])
-        if not data_list:
-            # 官方接口请求成功，但该词在该日期范围内确实没有任何数据
-            return KeywordItemResult(
-                keyword=keyword,
-                status=KeywordFetchStatus.EMPTY,
-                data={},
-                error_message=None
-            )
-            
-        daily_data = {}
-        for item in data_list:
-            val_json = json.loads(item.get("dataValueJson") or "{}")
-            day = val_json.get("detailDay") or val_json.get("time") or item.get("time")
-            if not day:
-                continue
-                
-            s_num = int(val_json.get("keywordSearchNum", 0) or 0)
-            imp_num = int(val_json.get("keywordAdsImpNum", 0) or 0)
-            note_num = int(val_json.get("adsNoteNum", 0) or 0)
-            raw_bid = val_json.get("keywordBid")
-            bid_val = float(raw_bid) if raw_bid not in (None, "", "-") else 0.0
-            
-            daily_data[str(day)[:10]] = {
-                "search_num": s_num,
-                "imp_num": imp_num,
-                "note_num": note_num,
-                "bid": bid_val
-            }
-            
-        return KeywordItemResult(
-            keyword=keyword,
-            status=KeywordFetchStatus.SUCCESS,
-            data=daily_data
-        )
-    except requests.Timeout:
-        return KeywordItemResult(
-            keyword=keyword,
-            status=KeywordFetchStatus.TIMEOUT,
-            error_code="TIMEOUT",
-            error_message="请求小红书聚光超时"
-        )
-    except Exception as e:
-        return KeywordItemResult(
-            keyword=keyword,
-            status=KeywordFetchStatus.UPSTREAM_ERROR,
-            error_code="EXCEPTION",
-            error_message=str(e)
-        )
 
 def fetch_keywords_insight(
     keywords: List[str],
     start_date: Optional[str] = None,
     end_date: Optional[str] = None,
     token_path: Optional[Path] = None,
-    max_workers: int = 5,
+    max_workers: int = 10,
     strict: bool = False
 ) -> Dict[str, Any]:
     """
@@ -301,6 +317,7 @@ def fetch_keywords_insight(
     
     # 如果有认证失败，触发一次 OSS 自动恢复重试
     auth_failed_words = [kw for kw, r in results.items() if r.status == KeywordFetchStatus.AUTH_ERROR]
+    new_token = None
     if auth_failed_words:
         print(f"[Keyword] Detected {len(auth_failed_words)} auth expired keywords, refreshing token from OSS...")
         new_token = sync_token_from_oss(force=True)
@@ -310,6 +327,18 @@ def fetch_keywords_insight(
                 results[kw] = r
         else:
             raise KeywordAuthExpiredError("小红书聚光登录凭据已过期，自动从 OSS 刷新失败")
+
+    transient_failed_words = [
+        kw for kw, r in results.items()
+        if r.status in (KeywordFetchStatus.TIMEOUT, KeywordFetchStatus.UPSTREAM_ERROR)
+    ]
+    if transient_failed_words:
+        print(f"[Keyword] Retrying {len(transient_failed_words)} transient failure keywords...")
+        time.sleep(1.5)
+        curr_token = token if not auth_failed_words else (new_token or token)
+        retry_res = run_batch(curr_token, transient_failed_words)
+        for kw, r in retry_res.items():
+            results[kw] = r
             
     successful_kws = []
     empty_kws = []

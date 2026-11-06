@@ -85,8 +85,13 @@ def validate_keyword_date_range(
 
 def latest_sync_cutoff_date(platform: Optional[str] = None, now: Optional[datetime] = None) -> str:
     """
-    主数据同步 cutoff 截止日期，遵循统一时区规则
+    主数据同步 cutoff 截止日期，遵循统一时区规则：
+    - 京准通 (jzt)：T-1 数据清晨即产出就绪，支持 T-1
+    - 其他平台 / 默认 (聚光、星河)：中午 12:00 前最新支持 T-2，12:00 起支持 T-1
     """
     curr = now if now is not None else now_business_tz()
-    offset = 1 if curr.hour >= 12 else 2
+    if platform and str(platform).strip().lower() == "jzt":
+        offset = 1
+    else:
+        offset = 1 if curr.hour >= 12 else 2
     return (curr.date() - timedelta(days=offset)).isoformat()

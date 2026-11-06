@@ -86,8 +86,8 @@ def test_append_mode_idempotent_no_duplicate_rows():
             assert res1["rows_appended"] == 1
             # 现在表内行数应为 1 (表头) + 2 (数据行) = 3
             assert len(feishu_store["rows"]) == 3
-            assert feishu_store["rows"][1] == [46285, "198973", "150.0"]
-            assert feishu_store["rows"][2] == [46286, "198973", "200.0"]
+            assert feishu_store["rows"][1] == [46285, "198973", 150]
+            assert feishu_store["rows"][2] == [46286, "198973", 200]
             mock_feishu.set_number_format.assert_called_with(
                 "ss_token_123", "ws_sheet_1", "A2:A3", "yyyy/MM/dd"
             )
@@ -192,7 +192,7 @@ def test_append_mode_collapses_duplicate_existing_rows():
         assert res["status"] == "success"
         # Rewrite-mode append sync rewrites the unique natural-key set.
         # Duplicate historical rows are collapsed instead of being copied forever.
-        assert [r[2] for r in feishu_store["rows"][1:]] == ["150.0"]
+        assert [r[2] for r in feishu_store["rows"][1:]] == [150]
         conn.close()
 
 
@@ -248,7 +248,7 @@ def test_overwrite_watershed_preserves_old_history():
             assert 46285 in dates_in_table
             assert 46286 in dates_in_table
             row_0920 = next(r for r in feishu_store["rows"][1:] if r[0] == 46285)
-            assert row_0920[2] == "999.0"
+            assert row_0920[2] == 999
             # 严格保持日期升序
             assert dates_in_table == [46235, 46285, 46286]
         conn.close()

@@ -30,8 +30,18 @@ class FeishuClient:
             if self.token and time.time() < self.expires_at - 180:
                 return self.token
             url = "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal"
-            r = self.session.post(url, json={"app_id": self.app_id, "app_secret": self.app_secret}, timeout=30)
-            r.raise_for_status()
+            last_err = None
+            for attempt in range(3):
+                try:
+                    r = self.session.post(url, json={"app_id": self.app_id, "app_secret": self.app_secret}, timeout=30)
+                    r.raise_for_status()
+                    break
+                except requests.exceptions.RequestException as e:
+                    last_err = e
+                    if attempt < 2:
+                        time.sleep(2 * (attempt + 1))
+            else:
+                raise FeishuError(f"Feishu token network request failed after 3 retries: {last_err}")
             data = r.json()
             if data.get("code") != 0:
                 raise FeishuError(f"Feishu token failed: {data.get('code')} {data.get('msg')}")
@@ -43,21 +53,27 @@ class FeishuClient:
         url = f"https://open.feishu.cn/open-apis/{path.lstrip('/')}"
         is_write = method.upper() in ("POST", "PUT", "PATCH", "DELETE")
         for attempt in range(4):
-            if is_write:
-                with self.req_lock:
-                    elapsed = time.monotonic() - self.last_write
-                    if elapsed < 0.05:
-                        time.sleep(0.05 - elapsed)
+            try:
+                if is_write:
+                    with self.req_lock:
+                        elapsed = time.monotonic() - self.last_write
+                        if elapsed < 0.05:
+                            time.sleep(0.05 - elapsed)
+                        token = self.get_token()
+                        headers = kwargs.setdefault("headers", {})
+                        headers["Authorization"] = f"Bearer {token}"
+                        r = self.session.request(method, url, timeout=45, **kwargs)
+                        self.last_write = time.monotonic()
+                else:
                     token = self.get_token()
                     headers = kwargs.setdefault("headers", {})
                     headers["Authorization"] = f"Bearer {token}"
                     r = self.session.request(method, url, timeout=45, **kwargs)
-                    self.last_write = time.monotonic()
-            else:
-                token = self.get_token()
-                headers = kwargs.setdefault("headers", {})
-                headers["Authorization"] = f"Bearer {token}"
-                r = self.session.request(method, url, timeout=45, **kwargs)
+            except requests.exceptions.RequestException as e:
+                if attempt < 3:
+                    time.sleep(2 * (attempt + 1))
+                    continue
+                raise FeishuError(f"Feishu request network error after 4 retries: {e}")
 
             if r.status_code >= 500 and attempt < 3:
                 time.sleep(1.5 * (attempt + 1))

@@ -1,4 +1,6 @@
 import json
+import math
+import numbers
 import re
 import time
 import os
@@ -95,18 +97,112 @@ def sort_sheet_data_rows(
 
     return sorted(rows, key=row_sort_key)
 
-def format_cell_value(val: Any) -> str:
+def is_id_column(header: Any, id_col: Optional[str] = None) -> bool:
+    """Detect identifier/code columns that must stay as string to avoid precision loss."""
+    if not header:
+        return False
+    h = str(header).strip()
+    if id_col and h.lower() == str(id_col).strip().lower():
+        return True
+    if h.lower() in ("bid", "平均市场出价", "出价", "建议出价"):
+        return False
+    if re.search(
+        r'(?:^|[_\W])id(?:[_\W]|$)|[a-zA-Z]id$|[a-zA-Z]Id|[\u4e00-\u9fa5]id|id[\u4e00-\u9fa5]|编号|编码|代码|单号|流水号',
+        h,
+        re.IGNORECASE,
+    ):
+        return True
+    return False
+
+
+def format_id_value(val: Any) -> str:
+    """Format ID value strictly as string; strip trailing '.0' if float-converted."""
     if val is None:
         return ""
-    if isinstance(val, (int, float)):
-        return str(val)
-    return str(val).strip()
+    s = str(val).strip()
+    if s.endswith(".0") and s[:-2].isdigit():
+        return s[:-2]
+    return s
+
+
+def format_cell_value(val: Any) -> Any:
+    """Keep numeric values as int/float so numbers never degrade to text strings."""
+    if val is None:
+        return ""
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, (list, dict)):
+        return val
+    if isinstance(val, numbers.Integral):
+        return int(val)
+    if isinstance(val, numbers.Real):
+        f = float(val)
+        if math.isnan(f) or math.isinf(f):
+            return ""
+        if f.is_integer():
+            return int(f)
+        return f
+    s = str(val).strip()
+    if not s:
+        return ""
+    if s.startswith("="):
+        return s
+    try:
+        num = float(s)
+        if math.isnan(num) or math.isinf(num):
+            return s
+        if num.is_integer() and ("." not in s or s.endswith(".0")):
+            return int(num)
+        return num
+    except (ValueError, TypeError):
+        return s
+
+
+def coerce_row_data_types(
+    row: List[Any],
+    headers: List[str],
+    id_col: Optional[str] = None,
+    date_col: Optional[str] = None,
+    date_as_serial: bool = True,
+) -> List[Any]:
+    """Ensure every cell in row matches its target storage type.
+
+    - Date column: Excel serial number or compact date
+    - ID column: clean string with no trailing '.0'
+    - Metric / number columns: real Python int or float (never string)
+    - Text / formula / rich-text columns: preserved as-is
+    """
+    coerced = []
+    col_count = len(headers)
+    for ci in range(col_count):
+        h = headers[ci]
+        val = row[ci] if ci < len(row) else ""
+        if date_col and h == date_col:
+            if date_as_serial:
+                serial = date_to_excel_serial(val)
+                coerced.append(serial if serial is not None else normalize_date_compact(val))
+            else:
+                coerced.append(normalize_date_compact(val))
+        elif is_id_column(h, id_col):
+            coerced.append(format_id_value(val))
+        else:
+            coerced.append(format_cell_value(val))
+    if len(row) > col_count:
+        for ci in range(col_count, len(row)):
+            coerced.append(format_cell_value(row[ci]))
+    return coerced
 
 def normalize_date_compact(val: Any) -> str:
+    if val is None:
+        return ""
+    if isinstance(val, str) and (not val.strip() or val.strip().lower() in ("none", "null")):
+        return ""
     serial_date = _excel_serial_to_date(val)
     if serial_date:
         return serial_date.strftime("%Y%m%d")
     s = str(val).strip().replace('/', '-').split(' ')[0]
+    if s.lower() in ("none", "null"):
+        return ""
     digits = ''.join(c for c in s if c.isdigit())
     if len(digits) == 8:
         return digits
@@ -128,27 +224,26 @@ def map_item_to_row(
 ) -> List[Any]:
     row = []
     for h in headers:
+        val = None
+        found = False
         if h in item:
             val = item[h]
-            if h == date_col:
-                serial = date_to_excel_serial(val) if date_as_serial else None
-                row.append(serial if serial is not None else normalize_date_compact(val))
-            else:
-                row.append(format_cell_value(val))
+            found = True
         else:
-            found = False
             for k, v in item.items():
                 if str(k).strip().lower() == str(h).strip().lower():
                     val = v
-                    if h == date_col:
-                        serial = date_to_excel_serial(val) if date_as_serial else None
-                        row.append(serial if serial is not None else normalize_date_compact(val))
-                    else:
-                        row.append(format_cell_value(val))
                     found = True
                     break
-            if not found:
-                row.append("")
+        if not found or val is None:
+            row.append("")
+        elif h == date_col:
+            serial = date_to_excel_serial(val) if date_as_serial else None
+            row.append(serial if serial is not None else normalize_date_compact(val))
+        elif is_id_column(h, id_col):
+            row.append(format_id_value(val))
+        else:
+            row.append(format_cell_value(val))
     return row
 
 
@@ -364,6 +459,9 @@ def _cell_equivalent(old: Any, new: Any) -> bool:
     # 飞书富文本/超链接单元格读回是对象数组，写成纯文本会丢失可点击链接，视为等价跳过
     if isinstance(old, (list, dict)):
         return True
+    # 若旧值为文本字符串且新值为数值，须视为不相等以完成类型升级为真数值
+    if isinstance(old, str) and isinstance(new, (int, float)):
+        return False
     if str(old).strip() == str(new).strip():
         return True
     try:
@@ -577,6 +675,18 @@ def execute_inplace_ordered_sync(
             worksheet_id = s["worksheet_id"]
             headers = json.loads(s["header_json"])
             entity_ids = json.loads(s["entity_ids_json"])
+
+            # is_task_20_jugaoxing
+            is_task_20_jugaoxing = (
+                int(task_id) == 20
+                and (
+                    worksheet_id in ("zdctqN", "PhOIea")
+                    or str(sheet_title).strip() in (
+                        "电商-9-10月-聚高星-小红星-品类新客",
+                        "电商-9-10月-聚高星-小红星-竞品潜客",
+                    )
+                )
+            )
             id_col = s["id_column"] or ("内容ID" if s["dimension"] == "内容" else "任务ID")
             date_col = s["date_column"] or "日期"
             dimension = s["dimension"] or "任务"
@@ -675,6 +785,21 @@ def execute_inplace_ordered_sync(
 
             rows_appended = 0
             rows_updated = 0
+            # 列默认常数值继承：若工作表中某非 API 列所有已有行均具有相同的常量值（如“8月包”、“9月包”），新追加的行自动继承该业务常量
+            column_constants: Dict[int, Any] = {}
+            for ci in range(col_count):
+                if ci in (date_idx, id_idx):
+                    continue
+                col_vals = [
+                    r["values"][ci] for r in existing_rows
+                    if ci < len(r["values"]) and not _is_empty_cell(r["values"][ci])
+                ]
+                if col_vals and len(set(str(v) for v in col_vals)) == 1:
+                    column_constants[ci] = col_vals[0]
+
+            if is_task_20_jugaoxing:
+                column_constants.pop(29, None)
+
             for item in fetched_items:
                 key = normalize_natural_key_parts(
                     task["platform"], item, entity_ids[0] if entity_ids else "", dimension
@@ -707,6 +832,9 @@ def execute_inplace_ordered_sync(
                         rows_updated += 1
                     record["compact"] = normalize_date_compact(mapped[date_idx])
                 else:
+                    for ci, const_val in column_constants.items():
+                        if ci < len(mapped) and _is_empty_cell(mapped[ci]):
+                            mapped[ci] = const_val
                     merged[key] = {
                         "values": mapped,
                         "formulas": [],
@@ -738,7 +866,11 @@ def execute_inplace_ordered_sync(
                 first_seen,
                 key=lambda k: merged[k]["compact"] or "99999999",
             )
-            output_rows = [merged[k]["values"] for k in ordered_keys]
+            output_rows = [merged[k]["values"][:col_count] for k in ordered_keys]
+            output_rows = [
+                coerce_row_data_types(r, headers, id_col, date_col=None)
+                for r in output_rows
+            ]
             output_formulas = [merged[k]["formulas"] for k in ordered_keys]
 
             # ---- 写前备份 ----
@@ -780,6 +912,10 @@ def execute_inplace_ordered_sync(
                     old_row = merged[ordered_keys[out_idx]]["source_row"]
                     for ci, formula in enumerate(formulas):
                         if not (isinstance(formula, str) and formula.startswith("=")):
+                            continue
+                        if is_task_20_jugaoxing and (ci >= col_count or ci == 29):
+                            continue
+                        if ci >= col_count:
                             continue
                         shifted = (
                             shift_formula_row(formula, old_row, new_row)
@@ -1402,7 +1538,9 @@ def execute_task_sync(task_id: int, trigger_type: str = "scheduled", custom_star
             for item in fetched_items:
                 for col in item.keys():
                     if col and col not in headers and col not in extra_cols:
-                        extra_cols.append(col)
+                        # 仅允许包含中文字符的真实业务字段，绝对禁止将上游系统底层英文字段（如 orderId, shardKey）扩入飞书表
+                        if any('\u4e00' <= ch <= '\u9fa5' for ch in str(col)):
+                            extra_cols.append(col)
 
             if extra_cols:
                 try:
@@ -1461,15 +1599,18 @@ def execute_task_sync(task_id: int, trigger_type: str = "scheduled", custom_star
                     # 3. 本次 API 返回的活跃窗口数据
                     only_new_rows = [map_item_to_row(item, headers, id_col, date_col) for item in fetched_items]
                     protected_history_rows = [
-                        normalize_row_date_value(r, date_idx) for r in protected_history_rows
+                        coerce_row_data_types(r, headers, id_col, date_col) for r in protected_history_rows
                     ]
                     only_new_rows = [
-                        normalize_row_date_value(r, date_idx) for r in only_new_rows
+                        coerce_row_data_types(r, headers, id_col, date_col) for r in only_new_rows
                     ]
 
                     # 4. 合并历史基线行与活跃重算行，并执行全局结构化排序
                     combined_rows = protected_history_rows + only_new_rows
                     sorted_rows = sort_sheet_data_rows(combined_rows, headers, id_col, date_col, entity_ids)
+                    sorted_rows = [
+                        coerce_row_data_types(r, headers, id_col, date_col) for r in sorted_rows
+                    ]
 
                     # 5. 写入飞书表格并清理多余尾部行
                     if sorted_rows:
@@ -1490,7 +1631,7 @@ def execute_task_sync(task_id: int, trigger_type: str = "scheduled", custom_star
                         if any(r):
                             padded_r = list(r) + [""] * max(0, len(headers) - len(r))
                             padded_r = padded_r[:len(headers)]
-                            normalize_row_date_value(padded_r, date_idx)
+                            padded_r = coerce_row_data_types(padded_r, headers, id_col, date_col)
                             row_dict = dict(zip(headers, padded_r))
                             key = get_item_natural_key(task["platform"], row_dict, primary_entity_id, dimension)
                             all_rows_map[key] = padded_r
@@ -1501,6 +1642,7 @@ def execute_task_sync(task_id: int, trigger_type: str = "scheduled", custom_star
                 rows_appended_count = 0
                 for item in fetched_items:
                     mapped_row = map_item_to_row(item, headers, id_col, date_col)
+                    mapped_row = coerce_row_data_types(mapped_row, headers, id_col, date_col)
                     key = get_item_natural_key(task["platform"], item, primary_entity_id, dimension)
                     if key in existing_keys:
                         rows_updated_count += 1
@@ -1511,6 +1653,9 @@ def execute_task_sync(task_id: int, trigger_type: str = "scheduled", custom_star
 
                 # 3. 双层全局结构化排序 (任务组间按配置顺序排列，任务组内日期严格从旧到新升序)
                 sorted_rows = sort_sheet_data_rows(list(all_rows_map.values()), headers, id_col, date_col, entity_ids)
+                sorted_rows = [
+                    coerce_row_data_types(r, headers, id_col, date_col) for r in sorted_rows
+                ]
 
                 # 4. 规整批量回写并清理末尾冗余脏行
                 if sorted_rows:

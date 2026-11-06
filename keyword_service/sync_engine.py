@@ -437,7 +437,12 @@ def run_keyword_task(task_id: int, trigger_type: str = "manual") -> Dict[str, An
             matrix.append(row)
             
         write_matrix_to_sheet(feishu, ss_token, first_sheet_id, matrix)
-        merge_date_headers(feishu, ss_token, first_sheet_id, len(target_dates))
+        import threading
+        threading.Thread(
+            target=merge_date_headers,
+            args=(feishu, ss_token, first_sheet_id, len(target_dates)),
+            daemon=True
+        ).start()
         
         finished_at = datetime.now().isoformat()
         duration_ms = int((time.time() - t0) * 1000)
